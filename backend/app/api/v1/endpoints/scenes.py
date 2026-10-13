@@ -29,6 +29,7 @@ from app.services.scene_semantic_search_service import (
     embedding_coverage,
     search_scenes_semantic,
 )
+from app.services.scene_hybrid_search_service import search_scenes_hybrid
 from app.services.rbac_service import (
     get_current_user,
     RequirePermissions,
@@ -58,6 +59,50 @@ def _split_filter_values(values: list[str] | None) -> list[str]:
             if item:
                 result.append(item)
     return result
+
+
+def _parse_label_filters(
+    q: Optional[str],
+    classes: list[str],
+    groups: list[str],
+) -> tuple[list[str], list[str]]:
+    """Resolve free-text/group/class params into (classes, canonical groups)."""
+    requested_classes: list[str] = []
+    normalized_groups: list[str] = []
+    invalid_groups: list[str] = []
+
+    for value in _split_filter_values(classes):
+        class_name = normalize_class_name(value)
+        if class_name and class_name not in requested_classes:
+            requested_classes.append(class_name)
+
+    for value in _split_filter_values(groups):
+        kind, name = resolve_term(value)
+        if kind == "group":
+            if name not in normalized_groups:
+                normalized_groups.append(name)
+        else:
+            invalid_groups.append(value)
+
+    if invalid_groups:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "unknown_class_group",
+                "invalid_groups": invalid_groups,
+                "valid_groups": sorted(CLASS_GROUPS),
+            },
+        )
+
+    if q:
+        for raw_value in _split_filter_values([q]):
+            kind, name = resolve_term(raw_value)
+            if kind == "group":
+                if name not in normalized_groups:
+                    normalized_groups.append(name)
+            elif name not in requested_classes:
+                requested_classes.append(name)
+    return requested_classes, normalized_groups
 
 
 @router.get("/search", response_model=SceneSearchResponse)
@@ -151,6 +196,73 @@ async def search_scenes_by_labels(
         class_groups=CLASS_GROUPS,
         results=page_results,
     )
+
+
+@router.get("/search/hybrid")
+async def search_scenes_hybrid_endpoint(
+    current_user: Annotated[
+        User,
+        Depends(RequirePermissions(Permission.SCENES_READ, Permission.SCENES_READ_ALL, require_all=False)),
+    ],
+    # semantic layer (optional; omit for structured-only mode)
+    semantic_q: Optional[str] = Query(
+        None,
+        description="Free-text visual semantics, e.g. 堵车, 雨夜路口, 施工路段",
+    ),
+    cameras: list[str] = Query(default_factory=list, description="CLIP cameras; repeat or comma-separate"),
+    min_similarity: float = Query(0.0, ge=-1.0, le=1.0),
+    top_k_frames: int = Query(200, ge=1, le=2000),
+    candidate_pool: Optional[int] = Query(None, ge=100, le=100000),
+    preview_frames: int = Query(5, ge=0, le=20),
+    # structured layer
+    q: Optional[str] = Query(None, description="Class/group, e.g. car, two_wheeler, 二轮车"),
+    classes: list[str] = Query(default_factory=list),
+    groups: list[str] = Query(default_factory=list),
+    dataset_id: Optional[UUID] = Query(None),
+    name_contains: Optional[str] = Query(None),
+    min_objects: int = Query(0, ge=0),
+    min_class_ratio: float = Query(0.0, ge=0.0, le=1.0),
+    min_group_ratio: float = Query(0.0, ge=0.0, le=1.0),
+    min_group_frame_ratio: float = Query(0.0, ge=0.0, le=1.0),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Hybrid search: exact label filters first, then CLIP semantic ranking.
+
+    With ``semantic_q`` omitted this returns structured-only matches.
+    """
+    requested_classes, normalized_groups = _parse_label_filters(q, classes, groups)
+    filters = SceneSearchFilters(
+        dataset_id=dataset_id,
+        classes=requested_classes,
+        groups=normalized_groups,
+        name_contains=name_contains,
+        min_objects=min_objects,
+        min_class_ratio=min_class_ratio,
+        min_group_ratio=min_group_ratio,
+        min_group_frame_ratio=min_group_frame_ratio,
+        limit=page_size,
+        offset=(page - 1) * page_size,
+    )
+    semantic_query = semantic_q.strip() if semantic_q and semantic_q.strip() else None
+    camera_list = _split_filter_values(cameras) or None
+    response = await search_scenes_hybrid(
+        db,
+        filters,
+        semantic_query=semantic_query,
+        cameras=camera_list,
+        min_similarity=min_similarity,
+        top_k_frames=top_k_frames,
+        candidate_pool=candidate_pool,
+        preview_frames=preview_frames,
+    )
+    response["classes"] = requested_classes
+    response["groups"] = normalized_groups
+    response["class_groups"] = CLASS_GROUPS
+    response["limit"] = page_size
+    response["offset"] = (page - 1) * page_size
+    return response
 
 
 @router.get("/search/semantic")

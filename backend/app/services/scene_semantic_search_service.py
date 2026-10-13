@@ -50,8 +50,13 @@ async def search_scenes_semantic(
     candidate_pool: Optional[int] = None,
     preview_frames: int = 5,
     limit: int = 50,
+    scene_ids: Optional[List[UUID]] = None,
 ) -> Dict[str, Any]:
-    """Rank scenes by how well their best-matching frames fit the query."""
+    """Rank scenes by how well their best-matching frames fit the query.
+
+    When ``scene_ids`` is given, vector ranking is restricted to that
+    candidate set (used by hybrid search after label filtering).
+    """
     top_k_frames = top_k_frames or settings.CLIP_SCENE_TOP_K_FRAMES
     vectors = await clip_client.embed_texts([query_text])
     query_vector = vectors[0]
@@ -69,6 +74,9 @@ async def search_scenes_semantic(
     if cameras:
         where_extra += " AND nn.camera = ANY(:cameras)"
         params["cameras"] = cameras
+    if scene_ids is not None:
+        where_extra += " AND s.id = ANY(:scene_ids)"
+        params["scene_ids"] = scene_ids
 
     # 1) HNSW-accelerated nearest-neighbour frame pool (cosine distance).
     # 2) Per-scene mean of top-K frame similarities = scene score.

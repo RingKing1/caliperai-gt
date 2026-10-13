@@ -65,3 +65,39 @@ docker exec -e PYTHONPATH=/app anno-backend sh -c \
   确定、可解释、零模型成本。
 - 开放式视觉语义（“雨天夜间停车场”“施工路段”）→ 用本语义检索。
 - 二者可叠加使用，例如先用语义检索找候选，再用标签统计做精确过滤。
+
+## 混合检索（推荐主入口）
+
+`GET /api/v1/scenes/search/hybrid` 在一个接口里串起两层：
+
+1. **第一层 · 标签过滤**：按标注统计精确圈定候选场景（可解释、确定）。
+2. **第二层 · 向量排序**：仅在候选集内用 Chinese-CLIP 对
+   “堵车 / 雨夜路口 / 施工路段”等无法用类别表达的语义做排序。
+
+参数同时包含两层：
+
+- 标签层：`q`、`classes`、`groups`、`min_objects`、`min_class_ratio`、
+  `min_group_ratio`、`min_group_frame_ratio`、`dataset_id`、`name_contains`
+- 语义层：`semantic_q`、`cameras`、`min_similarity`、`top_k_frames`、
+  `candidate_pool`、`preview_frames`
+- 省略 `semantic_q` 时退化为纯结构化检索（`mode=structured`）。
+
+返回的每个场景同时带：
+
+- `matched_reasons` / `label_match_score` / `label_profile`：命中了哪些标签条件、
+  各类与分组的数量和占比（可解释）；
+- `semantic_score` / `max_similarity` / `matched_frames` / `preview_frames`：
+  CLIP 语义分和代表帧。
+
+示例：
+
+```bash
+# 只在“二轮车占比>=10%”的场景里，按“堵车”语义排序
+curl -G .../api/v1/scenes/search/hybrid \
+  --data-urlencode "q=二轮车" \
+  --data-urlencode "min_group_ratio=0.10" \
+  --data-urlencode "semantic_q=堵车的城市道路" \
+  --data-urlencode "cameras=front"
+```
+
+不满足标签阈值的场景会在向量排序前被排除，因此兼顾准确率与可解释性。
