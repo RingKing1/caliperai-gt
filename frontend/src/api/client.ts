@@ -357,6 +357,75 @@ export const taxonomyApi = {
 // SCENES
 // =============================================================================
 
+// ---- Hybrid scene search (label filters + CLIP semantic ranking) ----
+export interface SceneSearchGroupStats {
+  box_count: number;
+  ratio: number;
+  frame_ratio: number;
+  track_count: number;
+}
+
+export interface SceneLabelProfile {
+  total_objects: number;
+  primary_class: string | null;
+  class_counts: Record<string, number>;
+  class_ratios: Record<string, number>;
+  groups: Record<string, SceneSearchGroupStats>;
+}
+
+export interface ScenePreviewFrame {
+  frame_index: number;
+  camera: string;
+  similarity: number;
+}
+
+export interface HybridSceneResult {
+  scene_id: string;
+  scene_name: string;
+  dataset_id: string;
+  frame_count: number;
+  semantic_score?: number;
+  max_similarity?: number;
+  matched_frames?: number;
+  preview_frames?: ScenePreviewFrame[];
+  label_match_score: number;
+  matched_reasons: string[];
+  label_profile: SceneLabelProfile;
+}
+
+export interface HybridSceneSearchResponse {
+  mode: 'structured' | 'hybrid';
+  semantic_query: string | null;
+  classes: string[];
+  groups: string[];
+  total: number;
+  results: HybridSceneResult[];
+  model?: string;
+  min_similarity?: number;
+  class_groups?: Record<string, string[]>;
+  limit?: number;
+  offset?: number;
+}
+
+export interface HybridSearchParams {
+  semantic_q?: string;
+  q?: string;
+  classes?: string[];
+  groups?: string[];
+  cameras?: string[];
+  dataset_id?: string;
+  min_objects?: number;
+  min_class_ratio?: number;
+  min_group_ratio?: number;
+  min_group_frame_ratio?: number;
+  min_similarity?: number;
+  top_k_frames?: number;
+  candidate_pool?: number;
+  preview_frames?: number;
+  page?: number;
+  page_size?: number;
+}
+
 export const sceneApi = {
   list: async (datasetId?: string, page = 1, pageSize = 20) => {
     const params = new URLSearchParams({
@@ -396,6 +465,36 @@ export const sceneApi = {
 
   getCalibration: async (id: string) => {
     const { data } = await api.get(`/scenes/${id}/calibration`);
+    return data;
+  },
+
+  /**
+   * Hybrid scene search: exact label filters first, optional CLIP semantic
+   * ranking on top. Omitting semantic_q yields structured-only results.
+   */
+  searchHybrid: async (params: HybridSearchParams = {}) => {
+    const search = new URLSearchParams();
+    const append = (key: string, value: string | number) =>
+      search.append(key, String(value));
+    if (params.semantic_q) append('semantic_q', params.semantic_q);
+    if (params.q) append('q', params.q);
+    params.classes?.forEach((v) => append('classes', v));
+    params.groups?.forEach((v) => append('groups', v));
+    params.cameras?.forEach((v) => append('cameras', v));
+    if (params.dataset_id) append('dataset_id', params.dataset_id);
+    if (params.min_objects !== undefined) append('min_objects', params.min_objects);
+    if (params.min_class_ratio !== undefined) append('min_class_ratio', params.min_class_ratio);
+    if (params.min_group_ratio !== undefined) append('min_group_ratio', params.min_group_ratio);
+    if (params.min_group_frame_ratio !== undefined) append('min_group_frame_ratio', params.min_group_frame_ratio);
+    if (params.min_similarity !== undefined) append('min_similarity', params.min_similarity);
+    if (params.top_k_frames !== undefined) append('top_k_frames', params.top_k_frames);
+    if (params.candidate_pool !== undefined) append('candidate_pool', params.candidate_pool);
+    if (params.preview_frames !== undefined) append('preview_frames', params.preview_frames);
+    append('page', params.page ?? 1);
+    append('page_size', params.page_size ?? 50);
+    const { data } = await api.get<HybridSceneSearchResponse>(
+      `/scenes/search/hybrid?${search.toString()}`,
+    );
     return data;
   },
 

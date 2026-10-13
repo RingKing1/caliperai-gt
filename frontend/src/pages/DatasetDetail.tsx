@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import JSZip from 'jszip';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { SceneSearchPanel } from '@/components/SceneSearchPanel';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { datasetApi, taxonomyApi, importApi, sceneApi, taskApi, userApi, dataopsApi, campaignApi, workflowApi, type ValidateResponse, type ImportResponse, type RenamedScene, type BrowseFolderResponse, type FolderItem } from '@/api/client';
 import type { Dataset, Taxonomy, Scene, Task } from '@/types';
@@ -3082,6 +3083,18 @@ export const DatasetDetail: React.FC = () => {
     setExpandedScenes(newExpanded);
   };
 
+  // Hybrid search result -> reset filters, expand and scroll to the scene.
+  const handleLocateScene = (sceneId: string) => {
+    setStatusFilter('all');
+    setStageFilter('all');
+    setExpandedScenes((prev) => new Set(prev).add(sceneId));
+    setTimeout(() => {
+      document
+        .getElementById(`scene-row-${sceneId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+  };
+
   // Filtered scenes based on task filters and selected taxonomy
   const filteredScenes = useMemo(() => {
     if (!scenes) return [];
@@ -3538,6 +3551,9 @@ export const DatasetDetail: React.FC = () => {
               )}
             </div>
 
+            {/* Hybrid scene search: label filters + CLIP semantic ranking */}
+            <SceneSearchPanel datasetId={datasetId} onSelectScene={handleLocateScene} />
+
             {/* Section Header - Scenes */}
             <div className="flex items-center gap-3 mb-3">
               <div className="flex items-center gap-2">
@@ -3602,7 +3618,7 @@ export const DatasetDetail: React.FC = () => {
                   const completedCount = scene.tasks?.filter((t: any) => t.stage === 'accepted').length || 0;
 
                   return (
-                    <div key={scene.id} className={`rounded-xl overflow-hidden transition-all ${
+                    <div id={`scene-row-${scene.id}`} key={scene.id} className={`rounded-xl overflow-hidden transition-all ${
                       isExpanded
                         ? 'bg-gradient-to-r from-cyan-500/15 via-gray-800/40 to-gray-800/40 border-2 border-cyan-500/40 shadow-lg shadow-cyan-500/10'
                         : 'bg-gray-800/40 border border-gray-700/50'
