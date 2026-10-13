@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     RAG_CHUNK_OVERLAP: int = 50
     RAG_CACHE_TTL: int = 3600
     RAG_KNOWLEDGE_BASE_PATH: str = "knowledge_base"
+    CLIP_API_URL: str = "http://clip:8002"
+    CLIP_MODEL_NAME: str = "ViT-B-16"
+    CLIP_EMBEDDING_DIMENSIONS: int = 512
+    CLIP_SCENE_TOP_K_FRAMES: int = 200
+    CLIP_SCENE_MIN_SIMILARITY: float = 0.18
     RAG_REINDEX_ON_STARTUP: bool = True
 
 

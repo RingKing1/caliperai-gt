@@ -1,0 +1,49 @@
+# Chinese-CLIP GPU microservice for semantic scene search.
+# Use: docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.clip.yml up -d clip
+#
+# The clip service attaches to the same network as the backend and mounts
+# the uploaded_data volume read-only so it can embed dataset images.
+services:
+  clip:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.clip
+    image: caliperai-gt-clip:latest
+    container_name: anno-clip
+    restart: unless-stopped
+    shm_size: '4gb'
+    environment:
+      - CLIP_MODEL_NAME=${CLIP_MODEL_NAME:-ViT-B-16}
+      - CLIP_MODEL_DIM=${CLIP_MODEL_DIM:-512}
+      - CLIP_DEVICE=cuda
+      - CLIP_MODEL_DIR=/models/clip
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "${CLIP_PORT:-8002}:8002"
+    volumes:
+      - clip_models:/models/clip
+      - uploaded_data:/uploads:ro
+    networks:
+      - anno-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import httpx; r=httpx.get('http://localhost:8002/health'); r.raise_for_status(); assert r.json()['status']=='healthy'"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 600s
+
+  backend:
+    environment:
+      - CLIP_API_URL=http://clip:8002
+      - CLIP_MODEL_NAME=${CLIP_MODEL_NAME:-ViT-B-16}
+      - CLIP_EMBEDDING_DIMENSIONS=${CLIP_EMBEDDING_DIMENSIONS:-512}
+
+volumes:
+  clip_models:

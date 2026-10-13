@@ -5,6 +5,7 @@ from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -17,12 +18,181 @@ from app.schemas.schemas import (
     SceneUpdate,
     SceneResponse,
 )
+from app.services.scene_search_service import (
+    CLASS_GROUPS,
+    SceneSearchFilters,
+    normalize_class_name,
+    resolve_term,
+    search_scenes,
+)
+from app.services.scene_semantic_search_service import (
+    embedding_coverage,
+    search_scenes_semantic,
+)
 from app.services.rbac_service import (
     get_current_user,
     RequirePermissions,
 )
 
 router = APIRouter()
+
+
+class SceneSearchResponse(BaseModel):
+    """Structured scene search response."""
+
+    query: Optional[str] = None
+    classes: list[str] = Field(default_factory=list)
+    groups: list[str] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+    class_groups: dict[str, list[str]]
+    results: list[dict]
+
+
+def _split_filter_values(values: list[str] | None) -> list[str]:
+    result = []
+    for value in values or []:
+        for item in value.split(","):
+            item = item.strip()
+            if item:
+                result.append(item)
+    return result
+
+
+@router.get("/search", response_model=SceneSearchResponse)
+async def search_scenes_by_labels(
+    current_user: Annotated[
+        User,
+        Depends(RequirePermissions(Permission.SCENES_READ, Permission.SCENES_READ_ALL, require_all=False)),
+    ],
+    q: Optional[str] = Query(
+        None,
+        description="Class or class group, e.g. car, motorcycle, bicycle, two_wheeler, vehicle, pedestrian",
+    ),
+    classes: list[str] = Query(default_factory=list, description="Required classes; repeat or comma-separate"),
+    groups: list[str] = Query(default_factory=list, description="Required class groups; repeat or comma-separate"),
+    dataset_id: Optional[UUID] = Query(None),
+    name_contains: Optional[str] = Query(None),
+    min_objects: int = Query(0, ge=0),
+    min_class_ratio: float = Query(0.0, ge=0.0, le=1.0),
+    min_group_ratio: float = Query(0.0, ge=0.0, le=1.0),
+    min_group_frame_ratio: float = Query(0.0, ge=0.0, le=1.0),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> SceneSearchResponse:
+    """Search scenes by imported label statistics (class presence/count/ratio)."""
+    requested_classes: list[str] = []
+    normalized_groups: list[str] = []
+    invalid_groups: list[str] = []
+
+    # Explicit ``classes`` are taxonomy class names; normalize but do not alias.
+    for value in _split_filter_values(classes):
+        class_name = normalize_class_name(value)
+        if class_name and class_name not in requested_classes:
+            requested_classes.append(class_name)
+
+    # Explicit ``groups`` accept canonical group names and their aliases,
+    # including member-class names (e.g. groups=motorcycle -> two_wheeler).
+    for value in _split_filter_values(groups):
+        kind, name = resolve_term(value)
+        if kind == "group":
+            if name not in normalized_groups:
+                normalized_groups.append(name)
+        else:
+            invalid_groups.append(value)
+
+    if invalid_groups:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "unknown_class_group",
+                "invalid_groups": invalid_groups,
+                "valid_groups": sorted(CLASS_GROUPS),
+            },
+        )
+
+    # Free-text query: each term resolves to either a concrete class or a group.
+    if q:
+        for raw_value in _split_filter_values([q]):
+            kind, name = resolve_term(raw_value)
+            if kind == "group":
+                if name not in normalized_groups:
+                    normalized_groups.append(name)
+            elif name not in requested_classes:
+                requested_classes.append(name)
+    limit = page_size
+    offset = (page - 1) * page_size
+    filters = SceneSearchFilters(
+        dataset_id=dataset_id,
+        classes=requested_classes,
+        groups=normalized_groups,
+        name_contains=name_contains,
+        min_objects=min_objects,
+        min_class_ratio=min_class_ratio,
+        min_group_ratio=min_group_ratio,
+        min_group_frame_ratio=min_group_frame_ratio,
+        limit=limit,
+        offset=0,
+    )
+
+    # The dataset is small enough to aggregate first; return total count and
+    # apply pagination in Python so ratio sorting remains deterministic.
+    all_results = await search_scenes(db, filters)
+    page_results = all_results[offset : offset + limit]
+    return SceneSearchResponse(
+        query=q,
+        classes=requested_classes,
+        groups=normalized_groups,
+        total=len(all_results),
+        limit=limit,
+        offset=offset,
+        class_groups=CLASS_GROUPS,
+        results=page_results,
+    )
+
+
+@router.get("/search/semantic")
+async def search_scenes_by_image_semantics(
+    current_user: Annotated[
+        User,
+        Depends(RequirePermissions(Permission.SCENES_READ, Permission.SCENES_READ_ALL, require_all=False)),
+    ],
+    q: str = Query(..., min_length=1, description="Natural-language scene query, e.g. 二轮车场景, cars on highway"),
+    dataset_id: Optional[UUID] = Query(None),
+    cameras: list[str] = Query(default_factory=list, description="Filter cameras; repeat or comma-separate"),
+    min_similarity: float = Query(0.18, ge=-1.0, le=1.0),
+    top_k_frames: int = Query(200, ge=1, le=2000),
+    candidate_pool: Optional[int] = Query(None, ge=100, le=100000, description="Limit ANN candidates; default scans all frames for accurate scene ranking"),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Semantic scene search over CLIP frame embeddings (Chinese-CLIP)."""
+    camera_list = _split_filter_values(cameras) or None
+    return await search_scenes_semantic(
+        db,
+        query_text=q,
+        dataset_id=dataset_id,
+        cameras=camera_list,
+        min_similarity=min_similarity,
+        top_k_frames=top_k_frames,
+        candidate_pool=candidate_pool,
+        limit=page_size,
+    )
+
+
+@router.get("/embeddings/coverage")
+async def get_embedding_coverage(
+    current_user: Annotated[
+        User,
+        Depends(RequirePermissions(Permission.SCENES_READ, Permission.SCENES_READ_ALL, require_all=False)),
+    ],
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Per-scene CLIP frame-embedding coverage."""
+    rows = await embedding_coverage(db)
+    return {"total_scenes": len(rows), "results": rows}
 
 
 @router.post("", response_model=SceneResponse, status_code=status.HTTP_201_CREATED)
