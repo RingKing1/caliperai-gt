@@ -125,6 +125,17 @@ interface EditorState {
   hiddenAnnotationIds: Set<string>;
   toggleAnnotationVisibility: (id: string) => void;
   setHiddenAnnotationIds: (ids: Set<string>) => void;
+
+  // Keyframe sampling mode
+  keyframeSamplingEnabled: boolean;
+  keyframeInterval: number;
+  keyframeStartFrame: number;
+  setKeyframeSamplingEnabled: (enabled: boolean) => void;
+  setKeyframeInterval: (interval: number) => void;
+  setKeyframeStartFrame: (startFrame: number) => void;
+  isKeyframeAt: (index: number) => boolean;
+  getNextKeyframeIndex: (currentIndex: number) => number | null;
+  getPrevKeyframeIndex: (currentIndex: number) => number | null;
 }
 
 const defaultLidarView: LidarViewState = {
@@ -199,6 +210,46 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   suppressPropertiesPanel: false,
   lockedAnnotationIds: new Set<string>(),
   hiddenAnnotationIds: new Set<string>(),
+
+  keyframeSamplingEnabled: false,
+  keyframeInterval: 10,
+  keyframeStartFrame: 0,
+
+  setKeyframeSamplingEnabled: (enabled) => set({ keyframeSamplingEnabled: enabled }),
+  setKeyframeInterval: (interval) => set({ keyframeInterval: Math.max(1, interval) }),
+  setKeyframeStartFrame: (startFrame) => set({ keyframeStartFrame: Math.max(0, startFrame) }),
+
+  isKeyframeAt: (index: number) => {
+    const { keyframeSamplingEnabled, keyframeInterval, keyframeStartFrame, frames } = get();
+    if (!keyframeSamplingEnabled || frames.length === 0) return false;
+    if (index < keyframeStartFrame) return false;
+    return (index - keyframeStartFrame) % Math.max(1, keyframeInterval) === 0;
+  },
+
+  getNextKeyframeIndex: (currentIndex: number) => {
+    const { keyframeInterval, keyframeStartFrame, frames } = get();
+    if (frames.length === 0) return null;
+    const interval = Math.max(1, keyframeInterval);
+    if (currentIndex < keyframeStartFrame) {
+      return Math.min(frames.length - 1, keyframeStartFrame);
+    }
+    const offset = currentIndex - keyframeStartFrame;
+    const nextOffset = (Math.floor(offset / interval) + 1) * interval;
+    const target = keyframeStartFrame + nextOffset;
+    return target < frames.length ? target : null;
+  },
+
+  getPrevKeyframeIndex: (currentIndex: number) => {
+    const { keyframeInterval, keyframeStartFrame, frames } = get();
+    if (frames.length === 0 || currentIndex <= keyframeStartFrame) return null;
+    const interval = Math.max(1, keyframeInterval);
+    const offset = currentIndex - keyframeStartFrame;
+    const prevOffset = (offset % interval === 0)
+      ? offset - interval
+      : Math.floor(offset / interval) * interval;
+    const target = keyframeStartFrame + prevOffset;
+    return target >= 0 ? target : null;
+  },
 
   setTask: (task) => set({ task }),
 
@@ -306,14 +357,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   nextFrame: () => {
-    const { currentFrameIndex, frames } = get();
+    const { currentFrameIndex, frames, keyframeSamplingEnabled, getNextKeyframeIndex } = get();
+    if (keyframeSamplingEnabled) {
+      const nextKf = getNextKeyframeIndex(currentFrameIndex);
+      if (nextKf !== null) {
+        get().goToFrame(nextKf);
+      }
+      return;
+    }
     if (currentFrameIndex < frames.length - 1) {
       get().goToFrame(currentFrameIndex + 1);
     }
   },
 
   prevFrame: () => {
-    const { currentFrameIndex } = get();
+    const { currentFrameIndex, keyframeSamplingEnabled, getPrevKeyframeIndex } = get();
+    if (keyframeSamplingEnabled) {
+      const prevKf = getPrevKeyframeIndex(currentFrameIndex);
+      if (prevKf !== null) {
+        get().goToFrame(prevKf);
+      }
+      return;
+    }
     if (currentFrameIndex > 0) {
       get().goToFrame(currentFrameIndex - 1);
     }
@@ -363,6 +428,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     get().pushHistory('Create annotation');
 
+    const isKf = partial.is_keyframe ?? (get().keyframeSamplingEnabled ? get().isKeyframeAt(get().currentFrameIndex) : false);
+
     const annotation: Annotation = {
       id: uuidv4(),
       task_id: task.id,
@@ -375,7 +442,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       attributes: partial.attributes ?? {},
       source: partial.source ?? ('manual' as AnnotationSource),
       is_verified: true,
-      is_keyframe: partial.is_keyframe ?? false,
+      is_keyframe: isKf,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -392,7 +459,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   createAnnotationsBatch: (partials) => {
-    const { task, currentFrame, activeClassId, annotations, dirtyAnnotations, scene } = get();
+    const { task, currentFrame, currentFrameIndex, activeClassId, annotations, dirtyAnnotations, scene, keyframeSamplingEnabled, isKeyframeAt } = get();
 
     if (!task || !currentFrame || !activeClassId) {
       throw new Error('Cannot create annotations: missing context');
@@ -401,6 +468,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const newAnnotations = new Map(annotations);
     const newDirty = new Map(dirtyAnnotations);
     const createdAnnotations: Annotation[] = [];
+    const isKfBatch = keyframeSamplingEnabled ? isKeyframeAt(currentFrameIndex) : false;
 
     for (const partial of partials) {
       const annotation: Annotation = {
@@ -415,7 +483,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         attributes: partial.attributes ?? {},
         source: partial.source ?? ('manual' as AnnotationSource),
         is_verified: true,
-        is_keyframe: partial.is_keyframe ?? false,
+        is_keyframe: partial.is_keyframe ?? isKfBatch,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };

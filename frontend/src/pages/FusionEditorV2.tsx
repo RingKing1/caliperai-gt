@@ -5087,7 +5087,22 @@ interface TimelineProps {
 }
 
 const Timeline: React.FC<TimelineProps> = ({ isLoadingFrame = false, displayedFrameIndex }) => {
-  const { frames, scene, task, currentFrameIndex, goToFrame, nextFrame, prevFrame } = useEditorStore();
+  const {
+    frames,
+    scene,
+    task,
+    currentFrameIndex,
+    goToFrame,
+    nextFrame,
+    prevFrame,
+    keyframeSamplingEnabled,
+    keyframeInterval,
+    keyframeStartFrame,
+    setKeyframeSamplingEnabled,
+    setKeyframeInterval,
+    setKeyframeStartFrame,
+    isKeyframeAt,
+  } = useEditorStore();
   const lidarPrefetchStatus = useLidarCacheStore((s) => s.prefetchStatus);
   const lidarPrefetchProgress = useLidarCacheStore((s) => s.prefetchProgress);
   const lidarPrefetchTotal = useLidarCacheStore((s) => s.prefetchTotal);
@@ -5101,11 +5116,29 @@ const Timeline: React.FC<TimelineProps> = ({ isLoadingFrame = false, displayedFr
   const playIntervalRef = useRef<number | null>(null);
   const frameInputRef = useRef<HTMLInputElement>(null);
 
+  // Keyframe sampling menu state
+  const [showKeyframeMenu, setShowKeyframeMenu] = useState(false);
+  const keyframeMenuRef = useRef<HTMLDivElement>(null);
+
   // Drag-to-move state
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const initialOffset = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (keyframeMenuRef.current && !keyframeMenuRef.current.contains(e.target as Node)) {
+        setShowKeyframeMenu(false);
+      }
+    };
+    if (showKeyframeMenu) {
+      window.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showKeyframeMenu]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -5135,6 +5168,18 @@ const Timeline: React.FC<TimelineProps> = ({ isLoadingFrame = false, displayedFr
 
   // Use displayed frame index if provided, otherwise fall back to current
   const shownFrameIndex = displayedFrameIndex ?? currentFrameIndex;
+
+  const keyframeIndices = useMemo(() => {
+    if (!keyframeSamplingEnabled || frames.length === 0) return [];
+    const interval = Math.max(1, keyframeInterval);
+    const indices: number[] = [];
+    for (let i = keyframeStartFrame; i < frames.length; i += interval) {
+      indices.push(i);
+    }
+    return indices;
+  }, [keyframeSamplingEnabled, keyframeInterval, keyframeStartFrame, frames.length]);
+
+  const currentIsKeyframe = keyframeSamplingEnabled && isKeyframeAt(shownFrameIndex);
 
   useEffect(() => {
     if (isPlaying) {
@@ -5290,6 +5335,22 @@ const Timeline: React.FC<TimelineProps> = ({ isLoadingFrame = false, displayedFr
               className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-400 to-cyan-400 rounded-full pointer-events-none"
               style={{ width: `${progress}%` }}
             />
+            {/* Keyframe tick marks */}
+            {keyframeSamplingEnabled && keyframeIndices.map((idx) => {
+              const leftPercent = frames.length > 1 ? (idx / (frames.length - 1)) * 100 : 0;
+              const isCurrent = idx === shownFrameIndex;
+              return (
+                <div
+                  key={`kf-tick-${idx}`}
+                  className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full pointer-events-none z-10 transition-transform ${
+                    isCurrent
+                      ? 'w-2 h-2 bg-amber-300 ring-2 ring-amber-400/50 scale-125'
+                      : 'w-1 h-1 bg-amber-400/80'
+                  }`}
+                  style={{ left: `${leftPercent}%` }}
+                />
+              );
+            })}
             <div
               className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white rounded-full shadow pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
               style={{ left: `calc(${progress}% - 5px)` }}
@@ -5308,31 +5369,46 @@ const Timeline: React.FC<TimelineProps> = ({ isLoadingFrame = false, displayedFr
         {/* ── Divider ── */}
         <div className="mx-1 w-px h-4 bg-white/10" />
 
-        {/* ── Frame Counter ── */}
-        {isEditingFrame ? (
-          <input
-            ref={frameInputRef}
-            type="text"
-            value={frameInputValue}
-            onChange={(e) => setFrameInputValue(e.target.value.replace(/\D/g, ''))}
-            onBlur={handleFrameInputSubmit}
-            onKeyDown={handleFrameInputKeyDown}
-            className="w-12 px-1 py-0.5 text-[10px] font-mono bg-white/10 border border-blue-400/50 rounded text-white text-center focus:outline-none"
-            autoFocus
-          />
-        ) : (
-          <button
-            onClick={handleFrameInputStart}
-            className="flex items-center gap-px text-[10px] font-mono hover:text-white transition-colors whitespace-nowrap"
-            title="Click to jump to frame"
-          >
-            <span className="font-semibold text-white/90">{(frames[shownFrameIndex]?.frame_index ?? shownFrameIndex) + 1}</span>
-            <span className="text-white/35">/{task?.frame_range ? task.frame_range.end + 1 : (scene?.frame_count ?? frames.length)}</span>
-            {isLoadingFrame && (
-              <span className="ml-0.5 w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
-            )}
-          </button>
-        )}
+        {/* ── Frame Counter & Keyframe Badge ── */}
+        <div className="flex items-center gap-1">
+          {isEditingFrame ? (
+            <input
+              ref={frameInputRef}
+              type="text"
+              value={frameInputValue}
+              onChange={(e) => setFrameInputValue(e.target.value.replace(/\D/g, ''))}
+              onBlur={handleFrameInputSubmit}
+              onKeyDown={handleFrameInputKeyDown}
+              className="w-12 px-1 py-0.5 text-[10px] font-mono bg-white/10 border border-blue-400/50 rounded text-white text-center focus:outline-none"
+              autoFocus
+            />
+          ) : (
+            <button
+              onClick={handleFrameInputStart}
+              className="flex items-center gap-px text-[10px] font-mono hover:text-white transition-colors whitespace-nowrap"
+              title="Click to jump to frame"
+            >
+              <span className="font-semibold text-white/90">{(frames[shownFrameIndex]?.frame_index ?? shownFrameIndex) + 1}</span>
+              <span className="text-white/35">/{task?.frame_range ? task.frame_range.end + 1 : (scene?.frame_count ?? frames.length)}</span>
+              {isLoadingFrame && (
+                <span className="ml-0.5 w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+              )}
+            </button>
+          )}
+
+          {keyframeSamplingEnabled && (
+            <span
+              className={`px-1 py-0.2 text-[8.5px] font-mono rounded font-semibold tracking-wider transition-colors ${
+                currentIsKeyframe
+                  ? 'bg-amber-400/25 text-amber-300 border border-amber-400/40 shadow-sm shadow-amber-500/20'
+                  : 'bg-white/5 text-gray-500'
+              }`}
+              title={currentIsKeyframe ? "当前帧是关键帧 (在此打标)" : "当前帧为插值帧"}
+            >
+              {currentIsKeyframe ? 'KF' : 'INTERP'}
+            </span>
+          )}
+        </div>
 
         {/* ── Divider ── */}
         <div className="mx-1 w-px h-4 bg-white/10" />
@@ -5349,6 +5425,132 @@ const Timeline: React.FC<TimelineProps> = ({ isLoadingFrame = false, displayedFr
         >
           {playbackSpeed}×
         </button>
+
+        {/* ── Divider ── */}
+        <div className="mx-1 w-px h-4 bg-white/10" />
+
+        {/* ── Keyframe Sampling Button & Dropdown ── */}
+        <div className="relative" ref={keyframeMenuRef}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowKeyframeMenu(!showKeyframeMenu);
+            }}
+            className={`px-2 py-0.5 text-[10px] font-semibold rounded-full flex items-center gap-1 transition-all ${
+              keyframeSamplingEnabled
+                ? 'bg-amber-500/25 text-amber-300 border border-amber-400/50 shadow-sm shadow-amber-500/20'
+                : 'text-white/45 hover:text-white hover:bg-white/10'
+            }`}
+            title="关键帧抽样标注设置 (Keyframe Sampling)"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${keyframeSamplingEnabled ? 'bg-amber-400 animate-pulse' : 'bg-gray-500'}`} />
+            <span>关键帧</span>
+            {keyframeSamplingEnabled && (
+              <span className="font-mono text-[9px] text-amber-200">
+                每{keyframeInterval}帧
+              </span>
+            )}
+          </button>
+
+          {showKeyframeMenu && (
+            <div
+              className="absolute bottom-full mb-3 right-0 w-64 bg-gray-950/95 border border-amber-500/30 rounded-xl shadow-2xl p-3 backdrop-blur-2xl text-xs text-white z-50 flex flex-col gap-2.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                <span className="font-semibold text-amber-400 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rotate-45 bg-amber-400 inline-block" />
+                  只标注关键帧
+                </span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={keyframeSamplingEnabled}
+                    onChange={(e) => setKeyframeSamplingEnabled(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-7 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
+
+              {/* 起始帧选择 */}
+              <div className="flex items-center justify-between">
+                <span className="text-gray-300 text-[11px]">关键帧起始:</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={frames.length || 1}
+                    value={keyframeStartFrame + 1}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val)) {
+                        setKeyframeStartFrame(Math.max(0, Math.min(frames.length - 1, val - 1)));
+                      }
+                    }}
+                    className="w-14 px-1.5 py-0.5 text-center font-mono bg-white/10 border border-white/15 rounded text-white focus:outline-none focus:border-amber-400 text-xs"
+                  />
+                  <button
+                    onClick={() => setKeyframeStartFrame(shownFrameIndex)}
+                    className="px-1.5 py-0.5 text-[10px] bg-white/10 hover:bg-white/20 text-gray-200 rounded transition-colors whitespace-nowrap"
+                    title="将当前帧设为关键帧起点"
+                  >
+                    设为当前
+                  </button>
+                </div>
+              </div>
+
+              {/* 关键帧间隔 */}
+              <div className="flex items-center justify-between">
+                <span className="text-gray-300 text-[11px]">关键帧间隔:</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={keyframeInterval}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val) && val >= 1) {
+                        setKeyframeInterval(val);
+                      }
+                    }}
+                    className="w-14 px-1.5 py-0.5 text-center font-mono bg-white/10 border border-white/15 rounded text-white focus:outline-none focus:border-amber-400 text-xs"
+                  />
+                  <span className="text-gray-400 text-[10px]">帧</span>
+                </div>
+              </div>
+
+              {/* 快捷间隔预设 */}
+              <div className="flex items-center gap-1 pt-0.5">
+                <span className="text-[10px] text-gray-400 mr-1">预设:</span>
+                {[5, 10, 15, 20].map((step) => (
+                  <button
+                    key={step}
+                    onClick={() => setKeyframeInterval(step)}
+                    className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${
+                      keyframeInterval === step
+                        ? 'bg-amber-500/30 text-amber-300 border border-amber-400/40'
+                        : 'bg-white/5 hover:bg-white/10 text-gray-300'
+                    }`}
+                  >
+                    {step}帧
+                  </button>
+                ))}
+              </div>
+
+              {/* 统计提示与状态 */}
+              <div className="pt-1.5 border-t border-white/10 text-[10px] text-gray-400 flex items-center justify-between">
+                <span>序列共 {keyframeIndices.length} 个关键帧</span>
+                {keyframeSamplingEnabled && (
+                  <span className={currentIsKeyframe ? "text-amber-400 font-semibold" : "text-gray-400"}>
+                    {currentIsKeyframe ? "★ 当前为关键帧" : "当前为插值帧"}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* ── Prefetch Status ── */}
         {isPrefetching && (
@@ -9010,57 +9212,104 @@ export const FusionEditorV2: React.FC = () => {
           e.preventDefault();
           store.resetCameraView();
           break;
-        case 'arrowright':
-        case 'arrowleft': {
-          // Left/Right arrows ALWAYS navigate frames
-          e.preventDefault();
-          if (key === 'arrowright') {
-            store.nextFrame();
-          } else {
-            store.prevFrame();
-          }
-          break;
-        }
         case 'arrowup':
-        case 'arrowdown': {
+        case 'arrowdown':
+        case 'arrowleft':
+        case 'arrowright': {
           const annotation = getSelectedCuboid();
-          if (annotation) {
-            // Keep Shift+Arrow behavior in active ortho views for local rotation controls.
+          // If a box is selected (and not holding Alt to force frame step), nudge the box
+          if (annotation && !e.altKey) {
+            // Keep Shift+Arrow in active ortho views for rotation controls handled by OrthographicViews
             if (showOrthoViews && activeOrthoView && e.shiftKey) {
               break;
             }
 
             e.preventDefault();
-            // Move box when selected (up/down only)
             const moveStep = e.shiftKey ? 0.01 : 0.1; // 0.01m fine, 0.1m normal
             const currentData = annotation.data as { center: { x: number; y: number; z: number } };
-            let dy = 0, dz = 0;
 
-            const useViewAwareMapping = showOrthoViews && activeOrthoView !== null;
+            // Determine active view mode:
+            // 1. If an ortho panel is active, use it (top / front / side)
+            // 2. Otherwise, check if main lidar canvas is in top view mode
+            // 3. Otherwise default to 3d perspective view
+            const currentView: 'top' | 'front' | 'side' | '3d' = (showOrthoViews && activeOrthoView)
+              ? activeOrthoView
+              : (store.lidarView.isTopView ? 'top' : '3d');
 
-            if (useViewAwareMapping) {
-              if (activeOrthoView === 'top') {
-                if (key === 'arrowup') dy = moveStep;
-                else if (key === 'arrowdown') dy = -moveStep;
-              } else if (activeOrthoView === 'front') {
-                if (key === 'arrowup') dz = moveStep;
-                else if (key === 'arrowdown') dz = -moveStep;
-              } else if (activeOrthoView === 'side') {
-                if (key === 'arrowup') dz = moveStep;
-                else if (key === 'arrowdown') dz = -moveStep;
-              }
+            // Screen-space delta:
+            // ArrowRight = +X (right), ArrowLeft = -X (left)
+            // ArrowUp = +Y (up), ArrowDown = -Y (down)
+            let screenDx = 0;
+            let screenDy = 0;
+
+            if (key === 'arrowright') screenDx = moveStep;
+            else if (key === 'arrowleft') screenDx = -moveStep;
+            else if (key === 'arrowup') screenDy = moveStep;
+            else if (key === 'arrowdown') screenDy = -moveStep;
+
+            // Map screen delta into box-local coordinates:
+            // In Top view (BEV): box forward direction (+X) points right (+screenDx),
+            //                   box left side (+Y) points up (+screenDy).
+            // In Side view: box forward (+X) points right, height (+Z) points up.
+            // In Front view: facing front, box right side (-Y) points right, height (+Z) points up.
+            let localDx = 0;
+            let localDy = 0;
+            let localDz = 0;
+
+            if (currentView === 'top') {
+              localDx = screenDx;
+              localDy = screenDy;
+            } else if (currentView === 'side') {
+              localDx = screenDx;
+              localDz = screenDy;
+            } else if (currentView === 'front') {
+              localDy = -screenDx;
+              localDz = screenDy;
             } else {
-              if (key === 'arrowup') dz = moveStep; // Up = move up in Z
-              else if (key === 'arrowdown') dz = -moveStep; // Down = move down in Z
+              // 3D Perspective view: forward/backward along heading, height by up/down
+              localDx = screenDx;
+              localDz = screenDy;
             }
+
+            // Transform box-local delta to world / LiDAR coordinates using the box's heading yaw
+            const yaw = (annotation.data as any)?.rotation?.yaw ?? 0;
+            const cos = Math.cos(yaw);
+            const sin = Math.sin(yaw);
+
+            const worldDx = localDx * cos - localDy * sin;
+            const worldDy = localDx * sin + localDy * cos;
+            const worldDz = localDz;
 
             updateCuboidData(annotation, {
               center: {
-                x: currentData.center.x,
-                y: currentData.center.y + dy,
-                z: currentData.center.z + dz,
+                x: currentData.center.x + worldDx,
+                y: currentData.center.y + worldDy,
+                z: currentData.center.z + worldDz,
               }
             });
+            break;
+          }
+
+          // When no annotation is selected (or holding Alt): left/right arrows navigate frames
+          if (key === 'arrowleft' || key === 'arrowright') {
+            e.preventDefault();
+            if (e.shiftKey) {
+              if (key === 'arrowright') {
+                if (store.currentFrameIndex < store.frames.length - 1) {
+                  store.goToFrame(store.currentFrameIndex + 1);
+                }
+              } else {
+                if (store.currentFrameIndex > 0) {
+                  store.goToFrame(store.currentFrameIndex - 1);
+                }
+              }
+            } else {
+              if (key === 'arrowright') {
+                store.nextFrame();
+              } else {
+                store.prevFrame();
+              }
+            }
           }
           break;
         }
@@ -9850,7 +10099,8 @@ export const FusionEditorV2: React.FC = () => {
                   <div className="space-y-1.5">
                     {[
                       ['F / B', 'Next / Prev frame'],
-                      ['← →', 'Prev / Next frame'],
+                      ['← →', 'Prev / Next frame (when no box selected)'],
+                      ['Alt + ← →', 'Force frame step (even with box selected)'],
                       ['Shift+T', 'Toggle top view'],
                       ['G', 'Back to 3D view'],
                     ].map(([key, desc]) => (

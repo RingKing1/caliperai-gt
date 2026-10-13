@@ -43,6 +43,9 @@ data. Label **LiDAR point clouds** and **camera images** together with real-time
 - **AI-assisted segmentation (SAM2)** — click-to-segment in 2D images and a
   Segment-to-3D workflow; runs against a downloadable SAM2 model
 - **Manual lane / polyline editing** — Bézier + smoothing helpers
+- **View-aware & box-local arrow key nudging** — `←`/`→`/`↑`/`↓` fine-tuning
+  aligned to the object's local heading yaw in Top/BEV view (`→` forward, `←` backward,
+  `↑` left, `↓` right) and orthographic planes in Side/Front views
 
 **Sensor fusion**
 - Real-time 3D→2D projection via calibration matrices
@@ -51,6 +54,9 @@ data. Label **LiDAR point clouds** and **camera images** together with real-time
 **Multi-object tracking**
 - Track management across frames with keyframe interpolation
 - Track merging and 4D temporal stacking
+- **Keyframe-only sampling mode & interval stepping** — sample every N frames
+  (e.g. every 10 frames) from a chosen start frame with automatic step jumping
+
 
 **Workflow & review**
 - Campaigns → Datasets → Scenes → Tasks lifecycle
@@ -166,10 +172,10 @@ docker compose ps
 # Backend health
 curl -s http://localhost:8000/health
 
-# Log in via the API (should return an access_token)
+# Log in via the API (default user: admin / admin123)
 curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"change-me-123"}'
+  -d '{"username":"admin","password":"admin123"}'
 ```
 
 Then open http://localhost:3000, sign in, create a Campaign → Dataset, upload a
@@ -239,22 +245,26 @@ Then create a Campaign → Dataset and **Import** the downloaded `.zip`.
 
 ## AI-Assisted Segmentation (SAM2)
 
-SAM2 powers the interactive **AI Segment** (2D) and **Segment-to-3D** tools. It is
-an open model you download and run yourself.
+SAM2 powers the interactive **AI Segment** (2D), **Segment-to-3D**, and cross-frame **Video Propagation** tools. You can run SAM2 locally with GPU acceleration (recommended) or on CPU:
 
 ```bash
-# Download SAM2 model weights (into the backend's model cache)
-docker compose exec backend python scripts/download_sam2_models.py
+# 1. Download SAM2 model weights (large, base, small, or tiny)
+python backend/scripts/download_sam2_models.py --size large --output-dir ./models/sam2
 
-# CPU-only SAM2 service
-docker compose -f docker-compose.yml -f docker-compose.sam2.yml up -d
+# 2. Create compatibility symlink for model loader
+cd models/sam2 && ln -sf sam2_hiera_large.pt sam2.1_hiera_large.pt && cd ../..
 
-# GPU (requires nvidia-container-toolkit)
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# 3. Configure .env
+# Set SAM2_MODE=api and SAM2_API_URL=http://sam2:8001 (or keep SAM2_MODE=mock for dummy testing)
+
+# 4. Start SAM2 service with GPU acceleration (requires NVIDIA GPU + Container Toolkit):
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d sam2 backend
+
+# Or run CPU-only SAM2 service:
+docker compose -f docker-compose.yml -f docker-compose.sam2.yml up -d sam2 backend
 ```
 
-Set `SAM2_MODE=mock` (default) to run the UI without a real model, or `SAM2_MODE=api`
-with `SAM2_API_URL` pointing at the SAM2 service.
+Once started, the backend automatically routes interactive prompts and video propagation requests to the SAM2 inference microservice (`:8001`). Check health via `curl http://localhost:8001/health`.
 
 ---
 
@@ -342,17 +352,41 @@ Branding works the same way via `BRAND_*` env → `10-brand.sh` → `window.__BR
 
 ## Keyboard Shortcuts
 
+### General & 3D Cuboid Editing
+
 | Key | Action | | Key | Action |
 |---|---|---|---|---|
-| `V` | Select | | `Q`/`E` | Rotate yaw ±5° (cuboid) |
-| `C` | Cuboid | | `Shift+Q/E` | Rotate yaw ±1° |
-| `B` | 2D box | | `R` | Reset rotation |
-| `L` | Polyline | | `W`/`S` `A`/`D` `Z`/`X` | Resize cuboid (±0.1 m) |
-| `P` | Polygon (manual) | | `←`/`→` | Move / navigate frames |
-| `W` | AI Segment (SAM2) | | `Delete` | Delete selected |
-| `T` | Track | | `Ctrl+S` | Save |
+| `V` | Select tool | | `Q` / `E` | Rotate yaw ±5° (cuboid) |
+| `C` | 3D Cuboid tool | | `Shift+Q` / `Shift+E` | Rotate yaw ±1° |
+| `B` | 2D Bounding Box | | `R` | Reset rotation |
+| `L` | Polyline / Lane tool | | `W` / `S` | Resize length (±0.1 m) |
+| `P` | Polygon (manual) | | `A` / `D` | Resize width (±0.1 m) |
+| `W` | AI Segment (SAM2) | | `Z` / `X` | Resize height (±0.1 m) |
+| `T` | Track tool | | `Delete` / `Backspace` | Delete selected |
+| `Ctrl+S` / `Cmd+S` | Save annotations | | `Space` | Play / Pause playback |
 
-QA review: `1` approve · `2` reject · `3` flag · `F` flag missing object.
+### Directional Arrow Keys (`←` / `→` / `↑` / `↓`)
+
+- **When a 3D cuboid is selected (Fine Nudging, ±0.05 m; `Shift` for ±0.01 m):**
+  - **Top (BEV) View**: Coordinate system is locked to the cuboid's local heading yaw:
+    - `→`: Move forward along heading direction (+X local, towards screen right)
+    - `←`: Move backward along heading direction (-X local)
+    - `↑`: Move lateral left (+Y local)
+    - `↓`: Move lateral right (-Y local)
+  - **Side View**: `←` / `→` along horizontal axis, `↑` / `↓` along vertical Z (height).
+  - **Front View**: `←` / `→` along horizontal axis, `↑` / `↓` along vertical Z (height).
+- **When no cuboid is selected (Timeline Navigation):**
+  - `←` / `→`: Navigate to previous / next frame (automatically respects keyframe interval step when keyframe sampling is enabled).
+
+### Keyframe Sampling & Stepping
+
+- Enable **Keyframes Only** mode on the timeline to restrict labeling to sampled frames.
+- Configure **Keyframe Interval / Step** (e.g., sample every 10 frames) and **Start Frame** offset.
+- Navigation buttons (`Prev` / `Next`) and arrow keys automatically step across keyframes according to the interval.
+
+### QA Review
+
+`1` approve · `2` reject · `3` flag · `F` flag missing object.
 
 ---
 

@@ -61,11 +61,14 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Default environment variables
+# Default environment variables.
+# TIMEOUT is the gunicorn worker timeout: a large dataset ZIP import streams for
+# minutes before the worker writes its response, so it must be generous (see
+# the comment in gunicorn.conf.py).
 ENV WORKERS=4 \
     LOG_LEVEL=info \
-    TIMEOUT=120 \
-    GRACEFUL_TIMEOUT=30
+    TIMEOUT=7200 \
+    GRACEFUL_TIMEOUT=300
 
 # Run with Gunicorn + Uvicorn workers for production
 CMD ["gunicorn", "app.main:app", "-c", "gunicorn.conf.py"]

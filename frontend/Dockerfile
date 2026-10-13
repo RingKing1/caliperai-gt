@@ -5,17 +5,38 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Optional HTTP proxy for reaching the npm registry from restricted networks.
+# Supplied through docker-compose build args (BUILD_HTTP_PROXY/BUILD_HTTPS_PROXY).
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+ARG NO_PROXY="localhost,127.0.0.1"
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    NO_PROXY=${NO_PROXY} \
+    http_proxy=${HTTP_PROXY} \
+    https_proxy=${HTTPS_PROXY} \
+    no_proxy=${NO_PROXY}
+
 # Copy package files
 COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
 
-# Install dependencies
-RUN if [ -f pnpm-lock.yaml ]; then \
+# Install dependencies. Prefer the reproducible `npm ci` when a lockfile is
+# present. Some npm versions exit 0 after a registry/network crash, which
+# surfaced much later as a misleading "tsc: not found", so verify the install.
+RUN set -e; \
+    if [ -f pnpm-lock.yaml ]; then \
         corepack enable && pnpm install --frozen-lockfile; \
     elif [ -f yarn.lock ]; then \
         yarn install --frozen-lockfile; \
+    elif [ -f package-lock.json ]; then \
+        npm ci --no-audit --no-fund; \
     else \
-        npm install; \
-    fi
+        npm install --no-audit --no-fund; \
+    fi; \
+    test -x node_modules/.bin/tsc || { \
+        echo "ERROR: dependency install incomplete (node_modules/.bin/tsc missing); the npm registry was likely unreachable"; \
+        exit 1; \
+    }
 
 # Copy source files
 COPY . .
@@ -63,6 +84,17 @@ CMD ["nginx", "-g", "daemon off;"]
 FROM node:20-alpine AS development
 
 WORKDIR /app
+
+# Same optional proxy as the builder stage (see above).
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+ARG NO_PROXY="localhost,127.0.0.1"
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    NO_PROXY=${NO_PROXY} \
+    http_proxy=${HTTP_PROXY} \
+    https_proxy=${HTTPS_PROXY} \
+    no_proxy=${NO_PROXY}
 
 # Copy package files
 COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
