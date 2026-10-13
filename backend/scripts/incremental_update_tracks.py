@@ -145,16 +145,20 @@ def parse_tracked_kitti_line(line: str) -> Optional[dict]:
 
 def update_scene_with_tracks(
     scene_name: str,
-    zip_path: Path,
+    zip_path: Optional[Path] = None,
+    label_dir: Optional[Path] = None,
     dry_run: bool = False,
     sync_disk: bool = True
 ) -> dict:
     """Execute incremental track update for a single scene."""
     print(f"\n==================================================")
     print(f"[*] Processing scene: {scene_name}")
-    print(f"[*] Tracked bundle:  {zip_path}")
-    if not zip_path.is_file():
-        raise FileNotFoundError(f"Bundle file not found: {zip_path}")
+    if label_dir and label_dir.is_dir():
+        print(f"[*] Label folder:    {label_dir}")
+    elif zip_path and zip_path.is_file():
+        print(f"[*] Tracked bundle:  {zip_path}")
+    else:
+        raise FileNotFoundError(f"Neither valid zip ({zip_path}) nor label dir ({label_dir}) found!")
 
     scene_info = get_scene_info(scene_name)
     if not scene_info:
@@ -175,7 +179,7 @@ def update_scene_with_tracks(
     frame_map = get_frame_index_mapping(scene_id)
     print(f"[*] Found {len(frame_map)} frames registered in database.")
 
-    # Read all txt files from zip
+    # Read txt files
     annotations_data = []
     unique_tracks = set()
     class_counter = Counter()
@@ -184,61 +188,66 @@ def update_scene_with_tracks(
     if sync_disk:
         temp_extract_dir = tempfile.mkdtemp(prefix="caliper_track_txt_")
 
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        txt_names = sorted([
-            n for n in zf.namelist() 
-            if n.endswith(".txt") and "annotations/lidar/" in n and not n.startswith("__MACOSX")
-        ])
-        print(f"[*] Found {len(txt_names)} label files in ZIP.")
+    def process_file_content(content: str, filename: str):
+        if sync_disk and temp_extract_dir:
+            dest_file = Path(temp_extract_dir) / filename
+            dest_file.write_text(content, encoding="utf-8")
 
-        for name in txt_names:
-            content = zf.read(name).decode("utf-8")
-            if sync_disk and temp_extract_dir:
-                dest_file = Path(temp_extract_dir) / Path(name).name
-                dest_file.write_text(content, encoding="utf-8")
+        for line in content.splitlines():
+            parsed = parse_tracked_kitti_line(line)
+            if not parsed:
+                continue
 
-            for line in content.splitlines():
-                parsed = parse_tracked_kitti_line(line)
-                if not parsed:
-                    continue
+            f_idx = parsed["frame_index"]
+            frame_uuid = frame_map.get(f_idx)
+            if not frame_uuid:
+                continue
 
-                f_idx = parsed["frame_index"]
-                frame_uuid = frame_map.get(f_idx)
-                if not frame_uuid:
-                    continue
+            track_int = parsed["track_id"]
+            unique_tracks.add(track_int)
+            class_counter[parsed["class_name"]] += 1
 
-                track_int = parsed["track_id"]
-                unique_tracks.add(track_int)
-                class_counter[parsed["class_name"]] += 1
+            track_uuid = str(uuid.uuid5(uuid.UUID(scene_id), f"track-{track_int}"))
+            ann_id = str(uuid.uuid4())
+            cuboid_data = {
+                "center": parsed["center"],
+                "dimensions": parsed["dimensions"],
+                "rotation": parsed["rotation"],
+            }
 
-                # Deterministic UUID for each track in this scene
-                track_uuid = str(uuid.uuid5(uuid.UUID(scene_id), f"track-{track_int}"))
+            annotations_data.append((
+                ann_id,
+                task_id,
+                frame_uuid,
+                track_uuid,
+                "cuboid",
+                parsed["class_name"],
+                json.dumps(cuboid_data),
+                json.dumps(parsed["attributes"]),
+                "auto",
+                "false",  # is_migrated_to_fusion
+                "false",  # is_verified
+                "false",  # is_keyframe
+                "false",  # is_static
+                taxonomy_id if taxonomy_id else "",
+                datetime.now(timezone.utc).isoformat(),
+                datetime.now(timezone.utc).isoformat(),
+            ))
 
-                ann_id = str(uuid.uuid4())
-                cuboid_data = {
-                    "center": parsed["center"],
-                    "dimensions": parsed["dimensions"],
-                    "rotation": parsed["rotation"],
-                }
-
-                annotations_data.append((
-                    ann_id,
-                    task_id,
-                    frame_uuid,
-                    track_uuid,
-                    "cuboid",
-                    parsed["class_name"],
-                    json.dumps(cuboid_data),
-                    json.dumps(parsed["attributes"]),
-                    "auto",
-                    "false",  # is_migrated_to_fusion
-                    "false",  # is_verified
-                    "false",  # is_keyframe
-                    "false",  # is_static
-                    taxonomy_id if taxonomy_id else "",
-                    datetime.now(timezone.utc).isoformat(),
-                    datetime.now(timezone.utc).isoformat(),
-                ))
+    if label_dir and label_dir.is_dir():
+        txt_files = sorted(label_dir.glob("*.txt"))
+        print(f"[*] Found {len(txt_files)} label files in folder.")
+        for f in txt_files:
+            process_file_content(f.read_text(encoding="utf-8"), f.name)
+    else:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            txt_names = sorted([
+                n for n in zf.namelist() 
+                if n.endswith(".txt") and "annotations/lidar/" in n and not n.startswith("__MACOSX")
+            ])
+            print(f"[*] Found {len(txt_names)} label files in ZIP.")
+            for name in txt_names:
+                process_file_content(zf.read(name).decode("utf-8"), Path(name).name)
 
     print(f"[*] Parsed {len(annotations_data)} annotations across {len(unique_tracks)} unique tracks.")
     print(f"[*] Class breakdown: {dict(class_counter)}")
@@ -361,6 +370,7 @@ def main():
     parser = argparse.ArgumentParser(description="Incremental track update script for CaliperAI")
     parser.add_argument("--scene-name", help="Specific scene name to update")
     parser.add_argument("--zip", type=Path, help="Path to tracked zip bundle")
+    parser.add_argument("--label-dir", type=Path, help="Path to tracked label directory")
     parser.add_argument("--all", action="store_true", help="Update all 3 existing scenes sequentially")
     parser.add_argument("--dry-run", action="store_true", help="Dry run without modifying database or disk")
     args = parser.parse_args()
@@ -379,16 +389,17 @@ def main():
 
     if args.scene_name:
         zip_path = args.zip
-        if not zip_path:
+        label_dir = args.label_dir
+        if not zip_path and not label_dir:
             # Try to match from EXISTING_SCENES
             for item in EXISTING_SCENES:
                 if item["name"] == args.scene_name:
                     zip_path = item["zip"]
                     break
-        if not zip_path:
-            print(f"Error: --zip must be specified for scene {args.scene_name}", file=sys.stderr)
+        if not zip_path and not label_dir:
+            print(f"Error: Either --zip or --label-dir must be specified for scene {args.scene_name}", file=sys.stderr)
             sys.exit(1)
-        update_scene_with_tracks(args.scene_name, zip_path, dry_run=args.dry_run)
+        update_scene_with_tracks(args.scene_name, zip_path=zip_path, label_dir=label_dir, dry_run=args.dry_run)
         return
 
     parser.print_help()
