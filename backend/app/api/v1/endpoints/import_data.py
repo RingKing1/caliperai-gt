@@ -685,8 +685,11 @@ def scan_annotations_for_classes(scene_dirs: List[Path]) -> set:
                         for line in f:
                             parts = line.strip().split()
                             if len(parts) >= 1:
-                                class_label = parts[0]
-                                if class_label.lower() != "dontcare":
+                                if len(parts) >= 17 and parts[0].isdigit() and parts[1].isdigit():
+                                    class_label = parts[2]
+                                else:
+                                    class_label = parts[0]
+                                if class_label.lower() not in ("dontcare", "dont_care"):
                                     classes.add(class_label)
                 except Exception:
                     continue
@@ -1154,38 +1157,56 @@ async def import_scene_annotations(
                     if len(parts) < 15:
                         continue
                     
-                    class_label = parts[0]
-                    if class_label.lower() == "dontcare":
-                        continue
+                    track_id_val = None
+                    if len(parts) >= 17 and parts[0].isdigit() and parts[1].isdigit():
+                        class_label = parts[2]
+                        if class_label.lower() in ("dontcare", "dont_care"):
+                            continue
+                        try:
+                            track_int = int(parts[1])
+                            track_id_val = uuid.uuid5(scene.id, f"track-{track_int}")
+                            height = float(parts[10])
+                            width = float(parts[11])
+                            length = float(parts[12])
+                            x = float(parts[13])
+                            y = float(parts[14])
+                            z = float(parts[15])
+                            rotation_y = float(parts[16])
+                        except (ValueError, IndexError):
+                            continue
+                    else:
+                        class_label = parts[0]
+                        if class_label.lower() in ("dontcare", "dont_care"):
+                            continue
+                        try:
+                            height = float(parts[8])
+                            width = float(parts[9])
+                            length = float(parts[10])
+                            x = float(parts[11])
+                            y = float(parts[12])
+                            z = float(parts[13])
+                            rotation_y = float(parts[14])
+                        except (ValueError, IndexError):
+                            continue
                     
-                    try:
-                        height = float(parts[8])
-                        width = float(parts[9])
-                        length = float(parts[10])
-                        x = float(parts[11])
-                        y = float(parts[12])
-                        z = float(parts[13])
-                        rotation_y = float(parts[14])
-                        
-                        mapped_class_id = map_class_to_taxonomy(class_label, class_mapping) if class_mapping else class_label
-                        
-                        annotation_3d = Annotation3D(
-                            task_id=task.id,
-                            frame_id=frame.id,
-                            type="cuboid",
-                            class_id=mapped_class_id,
-                            taxonomy_id=task.taxonomy_id,
-                            data={
-                                "center": {"x": x, "y": y, "z": z},
-                                "dimensions": {"length": length, "width": width, "height": height},
-                                "rotation": {"yaw": rotation_y, "pitch": 0.0, "roll": 0.0}
-                            },
-                            source="auto",
-                        )
-                        db.add(annotation_3d)
-                        annotations_3d_count += 1
-                    except (ValueError, IndexError):
-                        continue
+                    mapped_class_id = map_class_to_taxonomy(class_label, class_mapping) if class_mapping else class_label
+                    
+                    annotation_3d = Annotation3D(
+                        task_id=task.id,
+                        frame_id=frame.id,
+                        track_id=track_id_val,
+                        type="cuboid",
+                        class_id=mapped_class_id,
+                        taxonomy_id=task.taxonomy_id,
+                        data={
+                            "center": {"x": x, "y": y, "z": z},
+                            "dimensions": {"length": length, "width": width, "height": height},
+                            "rotation": {"yaw": rotation_y, "pitch": 0.0, "roll": 0.0}
+                        },
+                        source="auto",
+                    )
+                    db.add(annotation_3d)
+                    annotations_3d_count += 1
     
     json_files = sorted(
         [
