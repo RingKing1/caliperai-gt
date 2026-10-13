@@ -5,9 +5,10 @@ import type { Point3D } from '@/types';
 
 interface PointCloudClickHandlerProps {
   onPointClick?: (point: Point3D) => void;
+  onEmptyClick?: () => void;
 }
 
-export const PointCloudClickHandler: React.FC<PointCloudClickHandlerProps> = ({ onPointClick }) => {
+export const PointCloudClickHandler: React.FC<PointCloudClickHandlerProps> = ({ onPointClick, onEmptyClick }) => {
   const { scene, camera, gl } = useThree();
   const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
 
@@ -17,7 +18,7 @@ export const PointCloudClickHandler: React.FC<PointCloudClickHandlerProps> = ({ 
 
   const handleClick = useCallback(
     (e: MouseEvent) => {
-      if (!onPointClick) return;
+      if (!onPointClick && !onEmptyClick) return;
 
       if (e.detail !== 1) return;
 
@@ -37,25 +38,49 @@ export const PointCloudClickHandler: React.FC<PointCloudClickHandlerProps> = ({ 
       raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
 
       const pointObjects: THREE.Object3D[] = [];
+      const meshObjects: THREE.Object3D[] = [];
       scene.traverse((obj) => {
         if ((obj as THREE.Points).isPoints) {
           pointObjects.push(obj);
+        } else if (
+          (obj as THREE.Mesh).isMesh &&
+          (obj as THREE.Mesh).geometry?.type === 'BoxGeometry'
+        ) {
+          // Only cuboid boxes count as annotation hits here (visual layer +
+          // invisible interaction layer). Camera image planes and other UI
+          // meshes must not block empty-space clicks.
+          meshObjects.push(obj);
         }
       });
 
-      if (pointObjects.length === 0) return;
+      const pointHits = pointObjects.length > 0
+        ? raycaster.intersectObjects(pointObjects, false)
+        : [];
+      const meshHits = meshObjects.length > 0
+        ? raycaster.intersectObjects(meshObjects, false)
+        : [];
 
-      const intersects = raycaster.intersectObjects(pointObjects, false);
-      if (intersects.length > 0) {
-        const pt = intersects[0].point;
-        onPointClick({
-          x: parseFloat(pt.x.toFixed(3)),
-          y: parseFloat(pt.y.toFixed(3)),
-          z: parseFloat(pt.z.toFixed(3)),
-        });
+      if (pointHits.length > 0 || meshHits.length > 0) {
+        // Nearest hit decides: a box in front of a point is a box click,
+        // which R3F handles separately — only forward point hits here.
+        const nearestPoint = pointHits[0]?.distance ?? Infinity;
+        const nearestMesh = meshHits[0]?.distance ?? Infinity;
+        if (nearestPoint < nearestMesh) {
+          const pt = pointHits[0].point;
+          onPointClick?.({
+            x: parseFloat(pt.x.toFixed(3)),
+            y: parseFloat(pt.y.toFixed(3)),
+            z: parseFloat(pt.z.toFixed(3)),
+          });
+        }
+        return;
       }
+
+      // Click hit neither a cuboid nor any point cloud — true empty space
+      // (sky / no-data area): deselect and restore the full camera panel.
+      onEmptyClick?.();
     },
-    [scene, camera, gl, onPointClick],
+    [scene, camera, gl, onPointClick, onEmptyClick],
   );
 
   useEffect(() => {

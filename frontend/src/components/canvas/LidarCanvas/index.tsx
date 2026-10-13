@@ -134,6 +134,7 @@ interface LidarCanvasProps {
   isQAMode?: boolean;
   onFlagMissingLocation?: (location: { x: number; y: number; z: number }) => void;
   onPointCloudClick?: (point: { x: number; y: number; z: number }) => void;
+  onEmptySpaceClick?: () => void;
   rightInset?: number;
 }
 
@@ -147,6 +148,7 @@ export const LidarCanvas: React.FC<LidarCanvasProps> = ({
   isQAMode = false,
   onFlagMissingLocation,
   onPointCloudClick,
+  onEmptySpaceClick,
   rightInset = 0,
 }) => {
   const { taxonomy, activeClassId, createAnnotation, lidarView, currentFrame, scene } = useEditorStore();
@@ -453,6 +455,7 @@ export const LidarCanvas: React.FC<LidarCanvasProps> = ({
       onPointerMissed={(e) => {
         if (e.detail === 1) {
           useEditorStore.getState().deselectAll();
+          onEmptySpaceClick?.();
         }
       }}
     >
@@ -496,7 +499,7 @@ export const LidarCanvas: React.FC<LidarCanvasProps> = ({
       )}
 
       <CursorTracker />
-      {showElements && <PointCloudClickHandler onPointClick={onPointCloudClick} />}
+      {showElements && <PointCloudClickHandler onPointClick={onPointCloudClick} onEmptyClick={onEmptySpaceClick} />}
     </Canvas>
   );
 

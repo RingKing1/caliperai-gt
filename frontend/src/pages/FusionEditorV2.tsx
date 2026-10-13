@@ -8799,9 +8799,22 @@ export const FusionEditorV2: React.FC = () => {
   }, [selectedCuboid, scene?.calibration?.lidar_to_cameras]);
 
   // When user clicks on a point cloud point (not a cuboid), show the best camera that sees that point
+  const handleEmptySpaceClick = useCallback(() => {
+    useEditorStore.getState().deselectAll();
+    useTrackStore.getState().setActiveTrack(null);
+    setVisibleCamerasForSelection([]);
+    setClickedLidarPoint(null);
+  }, []);
+
   const handlePointCloudClick = useCallback((point: { x: number; y: number; z: number }) => {
-    // If a cuboid is already selected, let the cuboid effect handle cameras
-    if (selection.selectedAnnotationIds.length > 0) return;
+    // If a cuboid is already selected, treat the click as deselection and
+    // restore the full 6-camera panel (don't narrow to the clicked point).
+    if (useEditorStore.getState().selection.selectedAnnotationIds.length > 0) {
+      useEditorStore.getState().deselectAll();
+      setVisibleCamerasForSelection([]);
+      setClickedLidarPoint(null);
+      return;
+    }
 
     if (!scene?.calibration?.lidar_to_cameras) return;
 
@@ -8821,7 +8834,7 @@ export const FusionEditorV2: React.FC = () => {
     } catch (error) {
       console.warn('[FusionEditorV2] Error computing visible cameras for point:', error);
     }
-  }, [scene?.calibration?.lidar_to_cameras, selection.selectedAnnotationIds]);
+  }, [scene?.calibration?.lidar_to_cameras]);
 
   // Mirror the work-timer running state so tool activation can be gated the same
   // way the tool-palette buttons are (timerLocked). The ref keeps the value fresh
@@ -9599,6 +9612,7 @@ export const FusionEditorV2: React.FC = () => {
           style={{ bottom: bottomOffsetPx }}
         >
           <LidarCanvas
+            onEmptySpaceClick={handleEmptySpaceClick}
             pointCloudData={pointCloudData}
             egoPose={currentFrame?.ego_pose ? {
               position: currentFrame.ego_pose.position,
