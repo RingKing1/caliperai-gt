@@ -294,12 +294,17 @@ export const SceneSearchPanel: React.FC<SceneSearchPanelProps> = ({
                       </span>
                     ))}
                     {row.preview_frames && row.preview_frames.length > 0 && (
-                      <span className="text-[10px] text-gray-500">
-                        代表帧{' '}
-                        {row.preview_frames
-                          .slice(0, 3)
-                          .map((pf) => `#${pf.frame_index}(${pf.camera})`)
-                          .join(' ')}
+                      <span className="flex items-center gap-1.5 ml-auto">
+                        {row.preview_frames.slice(0, 3).map((pf) => (
+                          <img
+                            key={`${pf.frame_index}-${pf.camera}`}
+                            src={sceneApi.frameImageUrl(row.scene_id, pf.frame_index, pf.camera, 240)}
+                            alt={`frame ${pf.frame_index} ${pf.camera}`}
+                            title={`#${pf.frame_index} ${pf.camera} · 相似度 ${pf.similarity.toFixed(3)}`}
+                            loading="lazy"
+                            className="w-24 h-[54px] object-cover rounded border border-gray-700 hover:border-cyan-400"
+                          />
+                        ))}
                       </span>
                     )}
                   </div>

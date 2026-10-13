@@ -5,13 +5,17 @@ from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from pathlib import Path
+from io import BytesIO
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models.models import Scene, Dataset, User, Permission
+from app.models.models import Scene, Dataset, Frame, User, Permission
 from app.api.v1.endpoints.datasets import auto_create_tasks_for_scene
 from app.schemas.schemas import (
     SceneCreate,
@@ -33,6 +37,7 @@ from app.services.scene_hybrid_search_service import search_scenes_hybrid
 from app.services.rbac_service import (
     get_current_user,
     RequirePermissions,
+    RequirePermissionsWithQuery,
 )
 
 router = APIRouter()
@@ -305,6 +310,110 @@ async def get_embedding_coverage(
     """Per-scene CLIP frame-embedding coverage."""
     rows = await embedding_coverage(db)
     return {"total_scenes": len(rows), "results": rows}
+
+
+import logging
+logger = logging.getLogger(__name__)
+
+import re as _re
+
+
+def _resolve_frame_image_path(file_paths: dict, camera: str) -> Path | None:
+    """Resolve a frame's on-disk camera image.
+
+    Imported bundles use either canonical keys ("front") or raw keys
+    ("camera_0_front100"); disk directories follow the same split, so try
+    both the canonical and raw camera directory.
+    """
+    cameras = file_paths.get("cameras") or {}
+    filename = cameras.get(camera)
+    raw_key = camera
+    if filename is None:
+        for key, value in cameras.items():
+            normalized = _re.sub(r"[0-9]+$", "", _re.sub(r"^camera_[0-9]+_", "", key))
+            if normalized == camera:
+                filename = value
+                raw_key = key
+                break
+    if not filename:
+        return None
+    meta = file_paths.get("_meta") or {}
+    lidar_dir = Path(meta.get("absolute_path", "")).parent
+    if not str(lidar_dir) or not lidar_dir.is_absolute():
+        return None
+    scene_dir = lidar_dir.parent
+    for dirname in (camera, raw_key):
+        candidate = scene_dir / "cameras" / dirname / filename
+        if candidate.exists():
+            return candidate
+    return None
+
+
+@router.get("/{scene_id}/frames/{frame_index}/image")
+async def get_frame_camera_image(
+    scene_id: UUID,
+    frame_index: int,
+    current_user: Annotated[
+        User,
+        Depends(RequirePermissionsWithQuery(Permission.SCENES_READ, Permission.SCENES_READ_ALL, require_all=False)),
+    ],
+    camera: str = Query("front"),
+    width: int = Query(400, gt=0, le=4096, description="Thumbnail width; keeps aspect ratio"),
+    quality: int = Query(80, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """Camera image (thumbnail-resized) for a frame, addressable by scene+frame+camera."""
+    result = await db.execute(
+        select(Frame.file_paths).where(
+            Frame.scene_id == scene_id,
+            Frame.frame_index == frame_index,
+        )
+    )
+    file_paths = result.scalar_one_or_none()
+    if file_paths is None:
+        raise HTTPException(status_code=404, detail=f"Frame {frame_index} not found in scene {scene_id}")
+
+    image_path = _resolve_frame_image_path(file_paths, camera)
+    if image_path is None:
+        raise HTTPException(status_code=404, detail=f"No {camera} image for frame {frame_index}")
+
+    ext = image_path.suffix.lower()
+    media_type = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}.get(
+        ext, "application/octet-stream"
+    )
+    try:
+        from PIL import Image
+
+        img = Image.open(image_path)
+        if img.mode == "RGBA" and ext in (".jpg", ".jpeg"):
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3])
+            img = background
+        orig_w, _ = img.size
+        if width and orig_w > width:
+            ratio = width / orig_w
+            img = img.resize((width, max(1, int(img.size[1] * ratio))), Image.Resampling.LANCZOS)
+        buffer = BytesIO()
+        if ext in (".jpg", ".jpeg"):
+            img.convert("RGB").save(buffer, format="JPEG", quality=quality, optimize=True)
+            media_type = "image/jpeg"
+        elif ext == ".png":
+            img.save(buffer, format="PNG", optimize=True)
+        elif ext == ".webp":
+            img.save(buffer, format="WEBP", quality=quality)
+        else:
+            return FileResponse(image_path, media_type=media_type)
+        buffer.seek(0)
+        return StreamingResponse(
+            buffer,
+            media_type=media_type,
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("frame image resize failed, returning original: %s", exc)
+        return FileResponse(image_path, media_type=media_type)
 
 
 @router.post("", response_model=SceneResponse, status_code=status.HTTP_201_CREATED)

@@ -469,6 +469,25 @@ export const sceneApi = {
   },
 
   /**
+   * Thumbnail URL for a frame camera image, addressable by scene+frame+camera.
+   * Token is passed as a query param so a plain <img> tag can load it.
+   */
+  frameImageUrl: (
+    sceneId: string,
+    frameIndex: number,
+    camera: string,
+    width = 320,
+  ): string => {
+    const base = `/scenes/${sceneId}/frames/${frameIndex}/image?camera=${encodeURIComponent(
+      camera,
+    )}&width=${width}`;
+    const token = useAuthStore.getState().accessToken;
+    return token
+      ? `/api/v1${base}&token=${encodeURIComponent(token)}`
+      : `/api/v1${base}`;
+  },
+
+  /**
    * Hybrid scene search: exact label filters first, optional CLIP semantic
    * ranking on top. Omitting semantic_q yields structured-only results.
    */
