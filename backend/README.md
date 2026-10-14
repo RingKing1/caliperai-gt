@@ -375,17 +375,26 @@ pytest -q
       其中 F821 是真实潜在 bug——本地文件夹导入路由 `POST /import` 使用了从未定义的
       `scene_name`，导致每个场景都抛 `NameError` 被 except 吞掉而导入失败，现改为
       `scene_meta.get("name") or scene_dir.name`，并补 3 个回归测试（293 测试全绿）。
+- [x] **上传管线错误码对齐**：`/upload` 增加 `except HTTPException: raise`，
+      文件校验类 400（路径穿越 / magic byte）不再被宽异常吞成 500，与 zip/video 一致。
+- [x] **zip 管线 `storage_paths` 超集对齐（2a）**：zip 导入补齐 `root` /
+      `images_base` / `ego_poses` 三个键（此前缺失会导致 `tasks.py` 与 `export.py`
+      读 `root` 退化），`ego_poses` 记录相对存储键；同时修正 zip 构造 Scene 时漏传
+      `id=scene_id` 导致落盘目录 UUID 与数据库主键不一致的问题。新增 ego_pose 键与
+      6 相机布局两管线对等测试（295 测试全绿），并用真实 6 相机 10 帧 ZIP 实测
+      upload / zip 两条管线产出一致（10 帧 × 6 相机、6 路标定、10 个 KITTI 标注就位）。
 
 ### 待完成（按 ROI 排序）
 
-- [ ] **P0 收尾（第二批）：逐场景编排合并 + 后台 job 化**：upload 与 upload-zip 的
-      逐场景循环仍各有一份，特征测试已就位，但实测发现以下真实分叉，需先定统一口径
-      （涉及前端编辑器消费的 `storage_paths` 结构，属行为变更，需联调确认）：
+- [ ] **P0 收尾（2b/2c）：剩余语义分叉统一 + 抽 orchestrator**：逐场景循环仍各有一份，
+      特征测试与真包对等验证已就位，剩余待统一口径（涉及前端编辑器消费的字段，需联调确认）：
       ego pose 解析（upload 从父级 metadata.json 合成 vs zip 支持 list 形态）、
-      标定继承（upload 逐场景重置 vs zip 继承数据集级标定）、`storage_paths` 字段形态、
-      平铺文件归类（单相机 vs lidar/default 分桶）、重名检查（zip 对用户改名跳过检查）、
-      以及 `/upload` 内部 400 被吞成 500 的异常处理分叉。口径统一后再抽 `orchestrator`，
-      并把长上传改为“后台 job + 进度查询”，消除数分钟长事务；video 管线结构不同，不并入。
+      标定继承（upload 逐场景重置 vs zip 继承数据集级标定）、
+      平铺文件归类（单相机 vs lidar/default 分桶）、重名检查（zip 对用户改名跳过检查）。
+      `storage_paths` 字段形态与 `/upload` 错误码分叉已在 2a / 错误码对齐中解决。
+      口径统一后再抽 `orchestrator` 合并循环；video 管线结构不同，不并入。
+- [ ] **P0 收尾（3）：长上传后台 job 化**：把数分钟的上传/解压/导入改为“后台 job +
+      进度查询”，消除长事务；需新增进度端点并与前端联调。
 - [ ] **P1 其余业务域补 service 层**：`tasks.py`、`qa.py`、`datasets.py`、
       `scenes.py`、`efficiency.py` 等仍有约 590 处直接 DB 访问；按标注域范式逐域提取。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
