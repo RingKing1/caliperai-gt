@@ -78,7 +78,7 @@ async def import_scene_annotations(
             annotations_dir = parent_annotations_dir
     
     if not annotations_dir.exists():
-        print(f"[DEBUG] No annotations directory found, returning 0,0")
+        print("[DEBUG] No annotations directory found, returning 0,0")
 
         return 0, 0
     
@@ -106,7 +106,7 @@ async def import_scene_annotations(
     if class_mapping:
         print(f"[DEBUG] Built class mapping with {len(class_mapping)} entries")
     else:
-        print(f"[DEBUG] No taxonomy found for dataset, using raw class labels")
+        print("[DEBUG] No taxonomy found for dataset, using raw class labels")
     
     annotations_3d_count = 0
     annotations_2d_count = 0

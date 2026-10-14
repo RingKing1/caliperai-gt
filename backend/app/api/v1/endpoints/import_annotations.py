@@ -536,7 +536,7 @@ async def import_dataset_annotations(
                 try:
                     json_content = zf.read(file_info.filename).decode('utf-8')
                     coco_data = json.loads(json_content)
-                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                except (json.JSONDecodeError, UnicodeDecodeError):
                     continue
                 
                 if scene_name not in annotations_by_scene:

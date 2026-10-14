@@ -1,9 +1,9 @@
 """Taxonomy derivation/merging and class mapping during import."""
 import json
 import logging
+import random
 from datetime import datetime
 from pathlib import Path
-import random
 from typing import Any, Dict, List, Optional, Set
 from uuid import UUID
 
@@ -19,8 +19,9 @@ from app.models.models import (
     TaxonomyAnnotationMode,
     dataset_taxonomy_association,
 )
-
 from app.services.dataset_import.constants import AUTO_CLASS_COLORS
+
+
 def scan_annotations_for_classes(scene_dirs: List[Path]) -> set:
     """
     Scan annotation files across all scene directories to extract unique class labels.
@@ -725,8 +726,4 @@ def derive_taxonomy_from_annotations(
             "require_track_id": True,
         },
     }
-
-
-from app.models.models import Dataset, Taxonomy, dataset_taxonomy_association
-
 

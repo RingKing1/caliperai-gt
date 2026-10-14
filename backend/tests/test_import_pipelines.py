@@ -833,3 +833,76 @@ async def test_build_import_frame_rows_alignment_and_meta(tmp_path):
     assert frames[1].file_paths["_meta"]["original_filename"] == "1.pcd"
     assert frames[1].timestamp == 12.5  # ego pose wins
     assert frames[1].ego_pose == ego[1]
+
+
+# ===========================================================================
+# /import  (local server-folder import; regression guard for the scene_name
+#           F821 NameError that previously made every scene fail)
+# ===========================================================================
+
+from app.services.dataset_import.schemas import ImportRequest  # noqa: E402
+
+
+def _build_local_dataset(root: Path, *, with_meta_name=True):
+    (root / "scenes" / "scene_alpha" / "lidar").mkdir(parents=True)
+    (root / "scenes" / "scene_alpha" / "lidar" / "0001.pcd").write_bytes(PCD_BYTES)
+    (root / "scenes" / "scene_alpha" / "lidar" / "0002.pcd").write_bytes(PCD_BYTES)
+    if with_meta_name:
+        (root / "scenes" / "scene_alpha" / "scene_metadata.json").write_text(
+            '{"name": "Alpha Scene", "fps": 5.0, "frame_count": 2}'
+        )
+
+
+@pytest.mark.asyncio
+async def test_local_import_uses_scene_meta_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(import_data, "auto_create_tasks_for_scene", AsyncMock())
+    dataset = _mock_dataset()
+    db = FakeSession(dataset=dataset)
+    root = tmp_path / "ds"
+    _build_local_dataset(root)
+
+    req = ImportRequest(dataset_id=dataset.id, root_path=str(root))
+    resp = await import_data.import_dataset(request=req, current_user=_mock_user(), db=db)
+
+    assert resp.success is True
+    assert resp.errors == []
+    assert resp.scenes_imported == 1
+    assert resp.frames_imported == 2
+    assert resp.renamed_scenes == []
+    scene = _scenes(db)[0]
+    assert scene.name == "Alpha Scene"
+    assert scene.fps == 5.0
+    assert [f.frame_index for f in _frames(db)] == [0, 1]
+    assert db.committed
+
+
+@pytest.mark.asyncio
+async def test_local_import_falls_back_to_folder_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(import_data, "auto_create_tasks_for_scene", AsyncMock())
+    db = FakeSession(dataset=_mock_dataset())
+    root = tmp_path / "ds"
+    _build_local_dataset(root, with_meta_name=False)
+
+    req = ImportRequest(dataset_id=_mock_dataset().id, root_path=str(root))
+    resp = await import_data.import_dataset(request=req, current_user=_mock_user(), db=db)
+
+    assert resp.success is True
+    assert _scenes(db)[0].name == "scene_alpha"
+
+
+@pytest.mark.asyncio
+async def test_local_import_duplicate_name_is_suffixed(tmp_path, monkeypatch):
+    monkeypatch.setattr(import_data, "auto_create_tasks_for_scene", AsyncMock())
+    db = FakeSession(dataset=_mock_dataset(), existing_scene=MagicMock())
+    root = tmp_path / "ds"
+    _build_local_dataset(root)
+
+    req = ImportRequest(dataset_id=_mock_dataset().id, root_path=str(root))
+    resp = await import_data.import_dataset(request=req, current_user=_mock_user(), db=db)
+
+    assert resp.success is True
+    assert len(resp.renamed_scenes) == 1
+    renamed = resp.renamed_scenes[0]
+    assert renamed.original_name == "Alpha Scene"
+    assert renamed.new_name.startswith("Alpha Scene_upload-")
+    assert _scenes(db)[0].name == renamed.new_name

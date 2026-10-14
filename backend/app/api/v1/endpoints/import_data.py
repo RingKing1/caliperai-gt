@@ -264,12 +264,6 @@ async def upload_and_import_dataset(
         errors: List[str] = []
         renamed_scenes: List[RenamedScene] = []
 
-        metadata_path = root_path / "metadata.json"
-        dataset_metadata = None
-        if metadata_path.exists():
-            with open(metadata_path) as f:
-                dataset_metadata = json.load(f)
-        
         calibration_data = {}
         calibration_path = root_path / "calibration"
         if calibration_path.exists():
@@ -281,7 +275,7 @@ async def upload_and_import_dataset(
         print(f"[IMPORT DEBUG] Number of scene_dirs: {len(scene_dirs)}")
         
         if derive_taxonomy and scene_dirs:
-            print(f"[IMPORT] derive_taxonomy=True, scanning annotations for classes...")
+            print("[IMPORT] derive_taxonomy=True, scanning annotations for classes...")
             discovered_classes = scan_annotations_for_classes(scene_dirs)
             if discovered_classes:
                 taxonomy = await derive_and_merge_taxonomy(
@@ -620,7 +614,7 @@ async def upload_zip_and_import_dataset(
     zip_path = Path(temp_dir) / "upload.zip"
     
     try:
-        print(f"[ZIP IMPORT] Receiving uploaded ZIP file...")
+        print("[ZIP IMPORT] Receiving uploaded ZIP file...")
         file_size = 0
         chunk_size = 1024 * 1024 * 10
         
@@ -635,7 +629,7 @@ async def upload_zip_and_import_dataset(
                     print(f"[ZIP IMPORT] Received {file_size / (1024*1024):.1f} MB...")
         
         print(f"[ZIP IMPORT] Uploaded file size: {file_size / (1024*1024):.1f} MB")
-        print(f"[ZIP IMPORT] Extracting ZIP file...")
+        print("[ZIP IMPORT] Extracting ZIP file...")
         extract_dir = Path(temp_dir) / "extracted"
         extract_dir.mkdir(parents=True, exist_ok=True)
         
@@ -676,12 +670,6 @@ async def upload_zip_and_import_dataset(
         errors: List[str] = []
         renamed_scenes: List[RenamedScene] = []
 
-        metadata_path = root_path / "metadata.json"
-        dataset_metadata = None
-        if metadata_path.exists():
-            with open(metadata_path) as f:
-                dataset_metadata = json.load(f)
-        
         calibration_data = {}
         calibration_path = root_path / "calibration"
         if calibration_path.exists():
@@ -692,7 +680,7 @@ async def upload_zip_and_import_dataset(
         print(f"[ZIP IMPORT] Scene directories to import: {[d.name for d in scene_dirs]}")
         
         if derive_taxonomy and scene_dirs:
-            print(f"[ZIP IMPORT] derive_taxonomy=True, scanning annotations for classes...")
+            print("[ZIP IMPORT] derive_taxonomy=True, scanning annotations for classes...")
             discovered_classes = scan_annotations_for_classes(scene_dirs)
             if discovered_classes:
                 taxonomy = await derive_and_merge_taxonomy(
@@ -1349,6 +1337,7 @@ async def import_dataset(
             storage_paths = get_storage_paths(scene_dir, root_path)
             
             scene_id = uuid.uuid4()
+            scene_name = scene_meta.get("name") or scene_dir.name
             existing_scene_query = select(Scene).where(
                 Scene.dataset_id == request.dataset_id,
                 Scene.name == scene_name,

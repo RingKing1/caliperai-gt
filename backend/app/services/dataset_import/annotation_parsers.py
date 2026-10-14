@@ -3,7 +3,6 @@ import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
-
 from app.models.models import (
     AnnotationSource,
     Scene,
@@ -15,8 +14,9 @@ from app.services.dataset_import.constants import (
     LIDAR_SENSOR_PATTERNS,
     ONLY_2D_TYPES,
 )
-
 from app.services.dataset_import.taxonomy import map_source_class_to_taxonomy
+
+
 def detect_annotation_mode_from_data(
     annotation_data: Dict[str, Any],
     sensor_name: Optional[str] = None,
@@ -36,11 +36,6 @@ def detect_annotation_mode_from_data(
     has_3d_dimensions = any(key in annotation_data for key in [
         "dimension_length", "dimension_width", "dimension_height",
         "dimensions", "size"
-    ])
-    
-    has_rotation = any(key in annotation_data for key in [
-        "rotation_yaw", "rotation_pitch", "rotation_roll",
-        "rotation", "yaw"
     ])
     
     ann_type = annotation_data.get("type", "").lower()
@@ -470,8 +465,6 @@ def parse_kitti_annotations(
         truncated = float(parts[1])
         occluded = int(parts[2])
         alpha = float(parts[3])
-        
-        bbox_2d = [float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])]
         
         height = float(parts[8])
         width = float(parts[9])

@@ -370,6 +370,11 @@ pytest -q
       `pipeline_layout`（场景发现 / 数据源分类）、`frame_rows`（Frame 行构建）、
       `storage.schedule_scene_mirror`（MinIO 镜像调度）三个共用件，upload/zip 的
       逐场景循环改为调用共用件（`import_data.py` 1694→1500 行），290 测试全绿。
+- [x] **导入域历史告警清零 + `/import` 场景名 bug 修复**：清除拆分时平移保留的
+      F821/F841/F541/F811 告警（未用变量、无占位符 f-string、重复局部导入）；
+      其中 F821 是真实潜在 bug——本地文件夹导入路由 `POST /import` 使用了从未定义的
+      `scene_name`，导致每个场景都抛 `NameError` 被 except 吞掉而导入失败，现改为
+      `scene_meta.get("name") or scene_dir.name`，并补 3 个回归测试（293 测试全绿）。
 
 ### 待完成（按 ROI 排序）
 

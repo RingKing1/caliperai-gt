@@ -23,19 +23,18 @@ from app.models.models import (
     Track2D,
 )
 from app.services.dataset_import.annotation_parsers import (
-    detect_annotation_mode_from_data,
-    detect_annotation_mode_from_file,
-    parse_coco_2d_annotations,
-    parse_coco_3d_annotations,
-)
-from app.services.dataset_import.annotation_parsers import (
     compute_3d_annotation_fingerprint,
     compute_annotation_fingerprint,
+    detect_annotation_mode_from_file,
     parse_calipergt_2d_annotations,
+    parse_coco_2d_annotations,
+    parse_coco_3d_annotations,
     parse_cvat_json_annotations,
 )
 from app.services.dataset_import.constants import SEGMENTATION_ROOT
 from app.services.dataset_import.taxonomy import map_source_class_to_taxonomy
+
+
 def build_empty_import_results() -> Dict[str, Any]:
     """Create a blank import results structure compatible with process_zip_annotations output."""
     return {
@@ -295,8 +294,6 @@ async def process_zip_annotations(
                     sensor_count = 0
                     for ann_data in annotations_to_create:
                         try:
-                            ann_mode = detect_annotation_mode_from_data(ann_data, sensor_name)
-                            
                             if ann_data.get("type") == "3d" or "position_x" in ann_data:
                                 frame_id = frame_id_map.get(ann_data["frame_index"])
                                 if not frame_id:
