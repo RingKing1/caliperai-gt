@@ -9336,7 +9336,11 @@ export const FusionEditorV2: React.FC = () => {
         case 'l': if (!blockedByTimer()) store.setActiveTool('polyline'); break;
         case 'p': if (!blockedByTimer()) store.setActiveTool('polygon'); break;
         case 'f':
-          if (e.shiftKey && effectiveQAMode) {
+          if (e.altKey) {
+            // Alt+F = toggle fisheye/pinhole projection
+            e.preventDefault();
+            store.toggleFisheyeProjection();
+          } else if (e.shiftKey && effectiveQAMode) {
             // Shift+F for Flag Missing tool (QA mode only)
             store.setActiveTool('flag_missing');
           } else {
@@ -9359,11 +9363,6 @@ export const FusionEditorV2: React.FC = () => {
           } else if (!effectiveQAMode) {
             store.setActiveTool('track');
           }
-          break;
-        case 'f':
-          // F = Fisheye projection toggle
-          e.preventDefault();
-          store.toggleFisheyeProjection();
           break;
         case 'g':
           // G = Go back to 3D perspective view (reset camera)
@@ -9601,7 +9600,7 @@ export const FusionEditorV2: React.FC = () => {
                 ? 'bg-purple-500 text-white hover:bg-purple-600'
                 : 'bg-dark-panel/90 text-gray-300 hover:bg-gray-700 border border-gray-600'
             }`}
-            title={lidarView.useFisheyeProjection ? 'Switch to Pinhole Projection [F]' : 'Switch to Fisheye Projection [F]'}
+            title={lidarView.useFisheyeProjection ? 'Switch to Pinhole Projection [Alt+F]' : 'Switch to Fisheye Projection [Alt+F]'}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               {lidarView.useFisheyeProjection ? (
@@ -10261,6 +10260,7 @@ export const FusionEditorV2: React.FC = () => {
                       ['← →', 'Prev / Next frame (when no box selected)'],
                       ['Alt + ← →', 'Force frame step (even with box selected)'],
                       ['Shift+T', 'Toggle top view'],
+                      ['Alt + F', 'Toggle fisheye projection'],
                       ['G', 'Back to 3D view'],
                     ].map(([key, desc]) => (
                       <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
