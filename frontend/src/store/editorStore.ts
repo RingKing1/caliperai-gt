@@ -595,6 +595,33 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const annotation = annotations.get(id);
 
     if (annotation) {
+      // Robustness guard: Prevent assigning track_id if another annotation in the same frame already has it,
+      // or if there is a class mismatch with existing track annotations
+      if (updates.track_id && updates.track_id !== annotation.track_id) {
+        const targetFrameId = updates.frame_id || annotation.frame_id;
+        const targetClassId = updates.class_id || annotation.class_id;
+
+        for (const [otherId, otherAnn] of annotations) {
+          if (otherId === id) continue;
+          if (otherAnn.track_id === updates.track_id) {
+            // Temporal exclusivity: One Object Per Frame Per Track
+            if (otherAnn.frame_id === targetFrameId) {
+              console.warn(
+                `[EditorStore] Rejected duplicate track_id: annotation ${otherId} already has track_id ${updates.track_id} on frame ${targetFrameId}`
+              );
+              return;
+            }
+            // Class invariance: Category Consistency across Track
+            if (targetClassId && otherAnn.class_id && otherAnn.class_id !== targetClassId) {
+              console.warn(
+                `[EditorStore] Rejected class mismatch: track ${updates.track_id} has class ${otherAnn.class_id}, but annotation has ${targetClassId}`
+              );
+              return;
+            }
+          }
+        }
+      }
+
       const EPSILON = 1e-6;
       const currentCuboid = annotation.type === 'cuboid' ? annotation.data as CuboidData : null;
       const nextCuboid = updates.data ? updates.data as CuboidData : null;

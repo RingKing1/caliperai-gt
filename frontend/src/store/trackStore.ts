@@ -508,6 +508,21 @@ export const useTrackStore = create<TrackState>((set, get) => ({
       return;
     }
 
+    const editorStore = useEditorStore.getState();
+
+    // Enforce "One Object Per Frame Per Track":
+    // If this frame already has an existing annotation linked to this track, unlink the old one
+    const existingAnnId = track.frame_annotations.get(frameId);
+    if (existingAnnId && existingAnnId !== annotationId) {
+      const oldAnn = editorStore.annotations.get(existingAnnId);
+      if (oldAnn && oldAnn.track_id === trackId) {
+        editorStore.updateAnnotation(existingAnnId, {
+          track_id: undefined,
+          is_keyframe: false,
+        });
+      }
+    }
+
     const newFrameAnnotations = new Map(track.frame_annotations);
     newFrameAnnotations.set(frameId, annotationId);
 
@@ -516,8 +531,7 @@ export const useTrackStore = create<TrackState>((set, get) => ({
       newKeyframes.add(frameId);
     }
 
-    const editorStoreState = useEditorStore.getState();
-    const targetFrame = editorStoreState.frames.find(f => f.id === frameId);
+    const targetFrame = editorStore.frames.find(f => f.id === frameId);
     let startIdx = track.start_frame_index;
     let endIdx = track.end_frame_index;
     if (targetFrame) {
@@ -542,7 +556,6 @@ export const useTrackStore = create<TrackState>((set, get) => ({
     newTracks.set(trackId, updatedTrack);
     set({ tracks: newTracks });
 
-    const editorStore = useEditorStore.getState();
     editorStore.updateAnnotation(annotationId, {
       track_id: trackId,
       is_keyframe: isKeyframe,
@@ -1189,19 +1202,32 @@ export const useTrackStore = create<TrackState>((set, get) => ({
       return;
     }
 
+    if (sourceTrack.class_id && targetTrack.class_id && sourceTrack.class_id !== targetTrack.class_id) {
+      console.error(`[TrackStore] Cannot merge tracks with different classes: [${sourceTrack.class_id}] vs [${targetTrack.class_id}]`);
+      return;
+    }
+
     const editorStore = useEditorStore.getState();
 
     // Merge frame annotations - target takes precedence on conflicts
     const mergedFrameAnnotations = new Map(targetTrack.frame_annotations);
+    const conflictingFrames = new Set<string>();
+
     sourceTrack.frame_annotations.forEach((annId, frameId) => {
       if (!mergedFrameAnnotations.has(frameId)) {
         mergedFrameAnnotations.set(frameId, annId);
+      } else {
+        conflictingFrames.add(frameId);
       }
     });
 
-    // Merge keyframes
+    // Merge keyframes only for non-conflicting frames
     const mergedKeyframes = new Set(targetTrack.keyframe_ids);
-    sourceTrack.keyframe_ids.forEach(kf => mergedKeyframes.add(kf));
+    sourceTrack.keyframe_ids.forEach(kf => {
+      if (!conflictingFrames.has(kf)) {
+        mergedKeyframes.add(kf);
+      }
+    });
 
     // Update target track
     const updatedTarget: Track = {
@@ -1211,11 +1237,17 @@ export const useTrackStore = create<TrackState>((set, get) => ({
       updated_at: new Date().toISOString(),
     };
 
-    // Update annotations to point to target track
+    // Update annotations to point to target track ONLY FOR NON-CONFLICTING frames!
+    // This strictly enforces "One Object Per Frame Per Track"
     const currentAnnotations = new Map(editorStore.annotations);
     const currentDirty = new Map(editorStore.dirtyAnnotations);
 
-    sourceTrack.frame_annotations.forEach((annId) => {
+    sourceTrack.frame_annotations.forEach((annId, frameId) => {
+      if (conflictingFrames.has(frameId)) {
+        // Collision: Target track already has a box on this frame!
+        // Do NOT overwrite this source annotation's track_id to targetTrackId.
+        return;
+      }
       const ann = currentAnnotations.get(annId);
       if (ann) {
         currentAnnotations.set(annId, { ...ann, track_id: targetTrackId });

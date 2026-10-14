@@ -164,12 +164,16 @@ export const TrackTimelineBar: React.FC = () => {
   const handleAddToTrack = async () => {
     if (!candidateToLink) return;
     setIsLinking(true);
-    const ok = await addToTrack(candidateToLink.id);
+    const res = await addToTrack(candidateToLink.id);
     setIsLinking(false);
-    if (ok) {
-      showToast(`已成功将当前帧目标加入 Track #${shortTrackId}！`);
+    if (res.success) {
+      if (res.warning) {
+        showToast(`已加入 Track #${shortTrackId}（${res.warning}）`);
+      } else {
+        showToast(`已成功将当前帧目标加入 Track #${shortTrackId}！`);
+      }
     } else {
-      showToast('加入轨迹失败，请重试');
+      showToast(res.error || '加入轨迹失败，请重试');
     }
   };
 
@@ -201,7 +205,7 @@ export const TrackTimelineBar: React.FC = () => {
     if (res.success) {
       if (res.conflictCount && res.conflictCount > 0) {
         showToast(
-          `已成功缝合！并入 ${res.mergedCount} 帧 (检测到 ${res.conflictCount} 帧冲突，已以主轨迹为准保留，次轨迹重叠框已完整保留原 ID 供后续合并)`
+          `已成功缝合！并入 ${res.mergedCount} 帧 (检测到 ${res.conflictCount} 帧重叠冲突，已以主轨迹为准保留，次轨迹重叠框已保留原 ID)`
         );
       } else {
         showToast(
@@ -209,7 +213,7 @@ export const TrackTimelineBar: React.FC = () => {
         );
       }
     } else {
-      showToast('轨迹合并失败，请检查网络或后端日志');
+      showToast(res.error || '轨迹合并失败，请检查网络或后端日志');
     }
   };
 

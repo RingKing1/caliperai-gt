@@ -7,6 +7,7 @@ import { useAnnotation4DStore } from '@/store/annotation4DStore';
 import { annotation3DApi, annotationApi, annotation2DApi, taskApi } from '@/api/client';
 import { useFusionLabels } from './hooks';
 import type { Annotation, CuboidData } from '@/types';
+import { validateTrackBinding, validateTrackMerge } from '@/utils/trackValidation';
 
 const KeyframeIcon = () => (
   <svg className="w-3 h-3 text-yellow-400" viewBox="0 0 24 24" fill="currentColor">
@@ -261,6 +262,12 @@ export const LabelListPanel: React.FC = () => {
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [expandedPropertiesId, setExpandedPropertiesId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'warning' | 'info' } | null>(null);
+
+  const showToast = (message: string, type: 'error' | 'warning' | 'info' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
   const queryClient = useQueryClient();
   const allAnnotations = useCurrentFrameAnnotations();
   const { task, selection, selectAnnotation, updateAnnotation, deleteAnnotation, taxonomy, annotations: allAnnotationsMap, setSuppressPropertiesPanel, setAnnotations, setTask } = useEditorStore();
@@ -384,7 +391,30 @@ export const LabelListPanel: React.FC = () => {
 
   const handleSaveEdit = (annId: string, field: 'track_id') => {
     if (field === 'track_id' && editValue.trim()) {
-      updateAnnotation(annId, { track_id: editValue.trim() });
+      const newTrackId = editValue.trim();
+      const ann = allAnnotationsMap.get(annId) || allAnnotations.find(a => a.id === annId);
+      if (ann) {
+        const validation = validateTrackBinding({
+          targetTrackId: newTrackId,
+          candidateAnnotation: ann,
+          allAnnotations: allAnnotationsMap,
+          frames: useEditorStore.getState().frames,
+          lockedAnnotationIds: useEditorStore.getState().lockedAnnotationIds,
+        });
+
+        if (!validation.valid) {
+          showToast(validation.error || '轨迹绑定失败', 'error');
+          setEditingId(null);
+          setEditValue('');
+          return;
+        }
+
+        if (validation.warning) {
+          showToast(validation.warning, 'warning');
+        }
+
+        updateAnnotation(annId, { track_id: newTrackId });
+      }
     }
     setEditingId(null);
     setEditValue('');
@@ -433,7 +463,23 @@ export const LabelListPanel: React.FC = () => {
       // First track selected
       setMergeMode({ active: true, sourceTrackId: trackId });
     } else if (mergeMode.sourceTrackId !== trackId) {
-      // Second track selected - perform merge
+      // Second track selected - validate before performing merge
+      const validation = validateTrackMerge({
+        sourceTrackId: mergeMode.sourceTrackId,
+        targetTrackId: trackId,
+        allAnnotations: allAnnotationsMap,
+      });
+
+      if (!validation.valid) {
+        showToast(validation.error || '无法合并轨迹', 'error');
+        setMergeMode({ active: false, sourceTrackId: null });
+        return;
+      }
+
+      if (validation.warning) {
+        showToast(validation.warning, 'warning');
+      }
+
       mergeTracks(mergeMode.sourceTrackId, trackId);
       setMergeMode({ active: false, sourceTrackId: null });
     }
@@ -563,6 +609,28 @@ export const LabelListPanel: React.FC = () => {
             </span>
           </div>
         </div>
+
+        {/* Track Validation Toast Notice */}
+        {toast && (
+          <div className={`mx-2 my-1.5 p-2 rounded-lg text-xs border shadow-lg flex items-start gap-2 animate-fadeIn z-20 ${
+            toast.type === 'error'
+              ? 'bg-rose-950/90 text-rose-200 border-rose-500/50'
+              : toast.type === 'warning'
+                ? 'bg-amber-950/90 text-amber-200 border-amber-500/50'
+                : 'bg-cyan-950/90 text-cyan-200 border-cyan-500/50'
+          }`}>
+            <span className="font-bold flex-shrink-0 mt-0.5">
+              {toast.type === 'error' ? '❌' : toast.type === 'warning' ? '⚠️' : 'ℹ️'}
+            </span>
+            <div className="flex-1 leading-snug">{toast.message}</div>
+            <button
+              onClick={() => setToast(null)}
+              className="text-gray-400 hover:text-white flex-shrink-0 ml-1 text-xs"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-2 space-y-4 custom-scrollbar">
           {Object.entries(groupedAnnotations).map(([classId, items]) => (

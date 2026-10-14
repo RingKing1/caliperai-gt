@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { annotation3DApi } from '@/api/client';
 import type { CuboidData, Dimensions3D } from '@/types';
+import { validateTrackBinding, validateTrackMerge } from '@/utils/trackValidation';
 
 export interface TrackTimelineNode {
   frameIndex: number;
@@ -275,22 +276,43 @@ export function useTrackTimeline() {
 
   // 7. Add current or specified candidate annotation into this track
   const addToTrack = useCallback(
-    async (targetAnnId?: string) => {
+    async (targetAnnId?: string): Promise<{ success: boolean; error?: string; warning?: string }> => {
       const annId = targetAnnId || candidateToLink?.id;
-      if (!annId || !activeTrackId) return false;
+      if (!annId || !activeTrackId) {
+        return { success: false, error: '未找到待关联物体或当前未选定主轨迹' };
+      }
+
+      const candidateAnn = annotations.get(annId) || (candidateToLink?.id === annId ? candidateToLink : null);
+      if (!candidateAnn) {
+        return { success: false, error: '未找到待关联物体数据' };
+      }
+
+      // Industrial-grade validation
+      const validation = validateTrackBinding({
+        targetTrackId: activeTrackId,
+        candidateAnnotation: candidateAnn,
+        allAnnotations: annotations,
+        trackAnnotations,
+        frames,
+        lockedAnnotationIds: useEditorStore.getState().lockedAnnotationIds,
+      });
+
+      if (!validation.valid) {
+        return { success: false, error: validation.error };
+      }
 
       try {
         await annotation3DApi.update(annId, { track_id: activeTrackId });
         updateAnnotation(annId, { track_id: activeTrackId });
         // Refresh track annotations
         await fetchTrackAnnotations(activeTrackId);
-        return true;
+        return { success: true, warning: validation.warning };
       } catch (err) {
         console.error('[useTrackTimeline] Failed to add annotation to track:', err);
-        return false;
+        return { success: false, error: '加入轨迹失败，请检查网络或后端日志' };
       }
     },
-    [candidateToLink?.id, activeTrackId, updateAnnotation, fetchTrackAnnotations]
+    [candidateToLink, activeTrackId, annotations, trackAnnotations, frames, updateAnnotation, fetchTrackAnnotations]
   );
 
   // 8. Detach / split annotation from current track (Error correction)
@@ -336,15 +358,39 @@ export function useTrackTimeline() {
 
   // 9. Merge another track (sourceTrackId) into current activeTrackId (Target Precedence)
   const mergeWithTrack = useCallback(
-    async (sourceTrackId: string) => {
+    async (sourceTrackId: string): Promise<{ success: boolean; error?: string; warning?: string; mergedCount: number; conflictCount: number; sourceTrackId?: string }> => {
       if (!activeTrackId || !sourceTrackId || activeTrackId === sourceTrackId || !task?.id) {
-        return { success: false, mergedCount: 0, conflictCount: 0 };
+        return { success: false, error: '无效的合并轨迹目标', mergedCount: 0, conflictCount: 0 };
+      }
+
+      // Pre-validation (checks self-merge & local class consistency)
+      const mergeValidation = validateTrackMerge({
+        sourceTrackId,
+        targetTrackId: activeTrackId,
+        allAnnotations: annotations,
+        targetAnnotations: trackAnnotations,
+      });
+
+      if (!mergeValidation.valid) {
+        return { success: false, error: mergeValidation.error, mergedCount: 0, conflictCount: 0 };
       }
 
       setIsLoading(true);
       try {
         // Fetch all annotations for sourceTrackId
         const sourceList = await annotation3DApi.list(task.id, undefined, sourceTrackId);
+
+        // Verify class consistency with server-fetched annotations
+        const targetClass = trackAnnotations[0]?.class_id || selectedAnnotation?.class_id;
+        const invalidClassAnn = sourceList?.find((a: any) => targetClass && a.class_id && a.class_id !== targetClass);
+        if (invalidClassAnn) {
+          return {
+            success: false,
+            error: `类别不匹配：源轨迹包含类别 [${invalidClassAnn.class_id}]，而主轨迹类别为 [${targetClass}]，禁止合并！`,
+            mergedCount: 0,
+            conflictCount: 0,
+          };
+        }
 
         // Build lookup of frame_ids that already exist in activeTrack
         const activeFrameIdSet = new Set<string>();
@@ -408,15 +454,16 @@ export function useTrackTimeline() {
           mergedCount,
           conflictCount,
           sourceTrackId,
+          warning: mergeValidation.warning,
         };
       } catch (err) {
         console.error('[useTrackTimeline] Failed to merge tracks:', err);
-        return { success: false, mergedCount: 0, conflictCount: 0 };
+        return { success: false, error: '轨迹合并网络请求异常，请检查后端服务', mergedCount: 0, conflictCount: 0 };
       } finally {
         setIsLoading(false);
       }
     },
-    [activeTrackId, task?.id, trackAnnotations, candidateToLink, updateAnnotation, fetchTrackAnnotations]
+    [activeTrackId, task?.id, trackAnnotations, candidateToLink, selectedAnnotation, annotations, updateAnnotation, fetchTrackAnnotations]
   );
 
   // 10. One-click sync dimensions across all track objects

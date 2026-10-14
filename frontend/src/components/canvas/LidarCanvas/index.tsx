@@ -215,8 +215,9 @@ export const LidarCanvas: React.FC<LidarCanvasProps> = ({
 
       const activeTrack = activeTrackId ? useTrackStore.getState().tracks.get(activeTrackId) : null;
       const activeTrackHasCurrentFrame = activeTrack?.frame_annotations.has(currentFrame.id);
+      const isSameClass = activeTrack ? activeTrack.class_id === effectiveClassId : true;
 
-      if (activeTrackId && !activeTrackHasCurrentFrame) {
+      if (activeTrackId && !activeTrackHasCurrentFrame && isSameClass) {
         addAnnotationToTrack(activeTrackId, currentFrame.id, annotation.id, true);
         trackId = activeTrackId;
       } else {
