@@ -145,12 +145,11 @@ export const useCameraProjections = () => {
   }, []);
 
   const handlePointCloudClick = useCallback((point: { x: number; y: number; z: number }) => {
-    if (useEditorStore.getState().selection.selectedAnnotationIds.length > 0) {
-      useEditorStore.getState().deselectAll();
-      setVisibleCamerasForSelection([]);
-      setClickedLidarPoint(null);
-      return;
-    }
+    // Clicking on point cloud: deselect any active annotation and dismiss track timebar
+    useEditorStore.getState().deselectAll();
+    useTrackStore.getState().setActiveTrack(null);
+    setVisibleCamerasForSelection([]);
+    setClickedLidarPoint(null);
 
     if (!scene?.calibration?.lidar_to_cameras) return;
 

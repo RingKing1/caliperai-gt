@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
+import { useTrackStore } from '@/store/trackStore';
 import { annotation3DApi } from '@/api/client';
 import type { CuboidData, Dimensions3D } from '@/types';
 import { validateTrackBinding, validateTrackMerge } from '@/utils/trackValidation';
@@ -31,7 +32,9 @@ export function useTrackTimeline() {
     isKeyframeAt,
   } = useEditorStore();
 
-  const [isOpen, setIsOpen] = useState(true);
+  const { activeTrackId: storeActiveTrackId, setActiveTrack } = useTrackStore();
+
+  const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [trackAnnotations, setTrackAnnotations] = useState<any[]>([]);
 
@@ -47,13 +50,14 @@ export function useTrackTimeline() {
   }, [selectedAnnotationId, annotations]);
 
   // When user selects an annotation with track_id:
-  // - If no pinned track is set yet, pin it
+  // - If no pinned track is set yet, pin it and set store active track
   // - If it belongs to current pinned track, update class info
   // - If it belongs to a different track, do NOT auto-overwrite pinned session so user can Merge or Switch
   useEffect(() => {
     if (selectedAnnotation?.track_id) {
       if (!pinnedTrackId) {
         setPinnedTrackId(selectedAnnotation.track_id);
+        setActiveTrack(selectedAnnotation.track_id);
         if (selectedAnnotation.class_id) {
           setPinnedTrackClass(selectedAnnotation.class_id);
         }
@@ -64,19 +68,33 @@ export function useTrackTimeline() {
         }
       }
     }
-  }, [selectedAnnotation?.track_id, selectedAnnotation?.class_id, pinnedTrackId]);
+  }, [selectedAnnotation?.track_id, selectedAnnotation?.class_id, pinnedTrackId, setActiveTrack]);
 
-  const activeTrackId = pinnedTrackId || selectedAnnotation?.track_id || null;
+  // When storeActiveTrackId is cleared to null (e.g. user clicked empty space, point cloud, or pressed Esc),
+  // hide the track timeline bar and clear pinned session.
+  useEffect(() => {
+    if (storeActiveTrackId === null) {
+      setPinnedTrackId(null);
+      setIsOpen(false);
+    } else if (storeActiveTrackId && storeActiveTrackId !== pinnedTrackId) {
+      setPinnedTrackId(storeActiveTrackId);
+      setIsOpen(true);
+    }
+  }, [storeActiveTrackId, pinnedTrackId]);
+
+  const activeTrackId = (isOpen && storeActiveTrackId) ? (pinnedTrackId || storeActiveTrackId) : null;
 
   const closeTimeline = useCallback(() => {
     setIsOpen(false);
     setPinnedTrackId(null);
-  }, []);
+    setActiveTrack(null);
+  }, [setActiveTrack]);
 
   const switchTrack = useCallback((newTrackId: string) => {
     setPinnedTrackId(newTrackId);
+    setActiveTrack(newTrackId);
     setIsOpen(true);
-  }, []);
+  }, [setActiveTrack]);
 
   // 2. Build fast lookup: frameId <-> frameIndex
   const frameIdToIndex = useMemo(() => {

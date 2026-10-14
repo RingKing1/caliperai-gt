@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
+import { useTrackStore } from '@/store/trackStore';
 import type { PointCloudData, CameraCalibration, Annotation, CuboidData, TaxonomyConfig } from '@/types';
 
 interface ProjectedCuboid {
@@ -447,6 +448,7 @@ export const ProjectedPointsOverlay: React.FC<ProjectedPointsOverlayProps> = ({
     }
 
     useEditorStore.getState().deselectAll();
+    useTrackStore.getState().setActiveTrack(null);
   }, [selectAnnotation, zoom, pan]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {

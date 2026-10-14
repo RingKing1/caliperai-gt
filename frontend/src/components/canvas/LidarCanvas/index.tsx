@@ -456,6 +456,7 @@ export const LidarCanvas: React.FC<LidarCanvasProps> = ({
       onPointerMissed={(e) => {
         if (e.detail === 1) {
           useEditorStore.getState().deselectAll();
+          useTrackStore.getState().setActiveTrack(null);
           onEmptySpaceClick?.();
         }
       }}
