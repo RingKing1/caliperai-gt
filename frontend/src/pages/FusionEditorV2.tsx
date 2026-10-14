@@ -2642,7 +2642,8 @@ const FocusedCameraCard: React.FC<{
   classColor: string;
   onClick: () => void;
   clickedPoint?: { x: number; y: number; z: number } | null;
-}> = React.memo(({ cameraId, imageUrl, selectedCuboid, classColor, onClick, clickedPoint }) => {
+  allCuboids?: Array<{ cuboid: CuboidData; color: string; accepted: boolean }>;
+}> = React.memo(({ cameraId, imageUrl, selectedCuboid, classColor, onClick, clickedPoint, allCuboids }) => {
   const scene = useEditorStore(state => state.scene);
   const useFisheyeProjection = useEditorStore(state => state.lidarView.useFisheyeProjection);
   const clipBox = useEditorStore(state => state.lidarView.clipBox);
@@ -2713,7 +2714,7 @@ const FocusedCameraCard: React.FC<{
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!cameraCalib || !canvas.width || !canvas.height) return;
-    if (!selectedCuboid && !clickedPoint) return;
+    if (!selectedCuboid && !clickedPoint && !(allCuboids && allCuboids.length > 0)) return;
 
     // XYZ Range Filter: Skip rendering if cuboid center is outside the clipBox bounds
     if (clipBox?.enabled && selectedCuboid) {
@@ -2900,6 +2901,58 @@ const FocusedCameraCard: React.FC<{
       };
     };
 
+    // All current-frame cuboids as thin projections (static review mode).
+    // The selected cuboid is skipped here because it is drawn prominently below.
+    if (allCuboids && allCuboids.length > 0) {
+      const thinEdges: [number, number][] = [
+        [0,1],[1,2],[2,3],[3,0],
+        [4,5],[5,6],[6,7],[7,4],
+        [0,4],[1,5],[2,6],[3,7],
+      ];
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 1;
+      for (const item of allCuboids) {
+        if (selectedCuboid && item.cuboid === selectedCuboid) continue;
+        if (clipBox?.enabled) {
+          const c = item.cuboid.center;
+          if (c.x < clipBox.xMin || c.x > clipBox.xMax ||
+              c.y < clipBox.yMin || c.y > clipBox.yMax ||
+              c.z < clipBox.zMin || c.z > clipBox.zMax) continue;
+        }
+        const { center, dimensions, rotation } = item.cuboid;
+        const yaw = rotation?.yaw ?? 0;
+        const hl = ((dimensions?.length ?? 1)) / 2;
+        const hw = ((dimensions?.width ?? 1)) / 2;
+        const hh = ((dimensions?.height ?? 1)) / 2;
+        const cosA = Math.cos(yaw);
+        const sinA = Math.sin(yaw);
+        const corners: [number, number, number][] = [
+          [ hl,  hw, -hh], [ hl, -hw, -hh], [-hl, -hw, -hh], [-hl,  hw, -hh],
+          [ hl,  hw,  hh], [ hl, -hw,  hh], [-hl, -hw,  hh], [-hl,  hw,  hh],
+        ];
+        const pts = corners.map(([lx, ly, lz]) =>
+          project(
+            center.x + cosA*lx - sinA*ly,
+            center.y + sinA*lx + cosA*ly,
+            center.z + lz,
+          )
+        );
+        if (pts.filter(Boolean).length < 2) continue;
+        ctx.strokeStyle = item.accepted ? '#ef4444' : item.color;
+        ctx.globalAlpha = 0.75;
+        for (const [i, j] of thinEdges) {
+          const a = pts[i];
+          const b = pts[j];
+          if (!a || !b) continue;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1.0;
+    }
+
     // Build 8 corners from cuboid data (skip if no cuboid selected)
     if (selectedCuboid) {
     const { center, dimensions, rotation } = selectedCuboid;
@@ -2972,7 +3025,7 @@ const FocusedCameraCard: React.FC<{
         ctx.restore();
       }
     }
-  }, [selectedCuboid, cameraCalib, containerSize, classColor, stableImageSize, useFisheyeProjection, clipBox, _imgVersion, clickedPoint]);
+  }, [selectedCuboid, cameraCalib, containerSize, classColor, stableImageSize, useFisheyeProjection, clipBox, _imgVersion, clickedPoint, allCuboids]);
 
   // Auto-zoom to clicked point
   useEffect(() => {
@@ -3183,6 +3236,23 @@ const FocusedCameraViews: React.FC<FocusedCameraViewsProps> = ({
     return `${baseUrl}?${params.toString()}`;
   };
 
+  // Current-frame cuboids for thin projections across all cameras (static review)
+  const frameAnnotations = useCurrentFrameAnnotations();
+  const taxonomy = useEditorStore((st) => st.taxonomy);
+  const allCuboids = React.useMemo(() => {
+    const hiddenIds = useEditorStore.getState().hiddenAnnotationIds;
+    return frameAnnotations
+      .filter((a) => a.type === 'cuboid' && !!a.data && !hiddenIds.has(a.id))
+      .map((a) => {
+        const def = taxonomy?.classes.find((c) => c.id === a.class_id);
+        return {
+          cuboid: a.data as CuboidData,
+          color: def?.color || '#3b82f6',
+          accepted: a.is_verified === true,
+        };
+      });
+  }, [frameAnnotations, taxonomy, selectedCuboid]);
+
   // Handle resizing
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -3268,6 +3338,7 @@ const FocusedCameraViews: React.FC<FocusedCameraViewsProps> = ({
               classColor={classColor}
               onClick={() => onCameraClick ? onCameraClick(cameraId) : useEditorStore.getState().activateCameraView(cameraId)}
               clickedPoint={clickedPoint}
+              allCuboids={allCuboids}
             />
           ))}
         </div>
@@ -8413,6 +8484,69 @@ export const FusionEditorV2: React.FC = () => {
 
   useEffect(() => { if (framesData?.frames) setFrames(framesData.frames); }, [framesData, setFrames]);
 
+  // ── Per-task persistence: keyframe sampling settings + last viewed frame ──
+  const keyframeSamplingEnabled = useEditorStore((st) => st.keyframeSamplingEnabled);
+  const keyframeInterval = useEditorStore((st) => st.keyframeInterval);
+  const keyframeStartFrame = useEditorStore((st) => st.keyframeStartFrame);
+  const editorPrefsKey = taskId ? `editor_prefs_${taskId}` : null;
+  const restoredFrameRef = useRef<string | null>(null);
+
+  // Restore keyframe sampling settings when the task changes
+  useEffect(() => {
+    if (!editorPrefsKey) return;
+    try {
+      const raw = localStorage.getItem(editorPrefsKey);
+      if (!raw) return;
+      const prefs = JSON.parse(raw);
+      const store = useEditorStore.getState();
+      if (typeof prefs.keyframeSamplingEnabled === 'boolean') store.setKeyframeSamplingEnabled(prefs.keyframeSamplingEnabled);
+      if (typeof prefs.keyframeInterval === 'number') store.setKeyframeInterval(prefs.keyframeInterval);
+      if (typeof prefs.keyframeStartFrame === 'number') store.setKeyframeStartFrame(prefs.keyframeStartFrame);
+    } catch { /* ignore malformed prefs */ }
+  }, [editorPrefsKey]);
+
+  // Persist keyframe sampling settings whenever they change
+  useEffect(() => {
+    if (!editorPrefsKey) return;
+    const store = useEditorStore.getState();
+    try {
+      const raw = localStorage.getItem(editorPrefsKey);
+      const prefs = raw ? JSON.parse(raw) : {};
+      prefs.keyframeSamplingEnabled = store.keyframeSamplingEnabled;
+      prefs.keyframeInterval = store.keyframeInterval;
+      prefs.keyframeStartFrame = store.keyframeStartFrame;
+      localStorage.setItem(editorPrefsKey, JSON.stringify(prefs));
+    } catch { /* storage may be unavailable */ }
+  }, [editorPrefsKey, keyframeSamplingEnabled, keyframeInterval, keyframeStartFrame]);
+
+  // After frames load once for a task, jump back to the last viewed frame
+  useEffect(() => {
+    if (!editorPrefsKey || !framesData?.frames || framesData.frames.length === 0) return;
+    if (restoredFrameRef.current === editorPrefsKey) return;
+    restoredFrameRef.current = editorPrefsKey;
+    try {
+      const raw = localStorage.getItem(editorPrefsKey);
+      const prefs = raw ? JSON.parse(raw) : {};
+      const idx = Number(prefs.lastFrameIndex);
+      if (Number.isFinite(idx) && idx >= 0 && idx < framesData.frames.length) {
+        const t = setTimeout(() => useEditorStore.getState().goToFrame(idx), 50);
+        return () => clearTimeout(t);
+      }
+    } catch { /* ignore */ }
+  }, [editorPrefsKey, framesData]);
+
+  // Persist the current frame index as the user navigates
+  const persistFrameIndex = useEditorStore((st) => st.currentFrameIndex);
+  useEffect(() => {
+    if (!editorPrefsKey) return;
+    try {
+      const raw = localStorage.getItem(editorPrefsKey);
+      const prefs = raw ? JSON.parse(raw) : {};
+      prefs.lastFrameIndex = persistFrameIndex;
+      localStorage.setItem(editorPrefsKey, JSON.stringify(prefs));
+    } catch { /* ignore */ }
+  }, [editorPrefsKey, persistFrameIndex]);
+
   // Pre-populate editorStore with ALL task annotations when they first load.
   // This ensures track.frame_annotations has entries for ALL frames (not just visited ones),
   // so that backward interpolation (Segment 0: trackStartIdx < firstKf.frameIdx) works correctly.
@@ -9007,6 +9141,17 @@ export const FusionEditorV2: React.FC = () => {
           }, 600);
         }
         return;
+      }
+
+      // V = toggle Accept (review-passed) flag on the selected cuboid
+      if (key === 'v') {
+        const annotation = getSelectedCuboid();
+        if (annotation) {
+          e.preventDefault();
+          store.updateAnnotation(annotation.id, { is_verified: !annotation.is_verified });
+          useEditorStore.getState().saveAnnotations();
+          return;
+        }
       }
 
       // Rotation shortcuts (Q/E for yaw)

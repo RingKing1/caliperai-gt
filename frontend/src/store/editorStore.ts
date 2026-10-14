@@ -589,9 +589,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         source: updates.data && annotation.source !== 'manual' && updates.source !== 'auto_interpolated'
           ? 'manual' as AnnotationSource
           : (updates.source ?? annotation.source),
-        is_verified: updates.data && annotation.source !== 'manual'
-          ? true
-          : annotation.is_verified,
+        is_verified: updates.is_verified !== undefined
+          ? updates.is_verified
+          : (updates.data && annotation.source !== 'manual' ? true : annotation.is_verified),
         is_keyframe: isManualPoseEdit && annotation.track_id
           ? true
           : (updates.is_keyframe ?? annotation.is_keyframe),
@@ -958,6 +958,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           attributes: ann.attributes,
           is_keyframe: ann.is_keyframe ?? false,
           is_static: ann.is_static ?? false,
+          is_verified: ann.is_verified ?? false,
         }));
         promises.push(
           annotation3DApi.updateBulk(payload3D).then((updated3D: any[]) => {

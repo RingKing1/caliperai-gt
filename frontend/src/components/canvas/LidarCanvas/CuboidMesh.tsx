@@ -103,10 +103,14 @@ export const CuboidMesh: React.FC<CuboidMeshProps> = ({
     );
   }, [rotationData.pitch, rotationData.roll, yaw]);
 
-  const color = isSelected ? '#ffffff' : isHovered ? '#60a5fa' : classColor;
+  // Review-accepted boxes (pre-label QA pass) render red unless QA-locked/selected
+  const isAccepted = annotation.is_verified === true && !isLocked;
+  const acceptedColor = '#ef4444';
+
+  const color = isSelected ? '#ffffff' : isHovered ? '#60a5fa' : isAccepted ? acceptedColor : classColor;
 
   const trackColor = '#a855f7';
-  const fillColor = classColor;
+  const fillColor = isAccepted ? acceptedColor : classColor;
   const keyframeColor = '#eab308';
 
   const screenToWorld = useCallback((clientX: number, clientY: number, z: number): THREE.Vector3 | null => {

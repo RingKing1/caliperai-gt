@@ -1110,6 +1110,7 @@ class Annotation3DUpdateBulkItem(BaseSchema):
     attributes: Optional[Dict[str, Any]] = None
     is_keyframe: Optional[bool] = None
     is_static: Optional[bool] = None
+    is_verified: Optional[bool] = None
 
 
 class BulkAnnotation3DUpdate(BaseSchema):

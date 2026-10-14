@@ -251,8 +251,30 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
     }
   };
 
+  const handleToggleAccept = async () => {
+    const next = !ann.is_verified;
+    updateAnnotationRegular(ann.id, { is_verified: next });
+    try {
+      await saveAnnotations();
+    } catch (error) {
+      console.error('Failed to save accept flag:', error);
+    }
+  };
+
   return (
     <div className={`space-y-2 ${isLocked ? 'pointer-events-none opacity-60' : ''}`}>
+      {/* Accept / Unaccept review toggle for pre-labeled boxes */}
+      <button
+        onClick={handleToggleAccept}
+        className={`w-full py-1.5 rounded text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
+          ann.is_verified
+            ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40'
+            : 'bg-gray-800/80 text-gray-300 hover:bg-gray-700 border border-gray-700'
+        }`}
+        title="切换该框的合格标记 (V)"
+      >
+        {ann.is_verified ? '✓ Accepted（再次点击取消）' : 'Accept 合格'}
+      </button>
       {/* Class Selector */}
       <div>
         <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1 block">Class</label>
