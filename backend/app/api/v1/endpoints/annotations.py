@@ -6,11 +6,11 @@ from typing import Annotated, Optional, List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, and_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Annotation, Task, Frame, User, Permission, TaskStatus
+from app.models.models import Annotation, User, Permission
 from app.schemas.schemas import (
     AnnotationCreate,
     AnnotationUpdate,
@@ -18,35 +18,15 @@ from app.schemas.schemas import (
     AnnotationVerify,
     BulkAnnotationCreate,
     BulkOperationResponse,
-    AnnotationType,
     AnnotationSource,
 )
+from app.services.annotation_service import AnnotationService
 from app.services.rbac_service import (
-    get_current_user,
     RequirePermissions,
 )
-from app.services.workflow_service import WorkflowService, WorkflowError
 from app.services.achievement_service import check_achievements_for_user
 
 router = APIRouter()
-
-
-def get_enum_value(enum_or_str):
-    """Safely get the string value from an enum or return the string directly."""
-    return enum_or_str.value if hasattr(enum_or_str, 'value') else enum_or_str
-
-
-async def auto_transition_to_in_progress(db: AsyncSession, task: Task, user_id: UUID) -> None:
-    """
-    Auto-transition task to in_progress when first annotation is created.
-    Only transitions if task is in pending or assigned status.
-    """
-    if task.status in [TaskStatus.PENDING.value, TaskStatus.ASSIGNED.value]:
-        try:
-            workflow = WorkflowService(db)
-            await workflow.start_work(task, changed_by_id=user_id)
-        except WorkflowError:
-            pass
 
 
 @router.post("", response_model=AnnotationResponse, status_code=status.HTTP_201_CREATED)
@@ -56,47 +36,25 @@ async def create_annotation(
     db: AsyncSession = Depends(get_db),
 ) -> Annotation:
     """Create a new annotation. Requires ANNOTATIONS_CREATE permission."""
-    task_query = select(Task).where(
-        Task.id == annotation_in.task_id,
-        Task.is_deleted == False,
-    )
-    result = await db.execute(task_query)
-    task = result.scalar_one_or_none()
+    service = AnnotationService(db)
+    task = await service.get_active_task(annotation_in.task_id)
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Task {annotation_in.task_id} not found",
         )
-    
-    frame_query = select(Frame).where(Frame.id == annotation_in.frame_id)
-    result = await db.execute(frame_query)
-    if not result.scalar_one_or_none():
+
+    if not await service.get_frame(annotation_in.frame_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Frame {annotation_in.frame_id} not found",
         )
-    
-    await auto_transition_to_in_progress(db, task, current_user.id)
-    
-    source_value = get_enum_value(annotation_in.source)
-    annotation = Annotation(
-        task_id=annotation_in.task_id,
-        frame_id=annotation_in.frame_id,
-        track_id=annotation_in.track_id,
-        type=get_enum_value(annotation_in.type),
-        class_id=annotation_in.class_id,
-        data=annotation_in.data,
-        attributes=annotation_in.attributes,
-        source=source_value,
-        taxonomy_id=annotation_in.taxonomy_id,
-        is_verified=source_value == AnnotationSource.MANUAL.value or source_value == 'manual',
-    )
-    db.add(annotation)
-    await db.flush()
-    await db.refresh(annotation)
-    
+
+    await service.maybe_start_work(task, current_user.id)
+    annotation = await service.create_generic(annotation_in)
+
     await check_achievements_for_user(db, current_user.id)
-    
+
     return annotation
 
 
@@ -107,41 +65,13 @@ async def create_annotations_bulk(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Create multiple annotations in bulk. Requires ANNOTATIONS_CREATE permission."""
-    success_count = 0
-    errors = []
-    
-    transitioned_tasks = set()
-    
-    for i, annotation_in in enumerate(bulk_in.annotations):
-        try:
-            if annotation_in.task_id not in transitioned_tasks:
-                task = await db.get(Task, annotation_in.task_id)
-                if task:
-                    await auto_transition_to_in_progress(db, task, current_user.id)
-                    transitioned_tasks.add(annotation_in.task_id)
-            
-            source_value = get_enum_value(annotation_in.source)
-            annotation = Annotation(
-                task_id=annotation_in.task_id,
-                frame_id=annotation_in.frame_id,
-                track_id=annotation_in.track_id,
-                type=get_enum_value(annotation_in.type),
-                class_id=annotation_in.class_id,
-                data=annotation_in.data,
-                attributes=annotation_in.attributes,
-                source=source_value,
-                taxonomy_id=annotation_in.taxonomy_id,
-                is_verified=source_value == AnnotationSource.MANUAL.value or source_value == 'manual',
-            )
-            db.add(annotation)
-            success_count += 1
-        except Exception as e:
-            errors.append({"index": i, "error": str(e)})
-    
-    await db.flush()
-    
+    service = AnnotationService(db)
+    success_count, errors = await service.bulk_create_generic(
+        bulk_in.annotations, current_user.id
+    )
+
     await check_achievements_for_user(db, current_user.id)
-    
+
     return {
         "success_count": success_count,
         "error_count": len(errors),
@@ -223,27 +153,16 @@ async def update_annotation(
     
     When modifying an auto-annotation, it automatically becomes 'manual'.
     """
-    query = select(Annotation).where(Annotation.id == annotation_id)
-    result = await db.execute(query)
-    annotation = result.scalar_one_or_none()
-    
+    annotation = await AnnotationService(db).update_generic(
+        annotation_id, annotation_in
+    )
+
     if not annotation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Annotation {annotation_id} not found",
         )
-    
-    update_data = annotation_in.model_dump(exclude_unset=True)
-    
-    if "data" in update_data and annotation.source != AnnotationSource.MANUAL.value:
-        annotation.source = AnnotationSource.MANUAL.value
-        annotation.is_verified = True
-    
-    for field, value in update_data.items():
-        setattr(annotation, field, value)
-    
-    await db.flush()
-    await db.refresh(annotation)
+
     return annotation
 
 

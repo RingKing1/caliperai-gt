@@ -6,14 +6,14 @@ without any 3D LiDAR component.
 """
 from datetime import datetime
 from typing import Annotated, List, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Annotation2D, Task, Frame, User, Permission, TaskStatus
+from app.models.models import Annotation2D, Task, Frame, User, Permission
 from app.schemas.schemas import (
     Annotation2DCreate,
     Annotation2DUpdate,
@@ -24,23 +24,11 @@ from app.schemas.schemas import (
     BulkOperationResponse,
     TrackWideUpdate2D,
 )
+from app.services.annotation_service import AnnotationService
 from app.services.rbac_service import RequirePermissions
-from app.services.workflow_service import WorkflowService, WorkflowError
 from app.services.achievement_service import check_achievements_for_user
-from datetime import datetime
 
 router = APIRouter(prefix="/annotations-2d", tags=["annotations-2d"])
-
-
-async def auto_transition_to_in_progress(db: AsyncSession, task: Task, user_id: UUID, taxonomy_id: Optional[UUID] = None) -> None:
-    """Auto-transition task to in_progress when first annotation is created."""
-    workflow = WorkflowService(db)
-
-    if task.status in [TaskStatus.PENDING.value, TaskStatus.ASSIGNED.value]:
-        try:
-            await workflow.start_work(task, changed_by_id=user_id)
-        except WorkflowError:
-            pass
 
 
 @router.post("/", response_model=Annotation2DResponse, status_code=status.HTTP_201_CREATED)
@@ -50,39 +38,20 @@ async def create_annotation_2d(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new 2D annotation. Requires ANNOTATIONS_CREATE permission."""
-    task = await db.get(Task, annotation.task_id)
+    service = AnnotationService(db)
+    task = await service.get_task(annotation.task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
-    frame = await db.get(Frame, annotation.frame_id)
+
+    frame = await service.get_frame(annotation.frame_id)
     if not frame:
         raise HTTPException(status_code=404, detail="Frame not found")
-    
-    await auto_transition_to_in_progress(db, task, current_user.id, annotation.taxonomy_id)
-    
-    annotation_id = annotation.id if annotation.id else uuid4()
-    
-    db_annotation = Annotation2D(
-        id=annotation_id,
-        task_id=annotation.task_id,
-        frame_id=annotation.frame_id,
-        camera_id=annotation.camera_id,
-        track_id=annotation.track_id,
-        type=annotation.type,
-        class_id=annotation.class_id,
-        taxonomy_id=annotation.taxonomy_id,
-        data=annotation.data,
-        attributes=annotation.attributes,
-        source=annotation.source,
-        is_verified=annotation.source == "manual_2d",
-    )
-    
-    db.add(db_annotation)
-    await db.commit()
-    await db.refresh(db_annotation)
-    
+
+    await service.maybe_start_work(task, current_user.id)
+    db_annotation = await service.create_2d(annotation)
+
     await check_achievements_for_user(db, current_user.id)
-    
+
     return db_annotation
 
 
@@ -136,18 +105,11 @@ async def update_annotation_2d(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a 2D annotation. Requires ANNOTATIONS_UPDATE permission."""
-    annotation = await db.get(Annotation2D, annotation_id)
-    if not annotation:
+    updated = await AnnotationService(db).update_2d(annotation_id, update)
+    if not updated:
         raise HTTPException(status_code=404, detail="2D Annotation not found")
-    
-    update_data = update.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(annotation, key, value)
-    
-    await db.commit()
-    await db.refresh(annotation)
-    
-    return annotation
+
+    return updated
 
 
 @router.delete("/{annotation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -172,58 +134,12 @@ async def create_annotations_2d_bulk(
     db: AsyncSession = Depends(get_db),
 ):
     """Bulk create or update 2D annotations (upsert). Requires ANNOTATIONS_CREATE permission."""
-    results = []
-    
-    transitioned_combinations: set = set()
-    
-    for annotation in bulk_in.annotations:
-        annotation_id = annotation.id if annotation.id else uuid4()
-        
-        transition_key = (annotation.task_id, annotation.taxonomy_id)
-        if transition_key not in transitioned_combinations:
-            task = await db.get(Task, annotation.task_id)
-            if task:
-                await auto_transition_to_in_progress(db, task, current_user.id, annotation.taxonomy_id)
-                transitioned_combinations.add(transition_key)
-        
-        existing = await db.get(Annotation2D, annotation_id)
-        
-        if existing:
-            existing.frame_id = annotation.frame_id
-            existing.camera_id = annotation.camera_id
-            existing.track_id = annotation.track_id
-            existing.type = annotation.type
-            existing.class_id = annotation.class_id
-            existing.taxonomy_id = annotation.taxonomy_id
-            existing.data = annotation.data
-            existing.attributes = annotation.attributes
-            existing.source = annotation.source
-            results.append(existing)
-        else:
-            db_annotation = Annotation2D(
-                id=annotation_id,
-                task_id=annotation.task_id,
-                frame_id=annotation.frame_id,
-                camera_id=annotation.camera_id,
-                track_id=annotation.track_id,
-                type=annotation.type,
-                class_id=annotation.class_id,
-                taxonomy_id=annotation.taxonomy_id,
-                data=annotation.data,
-                attributes=annotation.attributes,
-                source=annotation.source,
-                is_verified=annotation.source == "manual_2d",
-            )
-            db.add(db_annotation)
-            results.append(db_annotation)
-    
-    await db.commit()
-    
-    for ann in results:
-        await db.refresh(ann)
-    
+    results = await AnnotationService(db).bulk_upsert_2d(
+        bulk_in.annotations, current_user.id
+    )
+
     await check_achievements_for_user(db, current_user.id)
-    
+
     return results
 
 

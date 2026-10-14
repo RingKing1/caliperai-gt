@@ -324,6 +324,9 @@ uvicorn app.main:app --reload --port 8000
 **Frontend**
 > For detailed architecture, modular component design, and data flows, see [frontend/README.md](frontend/README.md).
 
+**Backend**
+> For the FastAPI layering conventions, services, data model, deployment, and the refactor roadmap, see [backend/README.md](backend/README.md).
+
 ```bash
 cd frontend
 npm install

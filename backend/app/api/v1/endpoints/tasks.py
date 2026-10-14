@@ -10,14 +10,16 @@ from sqlalchemy import select, and_, delete, or_, func, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import INT4RANGE
 from asyncpg import Range as PgRange
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models.models import Task, Scene, Frame, Annotation, TaskStatus, TaskStage, TaskStageHistory, TaskAssignmentHistory, User, Permission, QAReview, Annotation3D, Annotation2D, Annotation4D, AnnotationFusion, Taxonomy, Dataset, Campaign
+from app.models.models import Task, Scene, Frame, Annotation, TaskStatus, TaskStage, TaskStageHistory, TaskAssignmentHistory, User, Permission, QAReview, Annotation3D, Annotation2D, Annotation4D, AnnotationFusion, Taxonomy, Dataset, Campaign, dataset_taxonomy_association
 from pydantic import BaseModel as PydanticBaseModel
 from app.schemas.schemas import (
     TaskCreate,
     TaskUpdate,
     TaskResponse,
+    TaskEditorContextResponse,
     TaskAssignment,
     TaskStatusUpdate,
     AnnotationSource,
@@ -35,6 +37,100 @@ router = APIRouter()
 def frame_range_to_postgres(start: int, end: int) -> PgRange:
     """Convert frame range to PostgreSQL INT4RANGE format."""
     return PgRange(start, end + 1)
+
+
+@router.get("/{task_id}/editor-context", response_model=TaskEditorContextResponse)
+async def get_task_editor_context(
+    task_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Aggregated editor bootstrap payload (task + scene + dataset + taxonomies).
+
+    Replaces the frontend task -> scene -> dataset -> taxonomy request waterfall
+    with a single round trip. Same visibility rules as GET /tasks/{id}.
+    """
+    result = await db.execute(
+        select(Task).where(
+            Task.id == task_id,
+            Task.is_deleted == False,
+        )
+    )
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task {task_id} not found",
+        )
+
+    if not current_user.has_permission(Permission.TASKS_READ_ALL):
+        if task.assignee_id != current_user.id and task.reviewer_id != current_user.id and task.customer_reviewer_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view tasks assigned to you",
+            )
+
+    scene_result = await db.execute(
+        select(Scene)
+        .where(Scene.id == task.scene_id, Scene.is_deleted == False)
+        .options(selectinload(Scene.tasks))
+    )
+    scene = scene_result.scalar_one_or_none()
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scene {task.scene_id} not found",
+        )
+
+    dataset_result = await db.execute(
+        select(Dataset)
+        .where(Dataset.id == scene.dataset_id)
+        .options(selectinload(Dataset.taxonomies))
+    )
+    dataset = dataset_result.scalar_one_or_none()
+    if not dataset or dataset.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dataset {scene.dataset_id} not found",
+        )
+
+    # Same source/ordering as GET /datasets/{id}/taxonomies.
+    taxonomies = [t for t in dataset.taxonomies if not t.is_deleted]
+
+    primary_taxonomies: dict[str, Optional[Taxonomy]] = {}
+    for mode in ("fusion_3d", "2d_only"):
+        primary_result = await db.execute(
+            select(Taxonomy)
+            .join(
+                dataset_taxonomy_association,
+                dataset_taxonomy_association.c.taxonomy_id == Taxonomy.id,
+            )
+            .where(
+                dataset_taxonomy_association.c.dataset_id == dataset.id,
+                Taxonomy.annotation_mode == mode,
+                dataset_taxonomy_association.c.is_primary == True,
+                Taxonomy.is_deleted == False,
+            )
+            .limit(1)
+        )
+        primary = primary_result.scalar_one_or_none()
+        primary_taxonomies[mode] = primary
+
+    selected_taxonomy = None
+    if scene.selected_taxonomy_id:
+        selected_taxonomy = await db.get(Taxonomy, scene.selected_taxonomy_id)
+        if selected_taxonomy and selected_taxonomy.is_deleted:
+            selected_taxonomy = None
+
+    return {
+        "task": task,
+        "scene": scene,
+        "dataset": dataset,
+        "taxonomies": taxonomies,
+        "primary_taxonomies": primary_taxonomies,
+        "selected_taxonomy": selected_taxonomy,
+    }
 
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)

@@ -12,7 +12,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Annotation4D, Annotation, Annotation3D, Frame, Task, User, Permission, TaskStatus
+from app.models.models import Annotation4D, Annotation, Annotation3D, Frame, Task, User, Permission
 from app.schemas.schemas import (
     Annotation4DCreate,
     Annotation4DUpdate,
@@ -25,24 +25,11 @@ from app.schemas.schemas import (
     BulkAnnotation4DDelete,
     BulkOperationResponse,
 )
+from app.services.annotation_service import AnnotationService
 from app.services.rbac_service import RequirePermissions
-from app.services.workflow_service import WorkflowService, WorkflowError
 from app.services.achievement_service import check_achievements_for_user
 
 router = APIRouter(prefix="/annotations-4d", tags=["annotations-4d"])
-
-
-async def auto_transition_to_in_progress(db: AsyncSession, task: Task, user_id: UUID) -> None:
-    """
-    Auto-transition task to in_progress when first annotation is created.
-    Only transitions if task is in pending or assigned status.
-    """
-    if task.status in [TaskStatus.PENDING.value, TaskStatus.ASSIGNED.value]:
-        try:
-            workflow = WorkflowService(db)
-            await workflow.start_work(task, changed_by_id=user_id)
-        except WorkflowError:
-            pass
 
 
 @router.post("", response_model=Annotation4DResponse, status_code=status.HTTP_201_CREATED)
@@ -52,35 +39,16 @@ async def create_annotation_4d(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new 4D annotation. Requires ANNOTATIONS_CREATE permission."""
-    task = await db.get(Task, annotation.task_id)
+    service = AnnotationService(db)
+    task = await service.get_task(annotation.task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
-    await auto_transition_to_in_progress(db, task, current_user.id)
-    
-    frame_ids_str = [str(fid) for fid in annotation.frame_ids] if annotation.frame_ids else []
-    frame_data_str = {str(k): v for k, v in annotation.frame_data.items()} if annotation.frame_data else {}
-    
-    db_annotation = Annotation4D(
-        id=annotation.id or uuid4(),
-        task_id=annotation.task_id,
-        track_id=annotation.track_id,
-        type=annotation.type,
-        class_id=annotation.class_id,
-        world_data=annotation.world_data,
-        frame_data=frame_data_str,
-        frame_ids=frame_ids_str,
-        is_static=annotation.is_static,
-        attributes=annotation.attributes,
-        source=annotation.source,
-    )
-    
-    db.add(db_annotation)
-    await db.commit()
-    await db.refresh(db_annotation)
-    
+
+    await service.maybe_start_work(task, current_user.id)
+    db_annotation = await service.create_4d(annotation)
+
     await check_achievements_for_user(db, current_user.id)
-    
+
     return db_annotation
 
 
@@ -131,25 +99,11 @@ async def update_annotation_4d(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a 4D annotation. Requires ANNOTATIONS_UPDATE permission."""
-    annotation = await db.get(Annotation4D, annotation_id)
-    if not annotation:
+    updated = await AnnotationService(db).update_4d(annotation_id, update)
+    if not updated:
         raise HTTPException(status_code=404, detail="4D Annotation not found")
-    
-    update_data = update.model_dump(exclude_unset=True)
-    
-    if 'frame_ids' in update_data and update_data['frame_ids'] is not None:
-        update_data['frame_ids'] = [str(fid) for fid in update_data['frame_ids']]
-    
-    if 'frame_data' in update_data and update_data['frame_data'] is not None:
-        update_data['frame_data'] = {str(k): v for k, v in update_data['frame_data'].items()}
-    
-    for key, value in update_data.items():
-        setattr(annotation, key, value)
-    
-    await db.commit()
-    await db.refresh(annotation)
-    
-    return annotation
+
+    return updated
 
 
 @router.delete("/{annotation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -188,43 +142,12 @@ async def create_annotations_4d_bulk(
     db: AsyncSession = Depends(get_db),
 ):
     """Bulk create 4D annotations. Requires ANNOTATIONS_CREATE permission."""
-    created = []
-    
-    transitioned_tasks = set()
-    
-    for annotation in annotations:
-        if annotation.task_id not in transitioned_tasks:
-            task = await db.get(Task, annotation.task_id)
-            if task:
-                await auto_transition_to_in_progress(db, task, current_user.id)
-                transitioned_tasks.add(annotation.task_id)
-        
-        frame_ids_str = [str(fid) for fid in annotation.frame_ids] if annotation.frame_ids else []
-        frame_data_str = {str(k): v for k, v in annotation.frame_data.items()} if annotation.frame_data else {}
-        
-        db_annotation = Annotation4D(
-            id=annotation.id or uuid4(),
-            task_id=annotation.task_id,
-            track_id=annotation.track_id,
-            type=annotation.type,
-            class_id=annotation.class_id,
-            world_data=annotation.world_data,
-            frame_data=frame_data_str,
-            frame_ids=frame_ids_str,
-            is_static=annotation.is_static,
-            attributes=annotation.attributes,
-            source=annotation.source,
-        )
-        db.add(db_annotation)
-        created.append(db_annotation)
-    
-    await db.commit()
-    
-    for ann in created:
-        await db.refresh(ann)
-    
+    created = await AnnotationService(db).bulk_create_4d(
+        annotations, current_user.id
+    )
+
     await check_achievements_for_user(db, current_user.id)
-    
+
     return created
 
 

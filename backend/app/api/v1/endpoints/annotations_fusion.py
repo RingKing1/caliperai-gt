@@ -13,7 +13,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import AnnotationFusion, Annotation3D, Task, Frame, User, Permission, TaskStatus
+from app.models.models import AnnotationFusion, Annotation3D, User, Permission
 from app.schemas.schemas import (
     AnnotationFusionCreate,
     AnnotationFusionUpdate,
@@ -23,23 +23,10 @@ from app.schemas.schemas import (
     Migrate3DToFusionRequest,
     Migrate3DToFusionResponse,
 )
+from app.services.annotation_service import AnnotationService
 from app.services.rbac_service import RequirePermissions
-from app.services.workflow_service import WorkflowService, WorkflowError
 
 router = APIRouter(prefix="/annotations-fusion", tags=["annotations-fusion"])
-
-
-async def auto_transition_to_in_progress(db: AsyncSession, task: Task, user_id: UUID) -> None:
-    """
-    Auto-transition task to in_progress when first annotation is created.
-    Only transitions if task is in pending or assigned status.
-    """
-    if task.status in [TaskStatus.PENDING.value, TaskStatus.ASSIGNED.value]:
-        try:
-            workflow = WorkflowService(db)
-            await workflow.start_work(task, changed_by_id=user_id)
-        except WorkflowError:
-            pass
 
 
 @router.post("/", response_model=AnnotationFusionResponse, status_code=status.HTTP_201_CREATED)
@@ -49,45 +36,18 @@ async def create_annotation_fusion(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new Fusion annotation. Requires ANNOTATIONS_CREATE permission."""
-    task = await db.get(Task, annotation.task_id)
+    service = AnnotationService(db)
+    task = await service.get_task(annotation.task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
-    frame = await db.get(Frame, annotation.frame_id)
+
+    frame = await service.get_frame(annotation.frame_id)
     if not frame:
         raise HTTPException(status_code=404, detail="Frame not found")
-    
-    await auto_transition_to_in_progress(db, task, current_user.id)
-    
-    annotation_id = annotation.id if annotation.id else uuid4()
-    
-    data_2d = {}
-    if annotation.data_2d:
-        for camera_id, projection in annotation.data_2d.items():
-            if hasattr(projection, 'model_dump'):
-                data_2d[camera_id] = projection.model_dump()
-            else:
-                data_2d[camera_id] = projection
-    
-    db_annotation = AnnotationFusion(
-        id=annotation_id,
-        task_id=annotation.task_id,
-        frame_id=annotation.frame_id,
-        track_id=annotation.track_id,
-        type=annotation.type,
-        class_id=annotation.class_id,
-        data_3d=annotation.data_3d,
-        data_2d=data_2d,
-        attributes=annotation.attributes,
-        source=annotation.source,
-        source_3d_annotation_id=annotation.source_3d_annotation_id,
-        is_verified=annotation.source == "manual_fusion",
-    )
-    
-    db.add(db_annotation)
-    await db.commit()
-    await db.refresh(db_annotation)
-    
+
+    await service.maybe_start_work(task, current_user.id)
+    db_annotation = await service.create_fusion(annotation)
+
     return db_annotation
 
 
@@ -132,23 +92,11 @@ async def update_annotation_fusion(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a Fusion annotation. Requires ANNOTATIONS_UPDATE permission."""
-    annotation = await db.get(AnnotationFusion, annotation_id)
-    if not annotation:
+    updated = await AnnotationService(db).update_fusion(annotation_id, update)
+    if not updated:
         raise HTTPException(status_code=404, detail="Fusion Annotation not found")
-    
-    update_data = update.model_dump(exclude_unset=True)
 
-    if "data_3d" in update_data and annotation.source not in ("manual_fusion", "manual"):
-        annotation.source = "manual_fusion"
-        annotation.is_verified = True
-
-    for key, value in update_data.items():
-        setattr(annotation, key, value)
-
-    await db.commit()
-    await db.refresh(annotation)
-
-    return annotation
+    return updated
 
 
 @router.delete("/{annotation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -173,49 +121,10 @@ async def create_annotations_fusion_bulk(
     db: AsyncSession = Depends(get_db),
 ):
     """Bulk create Fusion annotations. Requires ANNOTATIONS_CREATE permission."""
-    created = []
-    
-    transitioned_tasks = set()
-    
-    for annotation in bulk_in.annotations:
-        annotation_id = annotation.id if annotation.id else uuid4()
-        
-        if annotation.task_id not in transitioned_tasks:
-            task = await db.get(Task, annotation.task_id)
-            if task:
-                await auto_transition_to_in_progress(db, task, current_user.id)
-                transitioned_tasks.add(annotation.task_id)
-        
-        data_2d = {}
-        if annotation.data_2d:
-            for camera_id, projection in annotation.data_2d.items():
-                if hasattr(projection, 'model_dump'):
-                    data_2d[camera_id] = projection.model_dump()
-                else:
-                    data_2d[camera_id] = projection
-        
-        db_annotation = AnnotationFusion(
-            id=annotation_id,
-            task_id=annotation.task_id,
-            frame_id=annotation.frame_id,
-            track_id=annotation.track_id,
-            type=annotation.type,
-            class_id=annotation.class_id,
-            data_3d=annotation.data_3d,
-            data_2d=data_2d,
-            attributes=annotation.attributes,
-            source=annotation.source,
-            source_3d_annotation_id=annotation.source_3d_annotation_id,
-            is_verified=annotation.source == "manual_fusion",
-        )
-        db.add(db_annotation)
-        created.append(db_annotation)
-    
-    await db.commit()
-    
-    for ann in created:
-        await db.refresh(ann)
-    
+    created = await AnnotationService(db).bulk_create_fusion(
+        bulk_in.annotations, current_user.id
+    )
+
     return created
 
 

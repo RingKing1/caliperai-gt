@@ -100,6 +100,7 @@ export const InlineStageStepper: React.FC<InlineStageStepperProps> = ({
     mutationFn: (status: string) => taskApi.updateStatus(taskId, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+      queryClient.invalidateQueries({ queryKey: ['task-editor-context', taskId] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['scenes'] });
@@ -112,6 +113,7 @@ export const InlineStageStepper: React.FC<InlineStageStepperProps> = ({
     mutationFn: (stage: TaskStage) => taskApi.updateStage(taskId, stage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+      queryClient.invalidateQueries({ queryKey: ['task-editor-context', taskId] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['scenes'] });

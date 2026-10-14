@@ -7,14 +7,14 @@ These are separate from the legacy 'annotations' table and store
 from datetime import datetime
 import logging
 from typing import Annotated, List, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, and_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Annotation3D, Task, Frame, User, Permission, TaskStatus
+from app.models.models import Annotation3D, Frame, User, Permission
 from app.schemas.schemas import (
     Annotation3DCreate,
     Annotation3DUpdate,
@@ -25,23 +25,12 @@ from app.schemas.schemas import (
     BulkOperationResponse,
     TrackWideUpdate3D,
 )
+from app.services.annotation_service import AnnotationService
 from app.services.rbac_service import RequirePermissions
-from app.services.workflow_service import WorkflowService, WorkflowError
 from app.services.achievement_service import check_achievements_for_user
 
 router = APIRouter(prefix="/annotations-3d", tags=["annotations-3d"])
 logger = logging.getLogger(__name__)
-
-
-async def auto_transition_to_in_progress(db: AsyncSession, task: Task, user_id: UUID, taxonomy_id: Optional[UUID] = None) -> None:
-    """Auto-transition task to in_progress when first annotation is created."""
-    workflow = WorkflowService(db)
-
-    if task.status in [TaskStatus.PENDING.value, TaskStatus.ASSIGNED.value]:
-        try:
-            await workflow.start_work(task, changed_by_id=user_id)
-        except WorkflowError:
-            pass
 
 
 @router.post("/", response_model=Annotation3DResponse, status_code=status.HTTP_201_CREATED)
@@ -51,36 +40,18 @@ async def create_annotation_3d(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new 3D annotation. Requires ANNOTATIONS_CREATE permission."""
-    task = await db.get(Task, annotation.task_id)
+    service = AnnotationService(db)
+    task = await service.get_task(annotation.task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
-    frame = await db.get(Frame, annotation.frame_id)
+
+    frame = await service.get_frame(annotation.frame_id)
     if not frame:
         raise HTTPException(status_code=404, detail="Frame not found")
-    
-    await auto_transition_to_in_progress(db, task, current_user.id, annotation.taxonomy_id)
-    
-    annotation_id = annotation.id if annotation.id else uuid4()
-    
-    db_annotation = Annotation3D(
-        id=annotation_id,
-        task_id=annotation.task_id,
-        frame_id=annotation.frame_id,
-        track_id=annotation.track_id,
-        type=annotation.type,
-        class_id=annotation.class_id,
-        taxonomy_id=annotation.taxonomy_id,
-        data=annotation.data,
-        attributes=annotation.attributes,
-        source=annotation.source,
-        is_verified=annotation.source == "manual_3d",
-    )
-    
-    db.add(db_annotation)
-    await db.commit()
-    await db.refresh(db_annotation)
-    
+
+    await service.maybe_start_work(task, current_user.id)
+    db_annotation = await service.create_3d(annotation)
+
     try:
         await check_achievements_for_user(db, current_user.id)
     except Exception as e:
@@ -170,23 +141,10 @@ async def update_annotation_3d(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a 3D annotation. Requires ANNOTATIONS_UPDATE permission."""
-    annotation = await db.get(Annotation3D, annotation_id)
-    if not annotation:
+    updated = await AnnotationService(db).update_3d(annotation_id, update)
+    if not updated:
         raise HTTPException(status_code=404, detail="3D Annotation not found")
-    
-    update_data = update.model_dump(exclude_unset=True)
-
-    if "data" in update_data and annotation.source != "manual_3d":
-        annotation.source = "manual_3d"
-        annotation.is_verified = True
-
-    for key, value in update_data.items():
-        setattr(annotation, key, value)
-
-    await db.commit()
-    await db.refresh(annotation)
-
-    return annotation
+    return updated
 
 
 @router.delete("/{annotation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -211,83 +169,15 @@ async def create_annotations_3d_bulk(
     db: AsyncSession = Depends(get_db),
 ):
     """Bulk create 3D annotations. Requires ANNOTATIONS_CREATE permission."""
-    import time
-    start_time = time.time()
-    print(f"[Bulk Create] Starting bulk create for {len(bulk_in.annotations)} annotations")
-    
-    created = []
-    
-    transitioned_combinations: set = set()
-    
-    loop_start = time.time()
-    loop_start = time.time()
-    for annotation in bulk_in.annotations:
-        annotation_id = annotation.id if annotation.id else uuid4()
+    created = await AnnotationService(db).bulk_upsert_3d(
+        bulk_in.annotations, current_user.id
+    )
 
-        existing_annotation = await db.get(Annotation3D, annotation_id)
-        if existing_annotation:
-            existing_annotation.task_id = annotation.task_id
-            existing_annotation.frame_id = annotation.frame_id
-            existing_annotation.track_id = annotation.track_id
-            existing_annotation.type = annotation.type
-            existing_annotation.class_id = annotation.class_id
-            existing_annotation.taxonomy_id = annotation.taxonomy_id
-            existing_annotation.data = annotation.data
-            existing_annotation.attributes = annotation.attributes
-            existing_annotation.source = annotation.source
-            existing_annotation.is_verified = annotation.source == "manual_3d"
-            created.append(existing_annotation)
-            continue
-        
-        transition_start = time.time()
-        transition_key = (annotation.task_id, annotation.taxonomy_id)
-        if transition_key not in transitioned_combinations:
-            task = await db.get(Task, annotation.task_id)
-            if task:
-                await auto_transition_to_in_progress(db, task, current_user.id, annotation.taxonomy_id)
-                transitioned_combinations.add(transition_key)
-        transition_time = time.time() - transition_start
-        if transition_time > 0.1:
-            print(f"[Bulk Create] Task transition took {transition_time:.3f}s")
-        
-        db_annotation = Annotation3D(
-            id=annotation_id,
-            task_id=annotation.task_id,
-            frame_id=annotation.frame_id,
-            track_id=annotation.track_id,
-            type=annotation.type,
-            class_id=annotation.class_id,
-            taxonomy_id=annotation.taxonomy_id,
-            data=annotation.data,
-            attributes=annotation.attributes,
-            source=annotation.source,
-            is_verified=annotation.source == "manual_3d",
-        )
-        db.add(db_annotation)
-        created.append(db_annotation)
-    
-    loop_time = time.time() - loop_start
-    print(f"[Bulk Create] Loop took {loop_time:.3f}s")
-    
-    commit_start = time.time()
-    await db.commit()
-    commit_time = time.time() - commit_start
-    print(f"[Bulk Create] Commit took {commit_time:.3f}s")
-    
-    refresh_start = time.time()
-    for ann in created:
-        await db.refresh(ann)
-    refresh_time = time.time() - refresh_start
-    print(f"[Bulk Create] Refresh took {refresh_time:.3f}s")
-    
     try:
         await check_achievements_for_user(db, current_user.id)
     except Exception as e:
         logger.warning("Achievement check failed after 3D bulk create: %s", e)
-    
-    total_time = time.time() - start_time
-    print(f"[Bulk Create] Total time: {total_time:.3f}s")
-    
+
     return created
 
 

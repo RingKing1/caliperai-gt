@@ -262,6 +262,7 @@ export const useTaskQAWorkflow = ({
 
       setShowQACompleteModal(false);
       queryClient.invalidateQueries({ queryKey: ['task', task.id] });
+      queryClient.invalidateQueries({ queryKey: ['task-editor-context', task.id] });
       queryClient.invalidateQueries({ queryKey: ['taxonomy-workflow', task.id] });
       setTimeout(() => navigate('/'), 1000);
     } catch (err) {
@@ -300,6 +301,7 @@ export const useTaskQAWorkflow = ({
 
         setShowQACompleteModal(false);
         queryClient.invalidateQueries({ queryKey: ['task', task.id] });
+      queryClient.invalidateQueries({ queryKey: ['task-editor-context', task.id] });
         queryClient.invalidateQueries({ queryKey: ['taxonomy-workflow', task.id] });
         setTimeout(() => navigate('/'), 1000);
       } catch (err) {

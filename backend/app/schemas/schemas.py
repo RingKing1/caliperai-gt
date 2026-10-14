@@ -762,7 +762,25 @@ class TaskResponse(TaskBase, TimestampSchema):
 
 
 
+class TaskEditorContextResponse(BaseSchema):
+    """Aggregated bootstrap payload for the annotation editor.
+
+    Replaces the frontend task -> scene -> dataset -> taxonomies request
+    waterfall with a single round trip.
+    """
+    task: TaskResponse
+    scene: SceneResponse
+    dataset: DatasetResponse
+    taxonomies: List[TaxonomyResponse] = Field(default_factory=list)
+    primary_taxonomies: Dict[str, Optional[TaxonomyResponse]] = Field(
+        default_factory=dict,
+        description="Primary taxonomy per annotation mode (fusion_3d / 2d_only).",
+    )
+    selected_taxonomy: Optional[TaxonomyResponse] = None
+
+
 class Point2D(BaseSchema):
+    """2D point."""
     """2D point."""
     x: float
     y: float
@@ -1081,6 +1099,7 @@ class Annotation3DBase(BaseSchema):
     source: str = "manual_3d"
     is_keyframe: bool = False
     is_static: bool = False
+    is_verified: bool = False
 
 
 class Annotation3DCreate(Annotation3DBase):
@@ -1098,6 +1117,8 @@ class Annotation3DUpdate(BaseSchema):
     data: Optional[Dict[str, Any]] = None
     attributes: Optional[Dict[str, Any]] = None
     is_keyframe: Optional[bool] = None
+    is_static: Optional[bool] = None
+    is_verified: Optional[bool] = None
 
 
 class Annotation3DUpdateBulkItem(BaseSchema):

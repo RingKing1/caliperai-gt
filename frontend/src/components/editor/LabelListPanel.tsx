@@ -312,6 +312,7 @@ export const LabelListPanel: React.FC = () => {
         const updatedTask = await taskApi.update(task.id, { stage: 'annotation', revision_count: 0 } as any);
         setTask(updatedTask);
         queryClient.invalidateQueries({ queryKey: ['task', task.id] });
+        queryClient.invalidateQueries({ queryKey: ['task-editor-context', task.id] });
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
         queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
         queryClient.invalidateQueries({ queryKey: ['dataset-tasks'] });

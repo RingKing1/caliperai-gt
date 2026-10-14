@@ -550,7 +550,27 @@ export const sceneApi = {
 // TASKS
 // =============================================================================
 
+export interface TaskEditorContext {
+  task: Task;
+  scene: Scene;
+  dataset: Dataset;
+  taxonomies: Taxonomy[];
+  /** Primary taxonomy per annotation mode ('fusion_3d' / '2d_only'), or null. */
+  primary_taxonomies: Partial<Record<'fusion_3d' | '2d_only', Taxonomy | null>>;
+  selected_taxonomy: Taxonomy | null;
+}
+
 export const taskApi = {
+  /**
+   * Aggregated editor bootstrap payload: task + scene + dataset + taxonomies
+   * in one round trip (replaces the task -> scene -> dataset -> taxonomy
+   * request waterfall).
+   */
+  getEditorContext: async (id: string): Promise<TaskEditorContext> => {
+    const { data } = await api.get<TaskEditorContext>(`/tasks/${id}/editor-context`);
+    return data;
+  },
+
   list: async (filters?: {
     sceneId?: string;
     status?: string;
@@ -1263,6 +1283,7 @@ export interface Annotation3DData {
 }
 
 export interface Annotation3DCreate {
+  id?: string;
   task_id: string;
   frame_id: string;
   track_id?: string | null;
@@ -1278,6 +1299,8 @@ export interface Annotation3DCreate {
   attributes?: Record<string, unknown>;
   source?: string;
   is_keyframe?: boolean;  // True if user edited, false if auto-interpolated
+  is_static?: boolean;
+  is_verified?: boolean;
 }
 
 export const annotation3DApi = {
@@ -1399,6 +1422,7 @@ export interface Annotation4D {
   frame_data: Record<string, FrameCuboidData>;  // frame_id -> lidar coords
   frame_ids: string[];
   is_static: boolean;
+  is_verified?: boolean;
   attributes: Record<string, unknown>;
   source: string;
   is_migrated: boolean;
@@ -1415,8 +1439,9 @@ export interface Annotation4DCreate {
   class_id: string;
   world_data: CuboidWorldData;
   frame_data: Record<string, FrameCuboidData>;
-  frame_ids: string[];
   is_static?: boolean;
+  is_verified?: boolean;
+  frame_ids: string[];
   attributes?: Record<string, unknown>;
   source?: string;
 }

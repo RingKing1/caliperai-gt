@@ -4,8 +4,6 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   taskApi,
   sceneApi,
-  datasetApi,
-  taxonomyApi,
   workflowApi,
   annotationApi,
   annotation2DApi,
@@ -19,7 +17,7 @@ import { useLidarCacheStore } from '@/store/lidarCacheStore';
 import { useImageCacheStore } from '@/store/imageCacheStore';
 import { useAnnotation4DStore } from '@/store/annotation4DStore';
 import { useAnnotation2DStore } from '@/store/annotation2DStore';
-import type { PointCloudData, Taxonomy } from '@/types';
+import type { PointCloudData } from '@/types';
 import type { ViewMode, AnnotationModeTab } from '@/components/editor/types';
 
 export interface UseTaskDataLoaderOptions {
@@ -56,50 +54,51 @@ export const useTaskDataLoader = ({
     currentFrameIndex,
   } = useEditorStore();
 
-  // Task query
-  const { data: task, isLoading: loadingTask } = useQuery({
-    queryKey: ['task', taskId],
-    queryFn: () => taskApi.get(taskId!),
+  // Aggregated editor bootstrap: task + scene + dataset + taxonomies in one
+  // round trip instead of the previous task -> scene -> dataset -> taxonomy
+  // request waterfall.
+  const { data: editorContext, isLoading: loadingTask } = useQuery({
+    queryKey: ['task-editor-context', taskId],
+    queryFn: () => taskApi.getEditorContext(taskId!),
     enabled: !!taskId,
     staleTime: 0,
     refetchOnMount: 'always',
   });
 
-  // Scene query
-  const { data: scene } = useQuery({
-    queryKey: ['scene', task?.scene_id],
-    queryFn: () => sceneApi.get(task!.scene_id),
-    enabled: !!task?.scene_id,
-    staleTime: 0,
-  });
+  const task = editorContext?.task;
+  const scene = editorContext?.scene;
+  const dataset = editorContext?.dataset;
+  const linkedTaxonomies = editorContext?.taxonomies;
+  const selectedTaxonomy = editorContext?.selected_taxonomy ?? undefined;
+  const primaryTaxonomyForMode =
+    editorContext?.primary_taxonomies?.[annotationModeTab] ?? null;
 
-  // Dataset query
-  const { data: dataset } = useQuery({
-    queryKey: ['dataset', scene?.dataset_id],
-    queryFn: () => datasetApi.get(scene!.dataset_id),
-    enabled: !!scene?.dataset_id,
-  });
-
-  // Linked taxonomies query
-  const { data: linkedTaxonomies } = useQuery<Taxonomy[]>({
-    queryKey: ['dataset-taxonomies', scene?.dataset_id],
-    queryFn: () => datasetApi.getTaxonomies(scene!.dataset_id),
-    enabled: !!scene?.dataset_id,
-  });
-
-  // Primary taxonomy for mode
-  const { data: primaryTaxonomyForMode } = useQuery({
-    queryKey: ['dataset-primary-taxonomy', scene?.dataset_id, annotationModeTab],
-    queryFn: () => taxonomyApi.getForDataset(scene!.dataset_id, annotationModeTab, true).then((arr) => arr[0] || null),
-    enabled: !!scene?.dataset_id,
-  });
-
-  // Selected taxonomy for scene
-  const { data: selectedTaxonomy } = useQuery({
-    queryKey: ['taxonomy', scene?.selected_taxonomy_id],
-    queryFn: () => taxonomyApi.get(scene!.selected_taxonomy_id!),
-    enabled: !!scene?.selected_taxonomy_id,
-  });
+  // Backfill the standalone per-entity cache keys so other observers
+  // (Sidebar, TaskDetailModal, cross-hook invalidations) reuse the prefetched
+  // payload without issuing the old waterfall requests.
+  useEffect(() => {
+    if (!editorContext) return;
+    const ctx = editorContext;
+    queryClient.setQueryData(['task', ctx.task.id], ctx.task);
+    queryClient.setQueryData(['scene', ctx.scene.id], ctx.scene);
+    queryClient.setQueryData(['dataset', ctx.dataset.id], ctx.dataset);
+    queryClient.setQueryData(['dataset-taxonomies', ctx.dataset.id], ctx.taxonomies);
+    queryClient.setQueryData(
+      ['dataset-primary-taxonomy', ctx.dataset.id, 'fusion_3d'],
+      ctx.primary_taxonomies.fusion_3d ?? null,
+    );
+    queryClient.setQueryData(
+      ['dataset-primary-taxonomy', ctx.dataset.id, '2d_only'],
+      ctx.primary_taxonomies['2d_only'] ?? null,
+    );
+    if (ctx.selected_taxonomy) {
+      queryClient.setQueryData(['taxonomy', ctx.selected_taxonomy.id], ctx.selected_taxonomy);
+    }
+    // task/scene previously had staleTime: 0 — mark the backfilled copies
+    // stale (without refetching) to preserve that mount-refetch semantics.
+    queryClient.invalidateQueries({ queryKey: ['task', ctx.task.id], refetchType: 'none' });
+    queryClient.invalidateQueries({ queryKey: ['scene', ctx.scene.id], refetchType: 'none' });
+  }, [editorContext, queryClient]);
 
   // Auto-set taxonomy from URL param mutation
   const autoSetTaxonomyMutation = useMutation({
@@ -108,6 +107,7 @@ export const useTaskDataLoader = ({
     onSuccess: (updatedScene: any) => {
       setScene(updatedScene);
       queryClient.invalidateQueries({ queryKey: ['scene', scene?.id] });
+      queryClient.invalidateQueries({ queryKey: ['task-editor-context', taskId] });
       queryClient.invalidateQueries({ queryKey: ['annotations'] });
       queryClient.invalidateQueries({ queryKey: ['all-3d-annotations'] });
       setAnnotations([]);
@@ -565,6 +565,7 @@ export const useTaskDataLoader = ({
         .then((updatedWorkflow) => {
           if (updatedWorkflow.status !== task.status || updatedWorkflow.stage !== task.stage) {
             queryClient.invalidateQueries({ queryKey: ['task', task.id] });
+            queryClient.invalidateQueries({ queryKey: ['task-editor-context', task.id] });
           }
         })
         .catch((error) => {

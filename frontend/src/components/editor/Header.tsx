@@ -448,6 +448,7 @@ export const Header: React.FC<HeaderProps> = ({
       setAnnotations([]);
       // Invalidate scene query to refresh
       queryClient.invalidateQueries({ queryKey: ['scene', scene?.id] });
+      queryClient.invalidateQueries({ queryKey: ['task-editor-context', task?.id] });
       // Also invalidate annotation queries so they reload with new taxonomy filter
       queryClient.invalidateQueries({ queryKey: ['annotations'] });
       queryClient.invalidateQueries({ queryKey: ['all-3d-annotations'] });
@@ -615,6 +616,7 @@ export const Header: React.FC<HeaderProps> = ({
         useEditorStore.getState().setTask(updatedTask);
         console.log('[DeleteAll] After setTask, store task:', useEditorStore.getState().task?.revision_count);
         queryClient.invalidateQueries({ queryKey: ['task', task.id] });
+        queryClient.invalidateQueries({ queryKey: ['task-editor-context', task.id] });
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
         queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
         queryClient.invalidateQueries({ queryKey: ['dataset-tasks'] });
@@ -667,6 +669,7 @@ export const Header: React.FC<HeaderProps> = ({
       console.log('[ResetRevisionMode] API response:', updatedTask);
       useEditorStore.getState().setTask(updatedTask);
       queryClient.invalidateQueries({ queryKey: ['task', task.id] });
+      queryClient.invalidateQueries({ queryKey: ['task-editor-context', task.id] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['dataset-tasks'] });
@@ -850,6 +853,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         // Invalidate task cache so reopening this task gets fresh data with updated stage
         queryClient.invalidateQueries({ queryKey: ['task', task.id] });
+        queryClient.invalidateQueries({ queryKey: ['task-editor-context', task.id] });
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
         queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
         // Invalidate per-taxonomy workflow info
