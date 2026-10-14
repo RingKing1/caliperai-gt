@@ -13,13 +13,11 @@ real filesystem layout / UUID-rename / scene-detection code, and mock only
 the DB session and the heavy side-effect boundaries (MinIO mirror,
 annotation import, auto task creation, ffmpeg).
 
-Notable behaviour intentionally pinned (a fork to reconcile later):
-* /upload wraps EVERYTHING in ``except Exception`` and re-raises 500, so
-  client errors raised inside (path traversal / magic-byte rejection)
-  surface as 500, whereas /upload-zip and /upload-video re-raise the
-  original 4xx via ``except HTTPException: raise``.
+All three pipelines re-raise client errors via ``except HTTPException:
+raise`` (validation failures stay 4xx; only unexpected errors become 500).
 """
 import io
+import json
 import time
 import uuid
 import zipfile
@@ -259,26 +257,26 @@ async def test_upload_missing_dataset_returns_404(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_upload_traversal_currently_surfaces_as_500(tmp_path, monkeypatch):
-    # Characterization pin: /upload's broad `except Exception` turns the
-    # validator's 400 into a 500 (zip/video keep the 400).
+async def test_upload_traversal_returns_400_aligned_with_zip(tmp_path, monkeypatch):
+    # /upload re-raises HTTPException like /upload-zip and /upload-video,
+    # so path-traversal validation surfaces as 400, not 500.
     _patch_pipeline_deps(monkeypatch, tmp_path)
     db = FakeSession(dataset=_mock_dataset())
 
     with pytest.raises(HTTPException) as exc:
         await _call_upload(db, [FakeUploadFile("../escape.pcd", b"x")])
-    assert exc.value.status_code == 500
-    assert db.rolled_back
+    assert exc.value.status_code == 400
+    assert db.rolled_back is False
 
 
 @pytest.mark.asyncio
-async def test_upload_bad_jpeg_magic_currently_surfaces_as_500(tmp_path, monkeypatch):
+async def test_upload_bad_jpeg_magic_returns_400(tmp_path, monkeypatch):
     _patch_pipeline_deps(monkeypatch, tmp_path)
     db = FakeSession(dataset=_mock_dataset())
 
     with pytest.raises(HTTPException) as exc:
         await _call_upload(db, [FakeUploadFile("s/images/0001.jpg", b"not-jpeg")])
-    assert exc.value.status_code == 500
+    assert exc.value.status_code == 400
 
 
 @pytest.mark.asyncio
@@ -510,8 +508,18 @@ async def test_zip_single_scene_happy_path(tmp_path, monkeypatch):
     assert resp.scenes_imported == 1
     assert resp.frames_imported == 2
     assert "from ZIP" in resp.message
-    assert _scenes(db)[0].name == "scene_a"
+    scene = _scenes(db)[0]
+    assert scene.name == "scene_a"
     assert len(_frames(db)) == 2
+    # storage_paths must expose the full key set (parity with /upload),
+    # even when images/ego_poses are absent
+    assert set(scene.storage_paths) == {
+        "root", "lidar_base", "images_base", "cameras", "ego_poses",
+    }
+    assert scene.storage_paths["root"].endswith(str(scene.id))
+    assert scene.storage_paths["lidar_base"].endswith(f"{scene.id}/lidar")
+    assert scene.storage_paths["images_base"] is None
+    assert scene.storage_paths["ego_poses"] is None
     deps["import_scene_annotations"].assert_awaited_once()
     assert deps["import_scene_annotations"].await_args.kwargs["overwrite"] is False
     _wait_called(deps["_mirror_scene_to_minio"])
@@ -906,3 +914,126 @@ async def test_local_import_duplicate_name_is_suffixed(tmp_path, monkeypatch):
     assert renamed.original_name == "Alpha Scene"
     assert renamed.new_name.startswith("Alpha Scene_upload-")
     assert _scenes(db)[0].name == renamed.new_name
+
+
+# ===========================================================================
+# ZIP ego-pose storage key + upload/zip storage_paths parity
+# (layout mirrors the real 6-camera tracked bundle)
+# ===========================================================================
+
+BUNDLE_CAMERAS = [
+    "camera_0_front100", "camera_3_left_front", "camera_4_right_front",
+    "camera_5_back", "camera_6_left_back", "camera_7_right_back",
+]
+
+KITTI_LINE = (
+    "0 0 pedestrian 0 0 0 0 0 50 50 1.9 0.7 0.7 "
+    "-24.8 1.3 0.3 -2.5 0.22\n"
+)
+
+
+@pytest.mark.asyncio
+async def test_zip_ego_poses_rel_path_recorded(tmp_path, monkeypatch):
+    _patch_pipeline_deps(monkeypatch, tmp_path)
+    db = FakeSession(dataset=_mock_dataset())
+
+    poses = {
+        "frames": [
+            {"frame_index": 0, "position": [1, 0, 0],
+             "rotation": [1, 0, 0, 0], "timestamp": 0.5},
+        ]
+    }
+    archive = _zip_bytes({
+        "scene_a/lidar/0000.pcd": PCD_BYTES,
+        "scene_a/ego_poses/poses.json": json.dumps(poses),
+    })
+    await _call_zip(db, archive)
+
+    scene = _scenes(db)[0]
+    assert scene.storage_paths["ego_poses"].endswith(
+        f"{scene.id}/ego_poses/poses.json"
+    )
+    frame = _frames(db)[0]
+    assert frame.timestamp == 0.5
+    assert frame.ego_pose["position"] == [1, 0, 0]
+
+
+@pytest.mark.asyncio
+async def test_upload_and_zip_storage_paths_parity_for_6cam_bundle(tmp_path, monkeypatch):
+    """Same on-disk layout via upload and zip must yield identical key sets."""
+
+    n_frames = 10
+    entries = {}
+    for i in range(n_frames):
+        stem = f"{i:04d}"
+        entries[f"scene_x/lidar/{stem}.pcd"] = PCD_BYTES
+        entries[f"scene_x/annotations/lidar/{stem}.txt"] = KITTI_LINE
+        for cam in BUNDLE_CAMERAS:
+            entries[f"scene_x/cameras/{cam}/{stem}.jpg"] = JPG_BYTES
+    entries["scene_x/calibration.json"] = json.dumps({
+        "lidar_to_cameras": {
+            cam: {"extrinsic": {"rotation": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                                 "translation": [0, 0, 0]}}
+            for cam in BUNDLE_CAMERAS
+        }
+    })
+    entries["scene_x/scene_metadata.json"] = json.dumps(
+        {"fps": 10.0, "frame_count": n_frames}
+    )
+
+    # --- ZIP pipeline ---
+    deps_zip = _patch_pipeline_deps(monkeypatch, tmp_path / "z")
+    db_zip = FakeSession(dataset=_mock_dataset())
+    resp_zip = await _call_zip(db_zip, _zip_bytes(entries), dataset_id=db_zip._dataset.id)
+    assert resp_zip.scenes_imported == 1
+    scene_zip = _scenes(db_zip)[0]
+
+    # --- multipart upload pipeline ---
+    deps_up = _patch_pipeline_deps(monkeypatch, tmp_path / "u")
+    db_up = FakeSession(dataset=_mock_dataset())
+    files = [
+        FakeUploadFile(name, data if isinstance(data, bytes) else data.encode())
+        for name, data in entries.items()
+    ]
+    resp_up = await _call_upload(db_up, files, dataset_id=db_up._dataset.id)
+    assert resp_up.scenes_imported == 1
+    scene_up = _scenes(db_up)[0]
+
+    # counts / names
+    assert resp_zip.frames_imported == n_frames
+    assert resp_up.frames_imported == n_frames
+    assert scene_zip.name == scene_up.name == "scene_x"
+
+    # storage_paths: same key superset on both pipelines
+    expected_keys = {"root", "lidar_base", "images_base", "cameras", "ego_poses"}
+    assert set(scene_zip.storage_paths) == expected_keys
+    assert set(scene_up.storage_paths) == expected_keys
+    assert scene_zip.storage_paths["images_base"] is None
+    assert scene_up.storage_paths["images_base"] is None
+    assert scene_zip.storage_paths["ego_poses"] is None
+    assert scene_up.storage_paths["ego_poses"] is None
+    assert scene_zip.storage_paths["lidar_base"].endswith(
+        f"{scene_zip.id}/lidar"
+    )
+    assert scene_up.storage_paths["lidar_base"].endswith(
+        f"{scene_up.id}/lidar"
+    )
+
+    # six cameras registered, keys ending in /cameras/{cam}
+    for sp in (scene_zip.storage_paths, scene_up.storage_paths):
+        cams = sp["cameras"]
+        assert set(cams) == set(BUNDLE_CAMERAS)
+        for cam in BUNDLE_CAMERAS:
+            assert cams[cam].endswith(f"/cameras/{cam}")
+
+    # every frame carries lidar + all six cameras
+    for db_, scene in ((db_zip, scene_zip), (db_up, scene_up)):
+        frames = _frames(db_)
+        assert len(frames) == n_frames
+        for frame in frames:
+            assert frame.scene_id == scene.id
+            assert frame.file_paths["lidar"].endswith(".pcd")
+            assert set(frame.file_paths["cameras"]) == set(BUNDLE_CAMERAS)
+
+    deps_zip["import_scene_annotations"].assert_awaited_once()
+    deps_up["import_scene_annotations"].assert_awaited_once()

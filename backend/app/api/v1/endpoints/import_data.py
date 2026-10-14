@@ -548,6 +548,8 @@ async def upload_and_import_dataset(
             renamed_scenes=renamed_scenes,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         await db.rollback()
         raise HTTPException(
@@ -769,11 +771,13 @@ async def upload_zip_and_import_dataset(
                     cameras_storage_paths["images"] = f"{relative_path_base}/images"
                 
                 ego_poses_data: Dict[int, Any] = {}
-                ego_poses_path = permanent_scene_dir / "ego_poses" / "poses.json"
-                if not ego_poses_path.exists():
-                    ego_poses_path = permanent_scene_dir / "ego_poses" / "ego_poses.json"
-                if ego_poses_path.exists():
-                    with open(ego_poses_path) as f:
+                ego_poses_rel_path: Optional[str] = None
+                ego_poses_file = permanent_scene_dir / "ego_poses" / "poses.json"
+                if not ego_poses_file.exists():
+                    ego_poses_file = permanent_scene_dir / "ego_poses" / "ego_poses.json"
+                if ego_poses_file.exists():
+                    ego_poses_rel_path = f"{relative_path_base}/ego_poses/{ego_poses_file.name}"
+                    with open(ego_poses_file) as f:
                         poses_raw = json.load(f)
                         if isinstance(poses_raw, dict) and "frames" in poses_raw:
                             for pose_entry in poses_raw["frames"]:
@@ -816,6 +820,7 @@ async def upload_zip_and_import_dataset(
                         renamed_scenes.append(RenamedScene(original_name=original_name, new_name=scene_name, scene_id=str(scene_id)))
 
                 scene = Scene(
+                    id=scene_id,
                     dataset_id=dataset.id,
                     name=scene_name,
                     description=user_description or scene_meta.get("description"),
@@ -829,8 +834,11 @@ async def upload_zip_and_import_dataset(
                     fps=scene_meta.get("fps", 10.0),
                     calibration=scene_calibration if scene_calibration else {},
                     storage_paths={
+                        "root": str(permanent_scene_dir),
                         "lidar_base": f"{relative_path_base}/lidar" if permanent_lidar_path.exists() else None,
+                        "images_base": f"{relative_path_base}/images" if permanent_images_path.exists() else None,
                         "cameras": cameras_storage_paths,
+                        "ego_poses": ego_poses_rel_path,
                     },
                 )
                 db.add(scene)
