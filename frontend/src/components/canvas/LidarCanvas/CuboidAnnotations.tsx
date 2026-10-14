@@ -173,7 +173,7 @@ export const CuboidAnnotations: React.FC<CuboidAnnotationsProps> = ({ shiftPress
 
         return (
           <CuboidMesh
-            key={`${ann.id}-${computedColor}-${isLockedApproved ? 'locked' : 'editable'}`}
+            key={`${ann.id}-${ann.is_verified ? 'verified' : 'unverified'}-${computedColor}-${isLockedApproved ? 'locked' : 'editable'}`}
             annotation={ann}
             transformedPosition={[data.center.x, data.center.y, data.center.z]}
             transformedYaw={data.rotation?.yaw || 0}

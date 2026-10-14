@@ -49,142 +49,196 @@ export const ShortcutsHelpModal: React.FC<ShortcutsHelpModalProps> = ({
         <div className="px-6 py-5 overflow-y-auto">
           <div className="grid grid-cols-2 gap-6">
 
-            {/* Common Shortcuts */}
-            <div>
-              <h3 className="text-sm font-semibold text-blue-400 mb-3 flex items-center gap-2">
-                <span className="w-5 h-5 rounded bg-blue-500/20 flex items-center justify-center">⌨️</span>
-                Common
-              </h3>
-              <div className="space-y-1.5">
-                {[
-                  ['Ctrl+S', 'Save annotations'],
-                  ['Ctrl+Z', 'Undo'],
-                  ['Ctrl+Y', 'Redo'],
-                  ['Del / ⌫', 'Delete selected'],
-                  ['Esc', 'Cancel / Deselect'],
-                  ['1-9, 0, 10+', 'Quick class select'],
-                  ['H', 'Toggle this help'],
-                ].map(([key, desc]) => (
-                  <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
-                    <span className="text-xs text-gray-400">{desc}</span>
-                    <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-blue-300">{key}</kbd>
-                  </div>
-                ))}
+            {/* Left Column */}
+            <div className="space-y-5">
+              {/* Common Shortcuts */}
+              <div>
+                <h3 className="text-sm font-semibold text-blue-400 mb-3 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded bg-blue-500/20 flex items-center justify-center">⌨️</span>
+                  Common
+                </h3>
+                <div className="space-y-1.5">
+                  {[
+                    ['Ctrl+S', 'Save annotations'],
+                    ['Ctrl+Z', 'Undo'],
+                    ['Ctrl+Y / Ctrl+Shift+Z', 'Redo'],
+                    ['Del / ⌫', 'Delete selected'],
+                    ['Esc', 'Cancel / Deselect'],
+                    ['1-9, 0, 10+', 'Quick class select (supports multi-digit)'],
+                    ['H', 'Toggle this help'],
+                  ].map(([key, desc]) => (
+                    <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
+                      <span className="text-xs text-gray-400">{desc}</span>
+                      <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-blue-300">{key}</kbd>
+                    </div>
+                  ))}
+                </div>
               </div>
+
+              {/* Navigation */}
+              <div>
+                <h3 className="text-sm font-semibold text-indigo-400 mb-3 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded bg-indigo-500/20 flex items-center justify-center">🎞️</span>
+                  Navigation
+                </h3>
+                <div className="space-y-1.5">
+                  {[
+                    ['F / B', 'Next / Prev frame'],
+                    ['← →', 'Prev / Next frame (when no box selected)'],
+                    ['Alt + ← →', 'Force frame step (even with box selected)'],
+                    ['Shift + ← →', 'Step one frame forward / backward'],
+                    ['Home / End', 'Jump to first / last frame'],
+                  ].map(([key, desc]) => (
+                    <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
+                      <span className="text-xs text-gray-400">{desc}</span>
+                      <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-indigo-300">{key}</kbd>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Camera & View Controls (3D) */}
+              {viewMode !== '2d' && (
+                <div>
+                  <h3 className="text-sm font-semibold text-cyan-400 mb-3 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded bg-cyan-500/20 flex items-center justify-center">🎥</span>
+                    Camera & View
+                  </h3>
+                  <div className="space-y-1.5">
+                    {[
+                      ['Shift+T', 'Toggle top view (BEV)'],
+                      ['Alt + F', 'Toggle fisheye / pinhole projection'],
+                      ['G', 'Reset camera (return to 3D perspective)'],
+                      ['Dbl-Click Box', 'Focus camera on selected box'],
+                    ].map(([key, desc]) => (
+                      <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
+                        <span className="text-xs text-gray-400">{desc}</span>
+                        <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-cyan-300">{key}</kbd>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 2D Annotation Shortcuts — only relevant in 2D mode */}
             {viewMode === '2d' && (
-              <div>
-                <h3 className="text-sm font-semibold text-green-400 mb-3 flex items-center gap-2">
-                  <span className="w-5 h-5 rounded bg-green-500/20 flex items-center justify-center">🖼️</span>
-                  2D Tools
-                </h3>
-                <div className="space-y-1.5">
-                  {[
-                    ['V', 'Select tool'],
-                    ['Space', 'Pan (hold + drag)'],
-                    ['R', 'Rectangle'],
-                    ['E', 'Ellipse'],
-                    ['P', 'Polygon'],
-                    ['L', 'Polyline'],
-                    ['K', 'Points'],
-                    ['W', 'AI Segmentation'],
-                    ['M', 'AI Polygon'],
-                  ].map(([key, desc]) => (
-                    <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
-                      <span className="text-xs text-gray-400">{desc}</span>
-                      <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-green-300">{key}</kbd>
-                    </div>
-                  ))}
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-sm font-semibold text-green-400 mb-3 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded bg-green-500/20 flex items-center justify-center">🖼️</span>
+                    2D Tools
+                  </h3>
+                  <div className="space-y-1.5">
+                    {[
+                      ['V', 'Select tool'],
+                      ['Space', 'Pan (hold + drag)'],
+                      ['R', 'Rectangle'],
+                      ['E', 'Ellipse'],
+                      ['P', 'Polygon'],
+                      ['L', 'Polyline'],
+                      ['K', 'Points'],
+                      ['W', 'AI Segmentation'],
+                      ['M', 'AI Polygon'],
+                    ].map(([key, desc]) => (
+                      <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
+                        <span className="text-xs text-gray-400">{desc}</span>
+                        <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-green-300">{key}</kbd>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                <h4 className="text-xs font-medium text-gray-500 mt-3 mb-1.5">Drawing</h4>
-                <div className="space-y-1.5">
-                  {[
-                    ['Enter', 'Complete shape'],
-                    ['Backspace', 'Undo last point'],
-                    ['Dbl-Click', 'Fit to window'],
-                  ].map(([key, desc]) => (
-                    <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
-                      <span className="text-xs text-gray-400">{desc}</span>
-                      <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-green-300">{key}</kbd>
-                    </div>
-                  ))}
+                <div>
+                  <h4 className="text-sm font-semibold text-green-400 mb-3 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded bg-green-500/20 flex items-center justify-center">✏️</span>
+                    Drawing
+                  </h4>
+                  <div className="space-y-1.5">
+                    {[
+                      ['Enter', 'Complete shape'],
+                      ['Backspace', 'Undo last point'],
+                      ['Dbl-Click', 'Fit to window'],
+                    ].map(([key, desc]) => (
+                      <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
+                        <span className="text-xs text-gray-400">{desc}</span>
+                        <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-green-300">{key}</kbd>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                <h4 className="text-xs font-medium text-gray-500 mt-3 mb-1.5">Segment Editing</h4>
-                <div className="space-y-1.5">
-                  {[
-                    ['Shift + Left Click', 'Add point to segment'],
-                    ['Shift + Right Click', 'Delete point from segment'],
-                  ].map(([key, desc]) => (
-                    <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
-                      <span className="text-xs text-gray-400">{desc}</span>
-                      <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-green-300">{key}</kbd>
-                    </div>
-                  ))}
+                <div>
+                  <h4 className="text-sm font-semibold text-green-400 mb-3 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded bg-green-500/20 flex items-center justify-center">✂️</span>
+                    Segment Editing
+                  </h4>
+                  <div className="space-y-1.5">
+                    {[
+                      ['Shift + Left Click', 'Add point to segment'],
+                      ['Shift + Right Click', 'Delete point from segment'],
+                    ].map(([key, desc]) => (
+                      <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
+                        <span className="text-xs text-gray-400">{desc}</span>
+                        <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-green-300">{key}</kbd>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
 
             {/* 3D Annotation Shortcuts — only relevant in 3D / fusion / 4D modes */}
             {viewMode !== '2d' && (
-              <div>
-                <h3 className="text-sm font-semibold text-purple-400 mb-3 flex items-center gap-2">
-                  <span className="w-5 h-5 rounded bg-purple-500/20 flex items-center justify-center">📦</span>
-                  3D Tools
-                </h3>
-                <div className="space-y-1.5">
-                  {[
-                    ['C', 'Cuboid tool'],
-                    ['T', 'Track tool'],
-                    ['Shift+Click', 'Draw box (select mode)'],
-                  ].map(([key, desc]) => (
-                    <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
-                      <span className="text-xs text-gray-400">{desc}</span>
-                      <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-purple-300">{key}</kbd>
-                    </div>
-                  ))}
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-sm font-semibold text-purple-400 mb-3 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded bg-purple-500/20 flex items-center justify-center">📦</span>
+                    3D Tools
+                  </h3>
+                  <div className="space-y-1.5">
+                    {[
+                      ['C', 'Cuboid tool'],
+                      ['T', 'Track tool (multi-frame track)'],
+                      ['S', '3D Brush tool (when unselected)'],
+                      ['V', 'Accept / Unaccept（核验合格切换）'],
+                      ['Shift+Click', 'Draw box (select mode)'],
+                    ].map(([key, desc]) => (
+                      <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
+                        <span className="text-xs text-gray-400">{desc}</span>
+                        <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-purple-300">{key}</kbd>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                <h4 className="text-xs font-medium text-gray-500 mt-3 mb-1.5">Box Editing</h4>
-                <div className="space-y-1.5">
-                  {[
-                    ['Q / E', 'Rotate left / right'],
-                    ['R', 'Reset rotation'],
-                    ['W / S', 'Grow / Shrink length'],
-                    ['A / D', 'Grow / Shrink width'],
-                    ['Z / X', 'Grow / Shrink height'],
-                    ['← → ↑ ↓', 'Move box (view-aware in active ortho panel)'],
-                    ['Shift + Arrows', 'Fine move (3D view) / Rotate (ortho panel)'],
-                    ['Ctrl+D', 'Duplicate'],
-                  ].map(([key, desc]) => (
-                    <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
-                      <span className="text-xs text-gray-400">{desc}</span>
-                      <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-purple-300">{key}</kbd>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-[10px] text-gray-500 mt-1.5 px-2">
-                  Ortho mapping: Top (X/Y), Front (X/Z), Side (Y/Z). Click or hover a panel to make it active for arrow movement.
-                </p>
-
-                <h4 className="text-xs font-medium text-gray-500 mt-3 mb-1.5">Navigation</h4>
-                <div className="space-y-1.5">
-                  {[
-                    ['F / B', 'Next / Prev frame'],
-                    ['← →', 'Prev / Next frame (when no box selected)'],
-                    ['Alt + ← →', 'Force frame step (even with box selected)'],
-                    ['Shift+T', 'Toggle top view'],
-                    ['Alt + F', 'Toggle fisheye projection'],
-                    ['G', 'Back to 3D view'],
-                  ].map(([key, desc]) => (
-                    <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
-                      <span className="text-xs text-gray-400">{desc}</span>
-                      <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-purple-300">{key}</kbd>
-                    </div>
-                  ))}
+                <div>
+                  <h4 className="text-sm font-semibold text-purple-400 mb-3 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded bg-purple-500/20 flex items-center justify-center">📐</span>
+                    Box Editing
+                  </h4>
+                  <div className="space-y-1.5">
+                    {[
+                      ['Q / E', 'Rotate left / right (Shift: 1° fine)'],
+                      ['R', 'Reset rotation to 0'],
+                      ['W / S', '垂直移动受控边（光标在上半区调上边，在下半区调下边，对边固定；按住 Alt 为中心缩放；Shift: 0.01m 微调）'],
+                      ['A / D', '水平移动受控边（光标在左半区调左边，在右半区调右边，对边固定；按住 Alt 为中心缩放；Shift: 0.01m 微调）'],
+                      ['Z / X', '视口垂直深度轴 伸展 / 缩短（中心对称；Shift: 0.01m 微调）'],
+                      ['边框点击', '点击正交视图单侧边框可临时锁定/解锁该边，锁定后专控该边'],
+                      ['← → ↑ ↓', '框体平移移动（各正交视口及 3D 自适应，步长 0.1m）'],
+                      ['Shift + 方向键', '框体微调移动（每次 0.01m 毫米级位移，各视口自适应）'],
+                      ['Alt + +/-', 'Uniform scale box (ortho panel)'],
+                      ['Ctrl+D', 'Duplicate selected box'],
+                    ].map(([key, desc]) => (
+                      <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
+                        <span className="text-xs text-gray-400">{desc}</span>
+                        <kbd className="px-1.5 py-0.5 bg-dark border border-gray-600 rounded text-[10px] font-mono text-purple-300">{key}</kbd>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-2 px-2">
+                    💡 单侧微调特性：鼠标在正交视图（Top/Side/Front）中靠近或指向某半区时，对应边框高亮（青色），按 W/S 或 A/D 仅单侧边框位移，对边完全固定不动！点击边框可锁定（粉色）。按住 Alt 键恢复中心对称缩放。
+                  </p>
                 </div>
               </div>
             )}

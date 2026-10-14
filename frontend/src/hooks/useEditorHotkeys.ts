@@ -221,51 +221,180 @@ export const useEditorHotkeys = ({
         return;
       }
 
-      // Dimension shortcuts - grow/shrink in POSITIVE direction only (shift center accordingly)
-      // W/S = length (X axis) - grow towards +X
+      // Determine active view mode:
+      // 1. If an ortho panel is active, use it (top / front / side)
+      // 2. Otherwise, check if main lidar canvas is in top view mode
+      // 3. Otherwise default to 3d perspective view
+      const currentView: 'top' | 'front' | 'side' | '3d' =
+        showOrthoViews && activeOrthoView ? activeOrthoView : store.lidarView.isTopView ? 'top' : '3d';
+
+      // Map view-relative screen axes to cuboid physical dimensions:
+      // Vertical axis (W/S): Top -> width, Side -> height, Front -> height, 3D -> length
+      // Horizontal axis (A/D): Top -> length, Side -> length, Front -> width, 3D -> width
+      // Depth axis (Z/X): Top -> height, Side -> width, Front -> length, 3D -> height
+      const verticalDim: 'length' | 'width' | 'height' =
+        currentView === 'top' ? 'width' : currentView === 'side' || currentView === 'front' ? 'height' : 'length';
+
+      const horizontalDim: 'length' | 'width' | 'height' =
+        currentView === 'top' || currentView === 'side' ? 'length' : 'width';
+
+      const depthDim: 'length' | 'width' | 'height' =
+        currentView === 'top' ? 'height' : currentView === 'side' ? 'width' : currentView === 'front' ? 'length' : 'height';
+
+      // Helper for symmetric adjustment (expands/contracts evenly from center on both sides)
+      const adjustDimensionSymmetric = (
+        annotation: any,
+        dimType: 'length' | 'width' | 'height',
+        delta: number,
+      ) => {
+        const currentData = annotation.data as {
+          center: { x: number; y: number; z: number };
+          dimensions: { length: number; width: number; height: number };
+          rotation: { yaw: number; pitch: number; roll: number };
+        };
+        const currentDims = currentData.dimensions;
+        const newDims = {
+          ...currentDims,
+          [dimType]: Math.max(0.1, currentDims[dimType] + delta),
+        };
+        updateCuboidData(annotation, { dimensions: newDims });
+      };
+
+      // Helper for single-edge adjustment:
+      // Adjusts only the targeted edge while keeping the opposite edge strictly stationary.
+      // delta > 0 means the box expands outward on that edge.
+      // delta < 0 means the box shrinks inward on that edge.
+      const adjustSingleEdge = (
+        annotation: any,
+        viewType: 'top' | 'side' | 'front',
+        edge: 'top' | 'bottom' | 'left' | 'right',
+        delta: number,
+      ) => {
+        const currentData = annotation.data as {
+          center: { x: number; y: number; z: number };
+          dimensions: { length: number; width: number; height: number };
+          rotation: { yaw: number; pitch: number; roll: number };
+        };
+        const { length, width, height } = currentData.dimensions;
+        const center = { ...currentData.center };
+        const yaw = currentData.rotation?.yaw ?? 0;
+        const cos = Math.cos(yaw);
+        const sin = Math.sin(yaw);
+
+        let newLength = length;
+        let newWidth = width;
+        let newHeight = height;
+
+        // Local displacement of center along box-local axes
+        let localDx = 0;
+        let localDy = 0;
+        let localDz = 0;
+
+        if (viewType === 'top') {
+          // Top view: horizontal is box X (length), vertical is box Y (width)
+          if (edge === 'right') {
+            newLength = Math.max(0.1, length + delta);
+            localDx = (newLength - length) / 2;
+          } else if (edge === 'left') {
+            newLength = Math.max(0.1, length + delta);
+            localDx = -(newLength - length) / 2;
+          } else if (edge === 'top') {
+            newWidth = Math.max(0.1, width + delta);
+            localDy = (newWidth - width) / 2;
+          } else if (edge === 'bottom') {
+            newWidth = Math.max(0.1, width + delta);
+            localDy = -(newWidth - width) / 2;
+          }
+        } else if (viewType === 'side') {
+          // Side view: horizontal is box X (length), vertical is box Z (height)
+          if (edge === 'right') {
+            newLength = Math.max(0.1, length + delta);
+            localDx = (newLength - length) / 2;
+          } else if (edge === 'left') {
+            newLength = Math.max(0.1, length + delta);
+            localDx = -(newLength - length) / 2;
+          } else if (edge === 'top') {
+            newHeight = Math.max(0.1, height + delta);
+            localDz = (newHeight - height) / 2;
+          } else if (edge === 'bottom') {
+            newHeight = Math.max(0.1, height + delta);
+            localDz = -(newHeight - height) / 2;
+          }
+        } else if (viewType === 'front') {
+          // Front view: looking along vehicle +X axis.
+          // Screen right is vehicle -Y, screen left is vehicle +Y.
+          // Screen up is vehicle +Z (height).
+          if (edge === 'right') {
+            newWidth = Math.max(0.1, width + delta);
+            localDy = -(newWidth - width) / 2;
+          } else if (edge === 'left') {
+            newWidth = Math.max(0.1, width + delta);
+            localDy = (newWidth - width) / 2;
+          } else if (edge === 'top') {
+            newHeight = Math.max(0.1, height + delta);
+            localDz = (newHeight - height) / 2;
+          } else if (edge === 'bottom') {
+            newHeight = Math.max(0.1, height + delta);
+            localDz = -(newHeight - height) / 2;
+          }
+        }
+
+        // Rotate localDx, localDy to world coordinates based on yaw
+        const worldDx = localDx * cos - localDy * sin;
+        const worldDy = localDx * sin + localDy * cos;
+        const worldDz = localDz;
+
+        updateCuboidData(annotation, {
+          dimensions: { length: newLength, width: newWidth, height: newHeight },
+          center: {
+            x: center.x + worldDx,
+            y: center.y + worldDy,
+            z: center.z + worldDz,
+          },
+        });
+      };
+
+      const { orthoEdgeState } = useEditorStore.getState();
+      const isOrthoView = showOrthoViews && (currentView === 'top' || currentView === 'side' || currentView === 'front');
+      const isHoveringOrtho = isOrthoView && (orthoEdgeState.activeView === currentView || !!orthoEdgeState.lockedEdge);
+      const isCenterMode = e.altKey || !isHoveringOrtho;
+
+      // Active vertical and horizontal edges:
+      const activeVertical = orthoEdgeState.lockedEdge === 'top' || orthoEdgeState.lockedEdge === 'bottom'
+        ? orthoEdgeState.lockedEdge
+        : orthoEdgeState.verticalEdge;
+
+      const activeHorizontal = orthoEdgeState.lockedEdge === 'left' || orthoEdgeState.lockedEdge === 'right'
+        ? orthoEdgeState.lockedEdge
+        : orthoEdgeState.horizontalEdge;
+
+      // Dimension shortcuts - view-aware relative to active panel's coordinate system
+      // W/S = Vertical axis of current view (W: move active edge UP, S: move active edge DOWN)
       if (key === 'w') {
         const annotation = getSelectedCuboid();
         if (annotation) {
           e.preventDefault();
-          const currentData = annotation.data as {
-            center: { x: number; y: number; z: number };
-            dimensions: { length: number; width: number; height: number };
-            rotation: { yaw: number; pitch: number; roll: number };
-          };
-          const newLength = Math.max(0.1, currentData.dimensions.length + dimensionStep);
-          // Shift center in +X direction by half the delta to grow towards +X only
-          const centerShift = dimensionStep / 2;
-          // Account for rotation: shift in local X direction
-          const yaw = currentData.rotation.yaw;
-          const shiftX = centerShift * Math.cos(yaw);
-          const shiftY = centerShift * Math.sin(yaw);
-          updateCuboidData(annotation, {
-            dimensions: { ...currentData.dimensions, length: newLength },
-            center: { ...currentData.center, x: currentData.center.x + shiftX, y: currentData.center.y + shiftY },
-          });
+          if (isCenterMode || !isOrthoView) {
+            adjustDimensionSymmetric(annotation, verticalDim, dimensionStep);
+          } else {
+            const targetEdge = activeVertical ?? 'top';
+            const delta = targetEdge === 'top' ? dimensionStep : -dimensionStep;
+            adjustSingleEdge(annotation, currentView, targetEdge, delta);
+          }
+          return;
         }
-        return;
       }
       if (key === 's' && !e.ctrlKey && !e.metaKey) {
-        // S without modifier = decrease length (shrink from +X side)
         const annotation = getSelectedCuboid();
         if (annotation) {
           e.preventDefault();
-          const currentData = annotation.data as {
-            center: { x: number; y: number; z: number };
-            dimensions: { length: number; width: number; height: number };
-            rotation: { yaw: number; pitch: number; roll: number };
-          };
-          const newLength = Math.max(0.1, currentData.dimensions.length - dimensionStep);
-          // Shift center in -X direction by half the delta to shrink from +X side
-          const centerShift = -dimensionStep / 2;
-          const yaw = currentData.rotation.yaw;
-          const shiftX = centerShift * Math.cos(yaw);
-          const shiftY = centerShift * Math.sin(yaw);
-          updateCuboidData(annotation, {
-            dimensions: { ...currentData.dimensions, length: newLength },
-            center: { ...currentData.center, x: currentData.center.x + shiftX, y: currentData.center.y + shiftY },
-          });
+          if (isCenterMode || !isOrthoView) {
+            adjustDimensionSymmetric(annotation, verticalDim, -dimensionStep);
+          } else {
+            const targetEdge = activeVertical ?? 'bottom';
+            const delta = targetEdge === 'top' ? -dimensionStep : dimensionStep;
+            adjustSingleEdge(annotation, currentView, targetEdge, delta);
+          }
           return;
         }
         // No annotation selected - fall through to tool switch
@@ -274,89 +403,52 @@ export const useEditorHotkeys = ({
         return;
       }
 
-      // A/D = width (Y axis) - grow towards +Y
+      // A/D = Horizontal axis of current view (D: move active edge RIGHT, A: move active edge LEFT)
       if (key === 'a') {
         const annotation = getSelectedCuboid();
         if (annotation) {
           e.preventDefault();
-          const currentData = annotation.data as {
-            center: { x: number; y: number; z: number };
-            dimensions: { length: number; width: number; height: number };
-            rotation: { yaw: number; pitch: number; roll: number };
-          };
-          const newWidth = Math.max(0.1, currentData.dimensions.width + dimensionStep);
-          // Shift center in +Y direction (local) by half the delta
-          const centerShift = dimensionStep / 2;
-          const yaw = currentData.rotation.yaw;
-          // Local +Y is perpendicular to local +X: rotate 90 degrees
-          const shiftX = -centerShift * Math.sin(yaw);
-          const shiftY = centerShift * Math.cos(yaw);
-          updateCuboidData(annotation, {
-            dimensions: { ...currentData.dimensions, width: newWidth },
-            center: { ...currentData.center, x: currentData.center.x + shiftX, y: currentData.center.y + shiftY },
-          });
+          if (isCenterMode || !isOrthoView) {
+            adjustDimensionSymmetric(annotation, horizontalDim, -dimensionStep);
+          } else {
+            const targetEdge = activeHorizontal ?? 'left';
+            const delta = targetEdge === 'left' ? dimensionStep : -dimensionStep;
+            adjustSingleEdge(annotation, currentView, targetEdge, delta);
+          }
+          return;
         }
-        return;
       }
-      if (key === 'd') {
+      if (key === 'd' && !e.ctrlKey && !e.metaKey) {
         const annotation = getSelectedCuboid();
         if (annotation) {
           e.preventDefault();
-          const currentData = annotation.data as {
-            center: { x: number; y: number; z: number };
-            dimensions: { length: number; width: number; height: number };
-            rotation: { yaw: number; pitch: number; roll: number };
-          };
-          const newWidth = Math.max(0.1, currentData.dimensions.width - dimensionStep);
-          // Shift center in -Y direction (local) by half the delta
-          const centerShift = -dimensionStep / 2;
-          const yaw = currentData.rotation.yaw;
-          const shiftX = -centerShift * Math.sin(yaw);
-          const shiftY = centerShift * Math.cos(yaw);
-          updateCuboidData(annotation, {
-            dimensions: { ...currentData.dimensions, width: newWidth },
-            center: { ...currentData.center, x: currentData.center.x + shiftX, y: currentData.center.y + shiftY },
-          });
+          if (isCenterMode || !isOrthoView) {
+            adjustDimensionSymmetric(annotation, horizontalDim, dimensionStep);
+          } else {
+            const targetEdge = activeHorizontal ?? 'right';
+            const delta = targetEdge === 'right' ? dimensionStep : -dimensionStep;
+            adjustSingleEdge(annotation, currentView, targetEdge, delta);
+          }
+          return;
         }
-        return;
       }
 
-      // Z/X = height (Z axis) - grow towards +Z
+      // Z/X = Depth (perpendicular) axis of current view (always symmetric)
       if (key === 'z' && !e.ctrlKey && !e.metaKey) {
         const annotation = getSelectedCuboid();
         if (annotation) {
           e.preventDefault();
-          const currentData = annotation.data as {
-            center: { x: number; y: number; z: number };
-            dimensions: { length: number; width: number; height: number };
-          };
-          const newHeight = Math.max(0.1, currentData.dimensions.height + dimensionStep);
-          // Shift center up by half the delta to grow upwards only
-          const centerShift = dimensionStep / 2;
-          updateCuboidData(annotation, {
-            dimensions: { ...currentData.dimensions, height: newHeight },
-            center: { ...currentData.center, z: currentData.center.z + centerShift },
-          });
+          adjustDimensionSymmetric(annotation, depthDim, dimensionStep);
+          return;
         }
-        return;
       }
       if (key === 'x') {
         const annotation = getSelectedCuboid();
         if (annotation) {
           e.preventDefault();
-          const currentData = annotation.data as {
-            center: { x: number; y: number; z: number };
-            dimensions: { length: number; width: number; height: number };
-          };
-          const newHeight = Math.max(0.1, currentData.dimensions.height - dimensionStep);
-          // Shift center down by half the delta to shrink from top
-          const centerShift = -dimensionStep / 2;
-          updateCuboidData(annotation, {
-            dimensions: { ...currentData.dimensions, height: newHeight },
-            center: { ...currentData.center, z: currentData.center.z + centerShift },
-          });
+          adjustDimensionSymmetric(annotation, depthDim, -dimensionStep);
+          return;
         }
-        return;
       }
 
       // Ctrl+D = Duplicate annotation
@@ -442,21 +534,9 @@ export const useEditorHotkeys = ({
           const annotation = getSelectedCuboid();
           // If a box is selected (and not holding Alt to force frame step), nudge the box
           if (annotation && !e.altKey) {
-            // Keep Shift+Arrow in active ortho views for rotation controls handled by OrthographicViews
-            if (showOrthoViews && activeOrthoView && e.shiftKey) {
-              break;
-            }
-
             e.preventDefault();
             const moveStep = e.shiftKey ? 0.01 : 0.1; // 0.01m fine, 0.1m normal
             const currentData = annotation.data as { center: { x: number; y: number; z: number } };
-
-            // Determine active view mode:
-            // 1. If an ortho panel is active, use it (top / front / side)
-            // 2. Otherwise, check if main lidar canvas is in top view mode
-            // 3. Otherwise default to 3d perspective view
-            const currentView: 'top' | 'front' | 'side' | '3d' =
-              showOrthoViews && activeOrthoView ? activeOrthoView : store.lidarView.isTopView ? 'top' : '3d';
 
             // Screen-space delta:
             // ArrowRight = +X (right), ArrowLeft = -X (left)

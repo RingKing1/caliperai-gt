@@ -684,15 +684,6 @@ const Box2D: React.FC<{
   const halfX = dimX / 2;
   const halfY = dimY / 2;
 
-  const vertices = useMemo(() => [
-    [-halfX, -halfY, 0],
-    [halfX, -halfY, 0],
-    [halfX, halfY, 0],
-    [-halfX, halfY, 0],
-    [-halfX, -halfY, 0]
-  ].map(p => new THREE.Vector3(...p)), [dimX, dimY]);
-
-
   const handleTranslate = (delta: THREE.Vector3) => {
 
     let localDx = 0, localDy = 0, localDz = 0;
@@ -725,10 +716,98 @@ const Box2D: React.FC<{
     onUpdate({ rotation: rot });
   };
 
+  const orthoEdgeState = useEditorStore(state => state.orthoEdgeState);
+  const setOrthoLockedEdge = useEditorStore(state => state.setOrthoLockedEdge);
+
+  const isCurrentPanel = orthoEdgeState.activeView === viewType;
+  const lockedEdge = orthoEdgeState.lockedEdge;
+
+  const isTopActive = isCurrentPanel && (lockedEdge === 'top' || (!lockedEdge && orthoEdgeState.verticalEdge === 'top'));
+  const isBottomActive = isCurrentPanel && (lockedEdge === 'bottom' || (!lockedEdge && orthoEdgeState.verticalEdge === 'bottom'));
+  const isLeftActive = isCurrentPanel && (lockedEdge === 'left' || (!lockedEdge && orthoEdgeState.horizontalEdge === 'left'));
+  const isRightActive = isCurrentPanel && (lockedEdge === 'right' || (!lockedEdge && orthoEdgeState.horizontalEdge === 'right'));
+
+  const getEdgeColor = (edge: 'top' | 'bottom' | 'left' | 'right', isActive: boolean) => {
+    if (lockedEdge === edge) return '#f43f5e'; // Rose Red for locked
+    if (isActive) return '#06b6d4'; // Bright Cyan for hover active
+    return BOX_COLOR;
+  };
+
+  const getEdgeLineWidth = (edge: 'top' | 'bottom' | 'left' | 'right', isActive: boolean) => {
+    if (lockedEdge === edge) return 4.5;
+    if (isActive) return 3.5;
+    return 1.8;
+  };
+
   return (
     <group position={[displayCenter.x, displayCenter.y, 0]}>
-      {/* Box Outline */}
-      <Line points={vertices} color={BOX_COLOR} lineWidth={2} />
+      {/* 4 Interactive Box Edges with directional highlighting */}
+      {/* Top Edge */}
+      <Line
+        points={[[-halfX, halfY, 0.05], [halfX, halfY, 0.05]]}
+        color={getEdgeColor('top', isTopActive)}
+        lineWidth={getEdgeLineWidth('top', isTopActive)}
+      />
+      {/* Bottom Edge */}
+      <Line
+        points={[[-halfX, -halfY, 0.05], [halfX, -halfY, 0.05]]}
+        color={getEdgeColor('bottom', isBottomActive)}
+        lineWidth={getEdgeLineWidth('bottom', isBottomActive)}
+      />
+      {/* Left Edge */}
+      <Line
+        points={[[-halfX, -halfY, 0.05], [-halfX, halfY, 0.05]]}
+        color={getEdgeColor('left', isLeftActive)}
+        lineWidth={getEdgeLineWidth('left', isLeftActive)}
+      />
+      {/* Right Edge */}
+      <Line
+        points={[[halfX, -halfY, 0.05], [halfX, halfY, 0.05]]}
+        color={getEdgeColor('right', isRightActive)}
+        lineWidth={getEdgeLineWidth('right', isRightActive)}
+      />
+
+      {/* Clickable Edge Hit Areas for locking */}
+      <mesh
+        position={[0, halfY, 0.1]}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          setOrthoLockedEdge(lockedEdge === 'top' ? null : 'top');
+        }}
+      >
+        <planeGeometry args={[dimX, Math.max(0.4, dimY * 0.15)]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh
+        position={[0, -halfY, 0.1]}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          setOrthoLockedEdge(lockedEdge === 'bottom' ? null : 'bottom');
+        }}
+      >
+        <planeGeometry args={[dimX, Math.max(0.4, dimY * 0.15)]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh
+        position={[-halfX, 0, 0.1]}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          setOrthoLockedEdge(lockedEdge === 'left' ? null : 'left');
+        }}
+      >
+        <planeGeometry args={[Math.max(0.4, dimX * 0.15), dimY]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh
+        position={[halfX, 0, 0.1]}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          setOrthoLockedEdge(lockedEdge === 'right' ? null : 'right');
+        }}
+      >
+        <planeGeometry args={[Math.max(0.4, dimX * 0.15), dimY]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
 
       {/* Transparent Fill for Move */}
       <DraggableHandle
@@ -1179,6 +1258,8 @@ const OrthoViewPanel: React.FC<{
     updateAnnotation(selectedAnnotation.id, { data: localData });
   };
 
+  const orthoEdgeState = useEditorStore(state => state.orthoEdgeState);
+
   const fallbackCenter = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
   const fallbackRotation = useMemo(() => ({ yaw: 0, pitch: 0, roll: 0 }), []);
   const currentCenter = localData?.center ?? fallbackCenter;
@@ -1204,6 +1285,34 @@ const OrthoViewPanel: React.FC<{
     }
   }, [currentCenter, currentRotation, effectiveViewOrigin.x, effectiveViewOrigin.y, effectiveViewOrigin.z, viewType]);
 
+  const handlePointerMoveContainer = useCallback((e: React.PointerEvent) => {
+    if (isPanning.current) {
+      handlePanMove(e);
+      return;
+    }
+    if (!containerRef.current || !localData) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const boxScreenX = rect.left + rect.width / 2 + (displayCenter.x - pan.x) * zoom;
+    const boxScreenY = rect.top + rect.height / 2 - (displayCenter.y - pan.y) * zoom;
+
+    const relX = (e.clientX - boxScreenX) / zoom;
+    const relY = -(e.clientY - boxScreenY) / zoom;
+
+    const vertical: 'top' | 'bottom' = relY >= 0 ? 'top' : 'bottom';
+    const horizontal: 'left' | 'right' = relX >= 0 ? 'right' : 'left';
+
+    useEditorStore.getState().setOrthoEdgeHover(viewType, vertical, horizontal);
+  }, [pan.x, pan.y, zoom, displayCenter.x, displayCenter.y, localData, viewType, handlePanMove]);
+
+  const handlePointerLeaveContainer = useCallback((e: React.PointerEvent) => {
+    handlePanEnd(e);
+    const store = useEditorStore.getState();
+    if (store.orthoEdgeState.activeView === viewType) {
+      store.setOrthoEdgeHover(null, null, null);
+    }
+  }, [handlePanEnd, viewType]);
+
   if (!localData || !selectedAnnotation) {
     return (
       <div className="w-full h-full bg-black flex items-center justify-center text-gray-500 text-xs border border-gray-800">
@@ -1224,9 +1333,9 @@ const OrthoViewPanel: React.FC<{
       onWheel={handleWheel}
       onDoubleClick={handleDoubleClick}
       onPointerDown={handlePanStart}
-      onPointerMove={handlePanMove}
+      onPointerMove={handlePointerMoveContainer}
       onPointerUp={handlePanEnd}
-      onPointerLeave={handlePanEnd}
+      onPointerLeave={handlePointerLeaveContainer}
       onContextMenu={handleContextMenu}
       onPointerDownCapture={() => onActivate?.(viewType)}
       onPointerEnter={() => onActivate?.(viewType)}
@@ -1236,6 +1345,21 @@ const OrthoViewPanel: React.FC<{
       <div className="absolute top-1 left-1 text-white text-[10px] font-bold z-10 bg-black/50 px-1 rounded uppercase pointer-events-none">
         {viewType}
       </div>
+
+      {/* Edge Guidance Indicator */}
+      {isActive && (
+        <div className="absolute top-1 left-12 z-10 pointer-events-none flex items-center gap-1">
+          {orthoEdgeState.lockedEdge ? (
+            <span className="text-[9px] text-rose-300 bg-rose-950/80 border border-rose-500/60 px-1.5 py-0.5 rounded font-mono shadow">
+              🔒 Locked: {orthoEdgeState.lockedEdge.toUpperCase()} (Click to unlock)
+            </span>
+          ) : (
+            <span className="text-[9px] text-cyan-300 bg-cyan-950/80 border border-cyan-500/50 px-1.5 py-0.5 rounded font-mono shadow">
+              ↕ {orthoEdgeState.verticalEdge ?? 'top'} [W/S]  ↔ {orthoEdgeState.horizontalEdge ?? 'right'} [A/D]
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Auto-fit indicator */}
       {!autoFitEnabled && (
@@ -1442,31 +1566,12 @@ export const OrthographicViews: React.FC<{
       if (document.activeElement?.tagName === 'INPUT') return;
 
       const data = selectedAnnotation.data as CuboidData;
-      const rot = data.rotation ?? { yaw: 0, pitch: 0, roll: 0 };
       const dims = data.dimensions;
 
-      const ROT_STEP = (e.shiftKey ? 5 : 1) * (Math.PI / 180); // 1 deg or 5 deg
       const SIZE_STEP = e.shiftKey ? 0.5 : 0.1;
 
       let handled = false;
       const updates: any = {};
-
-      // Rotation: Shift + Arrows
-      if (e.shiftKey) {
-        if (e.key === 'ArrowLeft') {
-          updates.rotation = { ...rot, yaw: rot.yaw + ROT_STEP };
-          handled = true;
-        } else if (e.key === 'ArrowRight') {
-          updates.rotation = { ...rot, yaw: rot.yaw - ROT_STEP };
-          handled = true;
-        } else if (e.key === 'ArrowUp') {
-          updates.rotation = { ...rot, pitch: rot.pitch + ROT_STEP };
-          handled = true;
-        } else if (e.key === 'ArrowDown') {
-          updates.rotation = { ...rot, pitch: rot.pitch - ROT_STEP };
-          handled = true;
-        }
-      }
 
       // Resize: Alt + +/-
       if (e.altKey) {

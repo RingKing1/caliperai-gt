@@ -2,6 +2,7 @@ import React from 'react';
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { annotationApi, annotation3DApi, Annotation3DCreate } from '@/api/client';
+import { queryClient } from '@/queryClient';
 import type {
   Task,
   Scene,
@@ -136,6 +137,24 @@ interface EditorState {
   isKeyframeAt: (index: number) => boolean;
   getNextKeyframeIndex: (currentIndex: number) => number | null;
   getPrevKeyframeIndex: (currentIndex: number) => number | null;
+
+  // Ortho edge control state
+  orthoEdgeState: OrthoEdgeState;
+  setOrthoEdgeHover: (
+    view: 'top' | 'side' | 'front' | null,
+    vertical: 'top' | 'bottom' | null,
+    horizontal: 'left' | 'right' | null
+  ) => void;
+  setOrthoLockedEdge: (edge: OrthoEdge) => void;
+}
+
+export type OrthoEdge = 'top' | 'bottom' | 'left' | 'right' | null;
+
+export interface OrthoEdgeState {
+  activeView: 'top' | 'side' | 'front' | null;
+  verticalEdge: 'top' | 'bottom' | null;
+  horizontalEdge: 'left' | 'right' | null;
+  lockedEdge: OrthoEdge;
 }
 
 const defaultLidarView: LidarViewState = {
@@ -251,6 +270,40 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return target >= 0 ? target : null;
   },
 
+  orthoEdgeState: {
+    activeView: null,
+    verticalEdge: null,
+    horizontalEdge: null,
+    lockedEdge: null,
+  },
+  setOrthoEdgeHover: (view, vertical, horizontal) => {
+    const current = get().orthoEdgeState;
+    if (
+      current.activeView === view &&
+      current.verticalEdge === vertical &&
+      current.horizontalEdge === horizontal
+    ) {
+      return;
+    }
+    set({
+      orthoEdgeState: {
+        ...current,
+        activeView: view,
+        verticalEdge: vertical,
+        horizontalEdge: horizontal,
+      },
+    });
+  },
+  setOrthoLockedEdge: (edge) => {
+    const current = get().orthoEdgeState;
+    set({
+      orthoEdgeState: {
+        ...current,
+        lockedEdge: edge,
+      },
+    });
+  },
+
   setTask: (task) => set({ task }),
 
   setScene: (scene) => set({ scene }),
@@ -303,11 +356,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     for (const serverAnn of serverAnnotations) {
       const dirtyStatus = dirtyAnnotations.get(serverAnn.id);
       if (!dirtyStatus) {
+        const existing = currentAnnotations.get(serverAnn.id);
         const dataObj = serverAnn.data as unknown as Record<string, unknown>;
         const isKeyframe = serverAnn.is_keyframe ?? (dataObj?.is_keyframe as boolean) ?? false;
+        // Protect verified status: if locally accepted/verified, don't let stale server cache downgrade it to false
+        const isVerified = (existing?.is_verified && !serverAnn.is_verified)
+          ? true
+          : (serverAnn.is_verified ?? false);
         const annWithKeyframe = {
           ...serverAnn,
           is_keyframe: isKeyframe,
+          is_verified: isVerified,
         };
         newAnnotations.set(serverAnn.id, annWithKeyframe);
         newPersistedIds.add(serverAnn.id);
@@ -932,6 +991,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           source: ann.source,
           is_keyframe: ann.is_keyframe ?? false,
           is_static: ann.is_static ?? false,
+          is_verified: ann.is_verified ?? false,
         })) as Annotation3DCreate[];
         promises.push(annotation3DApi.createBulk(payload3D));
       }
@@ -1013,6 +1073,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           source: ann.source,
           is_keyframe: ann.is_keyframe ?? false,
           is_static: ann.is_static ?? false,
+          is_verified: ann.is_verified ?? false,
         })) as Annotation3DCreate[];
 
         await annotation3DApi.createBulk(payload3D);
@@ -1026,6 +1087,40 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       // Clear dirty state on success
       set({ dirtyAnnotations: new Map(), persistedAnnotationIds: newPersistedIds, isSaving: false });
+
+      // Synchronize with React Query cache so frame transitions retain updated is_verified immediately
+      const taskId = get().task?.id;
+      if (taskId) {
+        const updatedMap = new Map<string, Annotation>();
+        toCreate.forEach(ann => updatedMap.set(ann.id, ann));
+        toUpdate.forEach(ann => updatedMap.set(ann.id, ann));
+        const deletedSet = new Set(toDelete);
+
+        queryClient.setQueriesData<any[]>({ queryKey: ['annotations', taskId] }, (old) => {
+          if (!old || !Array.isArray(old)) return old;
+          return old
+            .filter(item => !deletedSet.has(item.id))
+            .map(item => {
+              const updated = updatedMap.get(item.id);
+              return updated ? { ...item, ...updated } : item;
+            });
+        });
+
+        queryClient.setQueriesData<any[]>({ queryKey: ['all-3d-annotations', taskId] }, (old) => {
+          if (!old || !Array.isArray(old)) return old;
+          return old
+            .filter(item => !deletedSet.has(item.id))
+            .map(item => {
+              const updated = updatedMap.get(item.id);
+              return updated ? { ...item, ...updated } : item;
+            });
+        });
+
+        queryClient.invalidateQueries({ queryKey: ['annotations', taskId] });
+        queryClient.invalidateQueries({ queryKey: ['all-3d-annotations', taskId] });
+        queryClient.invalidateQueries({ queryKey: ['annotations-3d', taskId] });
+        queryClient.invalidateQueries({ queryKey: ['annotations-3d-summary', taskId] });
+      }
 
       return { success: true };
     } catch (error) {

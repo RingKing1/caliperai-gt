@@ -14,6 +14,7 @@ export interface LocalAnnotation4D {
   frame_data: Record<string, FrameCuboidData>;
   frame_ids: string[];
   is_static: boolean;
+  is_verified?: boolean;
   attributes: Record<string, unknown>;
   source: string;
   is_dirty: boolean;
@@ -468,7 +469,7 @@ export const useSelected4DAnnotation = (): Annotation | null => {
     } as CuboidData,
     attributes: ann4D.attributes,
     source: ann4D.source as Annotation['source'],
-    is_verified: false,
+    is_verified: ann4D.is_verified ?? false,
     is_keyframe: true,
     created_at: '',
     updated_at: '',
@@ -506,7 +507,7 @@ export const useSelectedAnnotationAny = (): Annotation | null => {
       } as CuboidData,
       attributes: ann4D.attributes,
       source: ann4D.source as Annotation['source'],
-      is_verified: false,
+      is_verified: ann4D.is_verified ?? false,
       is_keyframe: true,
       created_at: '',
       updated_at: '',
