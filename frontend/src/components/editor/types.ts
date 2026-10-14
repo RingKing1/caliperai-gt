@@ -1,8 +1,10 @@
 import type { BBox2D } from '@/types';
 
-export type ToolType = 'select' | 'cuboid' | 'box2d' | 'polygon' | 'polyline' | 'brush3d' | 'track';
+export type ToolType = 'select' | 'cuboid' | 'box2d' | 'polygon' | 'polyline' | 'brush3d' | 'track' | 'flag_missing';
 export type AnnotationCapability = 'bounding_box_3d' | 'bounding_box_2d' | 'semantic_segmentation' | 'instance_segmentation' | 'tracking' | 'polygon' | 'polyline';
 export type ViewMode = '3d' | 'fusion' | '2d' | '4d' | 'focus';
+export type OrthoViewType = 'top' | 'side' | 'front';
+export type AnnotationModeTab = 'fusion_3d' | '2d_only';
 
 export interface Tool {
   id: ToolType;
