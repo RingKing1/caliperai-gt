@@ -36,6 +36,7 @@ backend/
 │   │   ├── router.py            # 聚合所有 endpoint 子路由（唯一注册点）
 │   │   └── endpoints/           # HTTP 控制器层（31 个模块，按业务域拆分）
 │   ├── services/                # 业务 / 集成服务层
+│   │   ├── dataset_import/        # ★ 导入域服务包（解析/标定/发现/分类法/存储/落库，见 §12）
 │   │   ├── annotation_service.py   # ★ 跨模态标注写路径统一业务层（参考范式）
 │   │   ├── workflow_service.py     # 任务阶段/状态状态机
 │   │   ├── rbac_service.py         # JWT 校验 + 权限/角色依赖
@@ -284,7 +285,7 @@ taxonomies / users / QA / import 等资源的增删改查。新增接口必须�
 | `/annotations-2d` `/annotations-3d` `/annotations-4d` `/annotations-fusion` `/tracks-2d` | 同名 | 各模态标注，写路径统一走 `AnnotationService` |
 | `/frames` `/data` `/gcs` | frames, data, gcs | 帧、点云/图像数据、存储代理 |
 | `/qa` `/workflow` `/dataops` | qa, workflow, dataops | 审核流、状态机、数据运营快照 |
-| `/import` | import_data, import_annotations | 数据集 / 标注导入（⚠ 巨石模块，见 §12） |
+| `/import` | import_data, import_annotations | 数据集 / 标注导入（业务逻辑已下沉 `services/dataset_import/`，见 §12） |
 | `/export` | export | 多格式导出 |
 | `/sam2` `/segmentation` | sam2, segmentation | SAM2 交互分割、语义分割 |
 | `/analytics` `/efficiency` | analytics, efficiency | 指标、计时、成就、告警、排行榜 |
@@ -356,15 +357,19 @@ pytest -q
 - [x] 五个标注 endpoint 瘦身为薄控制器。
 - [x] `GET /tasks/{id}/editor-context` 聚合端点 + 前端 React Query 接入与缓存回填。
 - [x] 标注 service 层单元测试。
+- [x] **P0 导入域拆分**：新增 `services/dataset_import/` 包（11 个模块 / 约 3.6k 行）——
+      `constants` / `schemas` / `calibration` / `naming` / `tasks` / `discovery` /
+      `storage` / `taxonomy` / `scene_importer` / `annotation_parsers` /
+      `annotation_pipeline`；`import_data.py` 3040→1694 行、
+      `import_annotations.py` 2700→759 行，两个端点仅保留 11 个路由及其原有事务
+      边界（URL / 响应模型零变化，跨层引用与测试同步切换，257 测试全绿）。
 
 ### 待完成（按 ROI 排序）
 
-- [ ] **P0 导入域拆分（最高优先，风险最低）**：`endpoints/import_data.py`（约 3000 行）
-      与 `import_annotations.py`（约 2700 行）目前把磁盘扫描、标定解析、MinIO 镜像、
-      taxonomy 推导、DB 写入揉在路由模块里。其中大量逻辑已是模块级纯函数
-      （`parse_calibration_file` / `discover_frames` / `derive_and_merge_taxonomy`），
-      平移到 `services/import/`（parser / storage / taxonomy / orchestrator）即可，
-      endpoint 退化为骨架。长上传改为“后台 job + 进度查询”，消除数分钟长事务。
+- [ ] **P0 收尾：上传管线编排去重 + 后台 job 化**：`import_data.py` 仍有 1694 行，
+      upload / upload-zip / upload-video 三条上传路由各自内联一套编排逻辑（含 `print()`
+      调试与长事务）；三者存在行为分叉且当前零测试覆盖，需先补特征测试锁定行为，再抽
+      `orchestrator` 统一，并把长上传改为“后台 job + 进度查询”，消除数分钟长事务。
 - [ ] **P1 其余业务域补 service 层**：`tasks.py`、`qa.py`、`datasets.py`、
       `scenes.py`、`efficiency.py` 等仍有约 590 处直接 DB 访问；按标注域范式逐域提取。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为

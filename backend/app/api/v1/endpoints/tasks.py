@@ -198,7 +198,7 @@ async def create_task(
         )
     
     from pathlib import Path
-    from app.api.v1.endpoints.import_data import import_scene_annotations
+    from app.services.dataset_import import import_scene_annotations
     
     root_path = scene.storage_paths.get("root")
     if root_path:

@@ -47,7 +47,7 @@ Features covered
     – StorageService error → 500
     – Requires authentication (DATASETS_READ permission)
 
-11. _mirror_scene_to_minio helper in import_data
+11. _mirror_scene_to_minio helper in services.dataset_import
     – Files in scene_dir are uploaded scene-by-scene
     – Errors are swallowed (logged) instead of propagating
 
@@ -561,7 +561,7 @@ class TestMirrorSceneToMinio:
         (tmp_path / "cameras" / "front").mkdir()
         (tmp_path / "cameras" / "front" / "0001.jpg").write_bytes(b"JPEG")
 
-        from app.api.v1.endpoints.import_data import _mirror_scene_to_minio
+        from app.services.dataset_import import _mirror_scene_to_minio
         from app.services.storage_service import reset_storage_service
 
         mock_svc = MagicMock()
@@ -569,7 +569,7 @@ class TestMirrorSceneToMinio:
 
         reset_storage_service()
         with patch(
-            "app.api.v1.endpoints.import_data.get_storage_service",
+            "app.services.dataset_import.storage.get_storage_service",
             return_value=mock_svc,
         ):
             org_id = uuid.uuid4()
@@ -585,7 +585,7 @@ class TestMirrorSceneToMinio:
         for i in range(3):
             (tmp_path / f"frame{i}.pcd").write_bytes(b"PCD")
 
-        from app.api.v1.endpoints.import_data import _mirror_scene_to_minio
+        from app.services.dataset_import import _mirror_scene_to_minio
         from app.services.storage_service import reset_storage_service
 
         mock_svc = MagicMock()
@@ -594,7 +594,7 @@ class TestMirrorSceneToMinio:
 
         reset_storage_service()
         with patch(
-            "app.api.v1.endpoints.import_data.get_storage_service",
+            "app.services.dataset_import.storage.get_storage_service",
             return_value=mock_svc,
         ):
             _mirror_scene_to_minio(uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), tmp_path)
@@ -606,7 +606,7 @@ class TestMirrorSceneToMinio:
         """ensure_bucket failure must not propagate from _mirror_scene_to_minio."""
         (tmp_path / "file.pcd").write_bytes(b"PCD")
 
-        from app.api.v1.endpoints.import_data import _mirror_scene_to_minio
+        from app.services.dataset_import import _mirror_scene_to_minio
         from app.services.storage_service import reset_storage_service
 
         mock_svc = MagicMock()
@@ -614,7 +614,7 @@ class TestMirrorSceneToMinio:
 
         reset_storage_service()
         with patch(
-            "app.api.v1.endpoints.import_data.get_storage_service",
+            "app.services.dataset_import.storage.get_storage_service",
             return_value=mock_svc,
         ):
             # Must not raise
@@ -624,7 +624,7 @@ class TestMirrorSceneToMinio:
         """Object key must follow datasets/{dataset_id}/{scene_id}/… pattern."""
         (tmp_path / "img.jpg").write_bytes(b"JPEG")
 
-        from app.api.v1.endpoints.import_data import _mirror_scene_to_minio
+        from app.services.dataset_import import _mirror_scene_to_minio
         from app.services.storage_service import reset_storage_service
 
         mock_svc = MagicMock()
@@ -636,7 +636,7 @@ class TestMirrorSceneToMinio:
 
         reset_storage_service()
         with patch(
-            "app.api.v1.endpoints.import_data.get_storage_service",
+            "app.services.dataset_import.storage.get_storage_service",
             return_value=mock_svc,
         ):
             _mirror_scene_to_minio(org_id, dataset_id, scene_id, tmp_path)

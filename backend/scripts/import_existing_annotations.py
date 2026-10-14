@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.db.session import AsyncSessionLocal
 from app.models.scene import Scene
 from app.models.task import Task
-from app.api.v1.endpoints.import_data import import_scene_annotations
+from app.services.dataset_import import import_scene_annotations
 from sqlalchemy import select
 from psycopg2.extras import NumericRange
 

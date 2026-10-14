@@ -451,7 +451,7 @@ async def import_from_gcs(
         shutil.copytree(temp_dir, permanent_scene_dir)
         logger.info(f"Copied scene to permanent storage: {permanent_scene_dir}")
         
-        from app.api.v1.endpoints.import_data import (
+        from app.services.dataset_import import (
             import_scene_annotations,
             parse_calibration_file,
             discover_frames,
