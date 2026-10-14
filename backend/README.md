@@ -357,19 +357,30 @@ pytest -q
 - [x] 五个标注 endpoint 瘦身为薄控制器。
 - [x] `GET /tasks/{id}/editor-context` 聚合端点 + 前端 React Query 接入与缓存回填。
 - [x] 标注 service 层单元测试。
-- [x] **P0 导入域拆分**：新增 `services/dataset_import/` 包（11 个模块 / 约 3.6k 行）——
+- [x] **P0 导入域拆分**：新增 `services/dataset_import/` 包（13 个模块 / 约 3.6k 行）——
       `constants` / `schemas` / `calibration` / `naming` / `tasks` / `discovery` /
       `storage` / `taxonomy` / `scene_importer` / `annotation_parsers` /
       `annotation_pipeline`；`import_data.py` 3040→1694 行、
       `import_annotations.py` 2700→759 行，两个端点仅保留 11 个路由及其原有事务
       边界（URL / 响应模型零变化，跨层引用与测试同步切换，257 测试全绿）。
+- [x] **P0 收尾（第一批）：上传管线特征测试 + 共用步骤提取**：
+      新增 `tests/test_import_pipelines.py`（33 个测试）锁定 upload / upload-zip /
+      upload-video 三条管线当前行为，并实测记录了一处分叉：`/upload` 把内部 400
+      （路径穿越 / magic byte）吞成 500，zip 与 video 保留 400；提取
+      `pipeline_layout`（场景发现 / 数据源分类）、`frame_rows`（Frame 行构建）、
+      `storage.schedule_scene_mirror`（MinIO 镜像调度）三个共用件，upload/zip 的
+      逐场景循环改为调用共用件（`import_data.py` 1694→1500 行），290 测试全绿。
 
 ### 待完成（按 ROI 排序）
 
-- [ ] **P0 收尾：上传管线编排去重 + 后台 job 化**：`import_data.py` 仍有 1694 行，
-      upload / upload-zip / upload-video 三条上传路由各自内联一套编排逻辑（含 `print()`
-      调试与长事务）；三者存在行为分叉且当前零测试覆盖，需先补特征测试锁定行为，再抽
-      `orchestrator` 统一，并把长上传改为“后台 job + 进度查询”，消除数分钟长事务。
+- [ ] **P0 收尾（第二批）：逐场景编排合并 + 后台 job 化**：upload 与 upload-zip 的
+      逐场景循环仍各有一份，特征测试已就位，但实测发现以下真实分叉，需先定统一口径
+      （涉及前端编辑器消费的 `storage_paths` 结构，属行为变更，需联调确认）：
+      ego pose 解析（upload 从父级 metadata.json 合成 vs zip 支持 list 形态）、
+      标定继承（upload 逐场景重置 vs zip 继承数据集级标定）、`storage_paths` 字段形态、
+      平铺文件归类（单相机 vs lidar/default 分桶）、重名检查（zip 对用户改名跳过检查）、
+      以及 `/upload` 内部 400 被吞成 500 的异常处理分叉。口径统一后再抽 `orchestrator`，
+      并把长上传改为“后台 job + 进度查询”，消除数分钟长事务；video 管线结构不同，不并入。
 - [ ] **P1 其余业务域补 service 层**：`tasks.py`、`qa.py`、`datasets.py`、
       `scenes.py`、`efficiency.py` 等仍有约 590 处直接 DB 访问；按标注域范式逐域提取。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为

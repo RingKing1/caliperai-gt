@@ -56,10 +56,18 @@ from app.services.dataset_import.constants import (
     UPLOAD_DIR,
 )
 from app.services.dataset_import.discovery import discover_frames, get_storage_paths
+from app.services.dataset_import.frame_rows import build_import_frame_rows
 from app.services.dataset_import.naming import (
     generate_smart_scene_name,
     generate_smart_task_name,
     match_folder_to_task,
+)
+from app.services.dataset_import.pipeline_layout import (
+    SUPPORTED_DATA_SUFFIXES,
+    classify_scene_data_files,
+    detect_scene_dirs,
+    find_data_files,
+    is_scene_folder,
 )
 from app.services.dataset_import.scene_importer import import_scene_annotations
 from app.services.dataset_import.schemas import (
@@ -76,7 +84,10 @@ from app.services.dataset_import.schemas import (
     SceneNameCheckResponse,
     SensorInfo,
 )
-from app.services.dataset_import.storage import _mirror_scene_to_minio
+from app.services.dataset_import.storage import (
+    _mirror_scene_to_minio,
+    schedule_scene_mirror,
+)
 from app.services.dataset_import.tasks import (
     frame_range_to_postgres,
     get_or_create_scene_import_task,
@@ -110,6 +121,9 @@ __all__ = [
     "generate_smart_scene_name", "generate_smart_task_name", "match_folder_to_task",
     "frame_range_to_postgres", "get_or_create_scene_import_task",
     "discover_frames", "get_storage_paths", "_mirror_scene_to_minio",
+    "schedule_scene_mirror", "build_import_frame_rows",
+    "SUPPORTED_DATA_SUFFIXES", "classify_scene_data_files", "detect_scene_dirs",
+    "find_data_files", "is_scene_folder",
     # taxonomy
     "_read_segmentation_class_order", "build_class_mapping",
     "create_taxonomy_from_classes", "derive_and_merge_taxonomy",

@@ -5,7 +5,6 @@ Handles importing multi-sensor datasets from folder structures, uploads, ZIPs an
 Business logic (parsing, frame discovery, taxonomy derivation, storage mirroring,
 per-scene annotation import) lives in ``app.services.dataset_import``.
 """
-import asyncio
 import json
 import logging
 import shutil
@@ -23,8 +22,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes, selectinload
 
-from app.core.config import settings
 from app.api.v1.endpoints.datasets import auto_create_tasks_for_scene
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.file_security import (
     DATA_EXTENSIONS,
@@ -51,10 +50,13 @@ from app.services.dataset_import import (
     SceneConflict,
     SceneNameCheckRequest,
     SceneNameCheckResponse,
-    _mirror_scene_to_minio,
+    build_import_frame_rows,
+    classify_scene_data_files,
     derive_and_merge_taxonomy,
     detect_ego_to_lidar_rotation,
+    detect_scene_dirs,
     discover_frames,
+    find_data_files,
     generate_smart_scene_name,
     get_or_create_scene_import_task,
     get_storage_paths,
@@ -62,6 +64,7 @@ from app.services.dataset_import import (
     load_ego_poses,
     parse_calibration_file,
     scan_annotations_for_classes,
+    schedule_scene_mirror,
 )
 from app.services.rbac_service import RequirePermissions, get_current_user
 
@@ -272,52 +275,7 @@ async def upload_and_import_dataset(
         if calibration_path.exists():
             calibration_data = parse_calibration_file(calibration_path)
         
-        def find_data_files(directory: Path) -> List[Path]:
-            """Find all supported image and point cloud files in a directory."""
-            supported_extensions = {".jpg", ".jpeg", ".png", ".pcd", ".bin", ".ply", ".gif", ".bmp", ".tiff", ".tif"}
-            files = []
-            for f in directory.iterdir():
-                if f.is_file() and f.suffix.lower() in supported_extensions:
-                    files.append(f)
-            return sorted(files, key=lambda x: x.name)
-        
-        def is_scene_folder(directory: Path) -> bool:
-            """Check if directory looks like a scene (has sensor data folders)."""
-            sensor_folders = {"cameras", "lidar", "images", "pointcloud", "velodyne"}
-            for item in directory.iterdir():
-                if item.is_dir() and item.name.lower() in sensor_folders:
-                    return True
-            if (directory / "calibration.json").exists():
-                return True
-            return False
-        
-        scene_dirs = []
-        scene_parent_names = {}
-        
-        if is_scene_folder(root_path):
-            scene_dirs = [root_path]
-        else:
-            for item in root_path.iterdir():
-                if item.is_dir() and item.name not in ["calibration", "metadata", "__MACOSX"]:
-                    if is_scene_folder(item):
-                        scene_dirs.append(item)
-                        if item.name.lower() in GENERIC_FOLDER_NAMES and root_path.name.lower() not in GENERIC_FOLDER_NAMES:
-                            scene_parent_names[item] = root_path.name
-            
-            if not scene_dirs:
-                print(f"[IMPORT DEBUG] No scene folders found, checking for flat image structure...")
-                root_data_files = find_data_files(root_path)
-                print(f"[IMPORT DEBUG] Found {len(root_data_files)} data files in root")
-                if root_data_files:
-                    scene_dirs = [root_path]
-                else:
-                    if root_path.name.lower() in ["cameras", "data"]:
-                        for subdir in root_path.iterdir():
-                            if subdir.is_dir():
-                                subdir_files = find_data_files(subdir)
-                                if subdir_files:
-                                    print(f"[IMPORT DEBUG] Found {len(subdir_files)} files in {subdir.name}, treating as scene")
-                                    scene_dirs.append(subdir)
+        scene_dirs, scene_parent_names = detect_scene_dirs(root_path, debug=True)
         
         print(f"[IMPORT DEBUG] Scene directories to import: {[d.name for d in scene_dirs]}")
         print(f"[IMPORT DEBUG] Number of scene_dirs: {len(scene_dirs)}")
@@ -352,31 +310,7 @@ async def upload_and_import_dataset(
                     with open(scene_meta_path) as f:
                         scene_meta = json.load(f)
                 
-                lidar_path = scene_dir / "lidar"
-                cameras_path = scene_dir / "cameras"
-                images_path = scene_dir / "images"
-                
-                frame_count = 0
-                data_files: List[Path] = []
-                data_source = "unknown"
-                
-                if lidar_path.exists():
-                    data_files = [f for f in lidar_path.iterdir() if f.suffix.lower() in [".pcd", ".bin", ".ply"]]
-                    data_source = "lidar"
-                elif cameras_path.exists():
-                    for cam_dir in cameras_path.iterdir():
-                        if cam_dir.is_dir():
-                            data_files = [f for f in cam_dir.iterdir() if f.suffix.lower() in [".jpg", ".png", ".jpeg"]]
-                            data_source = f"camera:{cam_dir.name}"
-                            break
-                elif images_path.exists():
-                    data_files = [f for f in images_path.iterdir() if f.suffix.lower() in [".jpg", ".png", ".jpeg", ".gif", ".bmp", ".tiff", ".tif"]]
-                    data_source = "images"
-                else:
-                    data_files = find_data_files(scene_dir)
-                    data_source = "direct"
-                
-                data_files = sorted(data_files, key=lambda x: x.name)
+                data_files, data_source = classify_scene_data_files(scene_dir)
                 frame_count = len(data_files)
                 
                 if frame_count == 0:
@@ -398,8 +332,7 @@ async def upload_and_import_dataset(
                 uuid_rename_map = rename_data_files_to_uuid(permanent_scene_dir, DATA_EXTENSIONS)
 
                 org_id_val = dataset.campaign.organization_id
-                asyncio.get_event_loop().run_in_executor(
-                    None, _mirror_scene_to_minio,
+                schedule_scene_mirror(
                     org_id_val, dataset.id, scene_id, permanent_scene_dir,
                 )
 
@@ -565,45 +498,15 @@ async def upload_and_import_dataset(
                     attributes.flag_modified(scene, "storage_paths")
                     print(f"[IMPORT] Treating flat image structure as single camera: {camera_name}, path: {relative_path_base}")
                 
-                for frame_idx, data_file in enumerate(permanent_data_files):
-                    frame_file_paths: Dict[str, Any] = {}
-                    
-                    if lidar_files and frame_idx < len(lidar_files):
-                        frame_file_paths["lidar"] = lidar_files[frame_idx].name
-                    
-                    if camera_files:
-                        cameras_dict = {}
-                        for cam_name, cam_file_list in camera_files.items():
-                            if frame_idx < len(cam_file_list):
-                                cameras_dict[cam_name] = cam_file_list[frame_idx].name
-                        if cameras_dict:
-                            frame_file_paths["cameras"] = cameras_dict
-                    
-                    rel_key = str(data_file.relative_to(permanent_scene_dir))
-                    original_name = (
-                        uuid_rename_map.get(rel_key, {}).get("original_name")
-                        or data_file.name
-                    )
-                    frame_file_paths["_meta"] = {
-                        "absolute_path": str(data_file),
-                        "relative_path": rel_key,
-                        "original_filename": original_name,
-                    }
-                    
-                    frame_ego_pose = ego_poses_data.get(frame_idx)
-                    
-                    if frame_ego_pose and isinstance(frame_ego_pose, dict) and "timestamp" in frame_ego_pose:
-                        frame_timestamp = frame_ego_pose.get("timestamp")
-                    else:
-                        frame_timestamp = frame_idx * (1.0 / scene.fps)
-                    
-                    frame = Frame(
-                        scene_id=scene.id,
-                        frame_index=frame_idx,
-                        timestamp=frame_timestamp,
-                        file_paths=frame_file_paths,
-                        ego_pose=frame_ego_pose if isinstance(frame_ego_pose, dict) else None,
-                    )
+                for frame in build_import_frame_rows(
+                    scene=scene,
+                    permanent_scene_dir=permanent_scene_dir,
+                    permanent_data_files=permanent_data_files,
+                    lidar_files=lidar_files,
+                    camera_files=camera_files,
+                    uuid_rename_map=uuid_rename_map,
+                    ego_poses_data=ego_poses_data,
+                ):
                     db.add(frame)
                 
                 await db.flush()
@@ -784,49 +687,7 @@ async def upload_zip_and_import_dataset(
         if calibration_path.exists():
             calibration_data = parse_calibration_file(calibration_path)
         
-        def find_data_files(directory: Path) -> List[Path]:
-            """Find all supported image and point cloud files in a directory."""
-            supported_extensions = {".jpg", ".jpeg", ".png", ".pcd", ".bin", ".ply", ".gif", ".bmp", ".tiff", ".tif"}
-            files = []
-            for f in directory.iterdir():
-                if f.is_file() and f.suffix.lower() in supported_extensions:
-                    files.append(f)
-            return sorted(files, key=lambda x: x.name)
-        
-        def is_scene_folder(directory: Path) -> bool:
-            """Check if directory looks like a scene (has sensor data folders)."""
-            sensor_folders = {"cameras", "lidar", "images", "pointcloud", "velodyne"}
-            for item in directory.iterdir():
-                if item.is_dir() and item.name.lower() in sensor_folders:
-                    return True
-            if (directory / "calibration.json").exists():
-                return True
-            return False
-        
-        scene_dirs = []
-        scene_parent_names = {}
-        
-        if is_scene_folder(root_path):
-            scene_dirs = [root_path]
-        else:
-            for item in root_path.iterdir():
-                if item.is_dir() and item.name not in ["calibration", "metadata", "__MACOSX"]:
-                    if is_scene_folder(item):
-                        scene_dirs.append(item)
-                        if item.name.lower() in GENERIC_FOLDER_NAMES and root_path.name.lower() not in GENERIC_FOLDER_NAMES:
-                            scene_parent_names[item] = root_path.name
-            
-            if not scene_dirs:
-                root_data_files = find_data_files(root_path)
-                if root_data_files:
-                    scene_dirs = [root_path]
-                else:
-                    if root_path.name.lower() in ["cameras", "data"]:
-                        for subdir in root_path.iterdir():
-                            if subdir.is_dir():
-                                subdir_files = find_data_files(subdir)
-                                if subdir_files:
-                                    scene_dirs.append(subdir)
+        scene_dirs, scene_parent_names = detect_scene_dirs(root_path)
         
         print(f"[ZIP IMPORT] Scene directories to import: {[d.name for d in scene_dirs]}")
         
@@ -866,31 +727,7 @@ async def upload_zip_and_import_dataset(
                     with open(scene_meta_path) as f:
                         scene_meta = json.load(f)
                 
-                lidar_path = scene_dir / "lidar"
-                cameras_path = scene_dir / "cameras"
-                images_path = scene_dir / "images"
-                
-                frame_count = 0
-                data_files: List[Path] = []
-                data_source = "unknown"
-                
-                if lidar_path.exists():
-                    data_files = [f for f in lidar_path.iterdir() if f.suffix.lower() in [".pcd", ".bin", ".ply"]]
-                    data_source = "lidar"
-                elif cameras_path.exists():
-                    for cam_dir in cameras_path.iterdir():
-                        if cam_dir.is_dir():
-                            data_files = [f for f in cam_dir.iterdir() if f.suffix.lower() in [".jpg", ".png", ".jpeg"]]
-                            data_source = f"camera:{cam_dir.name}"
-                            break
-                elif images_path.exists():
-                    data_files = [f for f in images_path.iterdir() if f.suffix.lower() in [".jpg", ".png", ".jpeg", ".gif", ".bmp", ".tiff", ".tif"]]
-                    data_source = "images"
-                else:
-                    data_files = find_data_files(scene_dir)
-                    data_source = "direct"
-                
-                data_files = sorted(data_files, key=lambda x: x.name)
+                data_files, data_source = classify_scene_data_files(scene_dir)
                 frame_count = len(data_files)
                 
                 if frame_count == 0:
@@ -914,8 +751,7 @@ async def upload_zip_and_import_dataset(
                 )
 
                 org_id_val = dataset.campaign.organization_id
-                asyncio.get_event_loop().run_in_executor(
-                    None, _mirror_scene_to_minio,
+                schedule_scene_mirror(
                     org_id_val, dataset.id, scene_id, permanent_scene_dir,
                 )
 
@@ -1062,44 +898,15 @@ async def upload_zip_and_import_dataset(
                         }
                         attributes.flag_modified(scene, "storage_paths")
                 
-                for frame_idx, data_file in enumerate(permanent_data_files):
-                    frame_file_paths: Dict[str, Any] = {}
-                    
-                    if lidar_files and frame_idx < len(lidar_files):
-                        frame_file_paths["lidar"] = lidar_files[frame_idx].name
-                    
-                    if camera_files:
-                        cameras_dict = {}
-                        for cam_name, cam_file_list in camera_files.items():
-                            if frame_idx < len(cam_file_list):
-                                cameras_dict[cam_name] = cam_file_list[frame_idx].name
-                        if cameras_dict:
-                            frame_file_paths["cameras"] = cameras_dict
-                    
-                    frame_file_paths["_meta"] = {
-                        "absolute_path": str(data_file),
-                        "relative_path": str(data_file.relative_to(permanent_scene_dir)),
-                        "original_filename": (
-                            zip_uuid_rename_map.get(
-                                str(data_file.relative_to(permanent_scene_dir)), {}
-                            ).get("original_name") or data_file.name
-                        ),
-                    }
-                    
-                    frame_ego_pose = ego_poses_data.get(frame_idx)
-                    
-                    if frame_ego_pose and isinstance(frame_ego_pose, dict) and "timestamp" in frame_ego_pose:
-                        frame_timestamp = frame_ego_pose.get("timestamp")
-                    else:
-                        frame_timestamp = frame_idx * (1.0 / scene.fps)
-                    
-                    frame = Frame(
-                        scene_id=scene.id,
-                        frame_index=frame_idx,
-                        timestamp=frame_timestamp,
-                        file_paths=frame_file_paths,
-                        ego_pose=frame_ego_pose if isinstance(frame_ego_pose, dict) else None,
-                    )
+                for frame in build_import_frame_rows(
+                    scene=scene,
+                    permanent_scene_dir=permanent_scene_dir,
+                    permanent_data_files=permanent_data_files,
+                    lidar_files=lidar_files,
+                    camera_files=camera_files,
+                    uuid_rename_map=zip_uuid_rename_map,
+                    ego_poses_data=ego_poses_data,
+                ):
                     db.add(frame)
                 
                 await db.flush()
@@ -1189,13 +996,13 @@ async def upload_video_and_import_dataset(
         image_format: Output image format - jpg, png, or webp (default: jpg)
         preserve_folder_names: If True, use video filename as scene name
     """
+    from app.core.file_security import VIDEO_EXTENSIONS as ALLOWED_VIDEO_EXT
     from app.services.video_service import (
         extract_frames_async,
         get_video_metadata,
         is_ffmpeg_available,
         validate_video_magic_bytes,
     )
-    from app.core.file_security import VIDEO_EXTENSIONS as ALLOWED_VIDEO_EXT
     
     if not is_ffmpeg_available():
         raise HTTPException(
@@ -1312,8 +1119,7 @@ async def upload_video_and_import_dataset(
         uuid_rename_map = rename_data_files_to_uuid(permanent_scene_dir, DATA_EXTENSIONS)
         
         org_id_val = dataset.campaign.organization_id
-        asyncio.get_event_loop().run_in_executor(
-            None, _mirror_scene_to_minio,
+        schedule_scene_mirror(
             org_id_val, dataset.id, scene_id, permanent_scene_dir,
         )
         
