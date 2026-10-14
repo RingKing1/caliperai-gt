@@ -1265,7 +1265,7 @@ export interface Annotation3DData {
 export interface Annotation3DCreate {
   task_id: string;
   frame_id: string;
-  track_id?: string;
+  track_id?: string | null;
   type?: string;
   class_id: string;
   taxonomy_id?: string;  // Taxonomy this annotation belongs to

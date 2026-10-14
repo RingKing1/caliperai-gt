@@ -23,6 +23,7 @@ import { Image2DAnnotationView } from '@/components/canvas/Image2DAnnotationView
 import { CameraThumbnail } from '@/components/CameraThumbnail';
 import { RejectionModal, AnnotationComments, TabbedQAPanel, FalseNegativeModal, QACompleteModal, QAFeedbackPanel } from '@/components/qa';
 import { AnnotationListPanel } from '@/components/AnnotationListPanel';
+import { TrackTimelineBar } from '@/components/editor/TrackTimelineBar';
 import {
   findVisibleCamerasForCuboid,
   findBestCameraForPoint,
@@ -10332,7 +10333,8 @@ export const FusionEditorV2: React.FC = () => {
       {/* QA Annotation Comments */}
       <AnnotationComments />
 
-      {/* Track Timeline Panel removed for pre-label review workflow */}
+      {/* Track Timeline Bar (shown when a track object is selected) */}
+      <TrackTimelineBar />
 
       {/* Timeline - synchronized with actual displayed frame */}
       <Timeline
