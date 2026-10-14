@@ -33,11 +33,10 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
   const updateAnnotationRegular = useEditorStore(s => s.updateAnnotation);
   const deleteAnnotation = useEditorStore(s => s.deleteAnnotation);
   const currentFrame = useEditorStore(s => s.currentFrame);
-  const frames = useEditorStore(s => s.frames);
   const allAnnotations = useEditorStore(s => s.annotations);
   const saveAnnotations = useEditorStore(s => s.saveAnnotations);
 
-  const { tracks, createTrack, addAnnotationToTrack, isKeyframe, markAsKeyframe, removeKeyframe, propagateTrack, deleteTrack, setTrackStart, setTrackEnd } = useTrackStore();
+  const { tracks, createTrack, addAnnotationToTrack, isKeyframe, markAsKeyframe, removeKeyframe, deleteTrack } = useTrackStore();
   const updateAnnotation4D = useAnnotation4DStore(s => s.updateAnnotation4D);
   const deleteAnnotation4D = useAnnotation4DStore(s => s.deleteAnnotation4D);
   const annotations4D = useAnnotation4DStore(s => s.annotations4D);
@@ -48,11 +47,6 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
   const [localDimensions, setLocalDimensions] = useState({ length: '', width: '', height: '' });
   const [localHeading, setLocalHeading] = useState('');
   const [showTrackList, setShowTrackList] = useState(false);
-  const [showPropagateInput, setShowPropagateInput] = useState(false);
-  const [propagateFrames, setPropagateFrames] = useState(10);
-  const [propagateDirection, setPropagateDirection] = useState<'forward' | 'backward' | 'both'>('forward');
-  const [isPropagating, setIsPropagating] = useState(false);
-  const [propagateSuccess, setPropagateSuccess] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showTrackChangeModal, setShowTrackChangeModal] = useState(false);
   const [pendingTrackChange, setPendingTrackChange] = useState<{ updates: Partial<Annotation>; changeType: string } | null>(null);
@@ -233,22 +227,6 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
       console.error('Failed to delete track:', error);
     }
     setShowDeleteModal(false);
-  };
-
-  const handlePropagate = async () => {
-    if (!ann.track_id) return;
-    setIsPropagating(true);
-    setPropagateSuccess(false);
-    try {
-      await propagateTrack(ann.track_id, propagateFrames, propagateDirection);
-      setPropagateSuccess(true);
-      setTimeout(() => {
-        setPropagateSuccess(false);
-        setShowPropagateInput(false);
-      }, 1500);
-    } finally {
-      setIsPropagating(false);
-    }
   };
 
   const handleToggleAccept = async () => {
@@ -459,96 +437,6 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
               {frameIsKeyframe ? 'Keyframe ✓' : 'Set Keyframe'}
             </button>
 
-            {/* Start/End */}
-            <div className="flex gap-1">
-              <button
-                onClick={() => {
-                  if (!ann.track_id || !currentFrame) return;
-                  const sortedFrames = [...frames].sort((a, b) => a.frame_index - b.frame_index);
-                  const frameIdx = sortedFrames.findIndex(f => f.id === currentFrame.id);
-                  if (frameIdx !== -1) {
-                    const currentStartIdx = sortedFrames[frameIdx].frame_index;
-                    if (track?.start_frame_index === currentStartIdx) setTrackStart(ann.track_id, null);
-                    else setTrackStart(ann.track_id, currentStartIdx);
-                  }
-                }}
-                className={`flex-1 py-1 rounded text-xs ${
-                  track?.start_frame_index != null ? 'bg-orange-500/20 text-orange-300' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                }`}
-              >
-                Start: {track?.start_frame_index != null ? track.start_frame_index + 1 : '—'}
-              </button>
-              <button
-                onClick={() => {
-                  if (!ann.track_id || !currentFrame) return;
-                  const sortedFrames = [...frames].sort((a, b) => a.frame_index - b.frame_index);
-                  const frameIdx = sortedFrames.findIndex(f => f.id === currentFrame.id);
-                  if (frameIdx !== -1) {
-                    const currentEndIdx = sortedFrames[frameIdx].frame_index;
-                    if (track?.end_frame_index === currentEndIdx) setTrackEnd(ann.track_id, null);
-                    else setTrackEnd(ann.track_id, currentEndIdx);
-                  }
-                }}
-                className={`flex-1 py-1 rounded text-xs ${
-                  track?.end_frame_index != null ? 'bg-red-500/20 text-red-300' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                }`}
-              >
-                End: {track?.end_frame_index != null ? track.end_frame_index + 1 : '—'}
-              </button>
-            </div>
-
-            {/* Propagate */}
-            {showPropagateInput ? (
-              <div className="space-y-1">
-                <div className="flex gap-1">
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={propagateFrames}
-                    onChange={(e) => setPropagateFrames(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-12 bg-[#1a1a1a] border border-gray-800 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
-                    placeholder="N"
-                  />
-                  <select
-                    value={propagateDirection}
-                    onChange={(e) => setPropagateDirection(e.target.value as 'forward' | 'backward' | 'both')}
-                    className="flex-1 bg-[#1a1a1a] border border-gray-800 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
-                  >
-                    <option value="forward">Forward</option>
-                    <option value="backward">Backward</option>
-                    <option value="both">Both</option>
-                  </select>
-                </div>
-                <div className="flex gap-1">
-                  <button
-                    onClick={handlePropagate}
-                    disabled={isPropagating}
-                    className={`flex-1 py-1 rounded text-xs ${
-                      propagateSuccess ? 'bg-green-500/30 text-green-300' : isPropagating ? 'bg-green-500/20 text-green-300 cursor-wait' : 'bg-green-500/20 text-green-300 hover:bg-green-500/30'
-                    }`}
-                  >
-                    {propagateSuccess ? '✓' : isPropagating ? '...' : 'Go'}
-                  </button>
-                  <button
-                    onClick={() => setShowPropagateInput(false)}
-                    className="px-2 py-1 bg-gray-800 text-gray-400 rounded text-xs hover:bg-gray-700"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowPropagateInput(true)}
-                className="w-full py-1 bg-green-500/10 text-green-400 rounded text-xs hover:bg-green-500/20 flex items-center justify-center gap-1"
-              >
-                <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
-                </svg>
-                Propagate
-              </button>
-            )}
           </div>
         ) : (
           <div className="space-y-1">

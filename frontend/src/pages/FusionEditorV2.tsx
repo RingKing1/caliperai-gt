@@ -10332,13 +10332,7 @@ export const FusionEditorV2: React.FC = () => {
       {/* QA Annotation Comments */}
       <AnnotationComments />
 
-      {/* Track Timeline Panel - appears when a tracked annotation/track is selected */}
-      {viewMode !== '2d' && (
-        <TrackTimelinePanel
-          displayedFrameIndex={displayedFrameIndex}
-          viewerBottomOffsetPx={bottomOffsetPx}
-        />
-      )}
+      {/* Track Timeline Panel removed for pre-label review workflow */}
 
       {/* Timeline - synchronized with actual displayed frame */}
       <Timeline
@@ -10354,5 +10348,6 @@ export const FusionEditorV2: React.FC = () => {
 void _TrackManagement;
 void _PropertiesPanel;
 void _LabelListPanel;
+void TrackTimelinePanel;
 
 export default FusionEditorV2;
