@@ -579,12 +579,6 @@ export const useTrackStore = create<TrackState>((set, get) => ({
     if (annotationId) {
       useEditorStore.getState().updateAnnotation(annotationId, { is_keyframe: true });
     }
-
-    if (newKeyframes.size >= 1) {
-      setTimeout(() => {
-        get().interpolateAroundKeyframe(trackId, frameId);
-      }, 50);
-    }
   },
 
   addKeyframe: (trackId, frameId, annotationId) => {
@@ -592,7 +586,6 @@ export const useTrackStore = create<TrackState>((set, get) => ({
     if (!track) return;
 
     const newKeyframes = new Set(track.keyframe_ids);
-    const wasAlreadyKeyframe = newKeyframes.has(frameId);
     newKeyframes.add(frameId);
 
     const newFrameAnnotations = new Map(track.frame_annotations);
@@ -613,12 +606,6 @@ export const useTrackStore = create<TrackState>((set, get) => ({
       track_id: trackId,
       is_keyframe: true
     });
-
-    if (!wasAlreadyKeyframe) {
-      setTimeout(() => {
-        get().interpolateAroundKeyframe(trackId, frameId);
-      }, 100);
-    }
   },
 
   removeKeyframe: (trackId, frameId) => {

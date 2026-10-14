@@ -637,8 +637,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       const willBecomeKeyframe = isManualPoseEdit && annotation.track_id && !annotation.is_keyframe;
 
-      const isEditingExistingKeyframe = isManualPoseEdit && annotation.track_id && annotation.is_keyframe;
-
       const nowIso = new Date().toISOString();
 
       const updated = {
@@ -694,12 +692,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       set({ annotations: newAnnotations, dirtyAnnotations: newDirty });
 
+      // When an annotation becomes a keyframe during inspection/editing, record it in track.keyframe_ids
+      // but DO NOT auto-interpolate/extrapolate to other frames, preventing collision with existing pre-annotations.
       if (willBecomeKeyframe && annotation.track_id && annotation.frame_id) {
-        console.log('[EditorStore] Annotation became keyframe, triggering smart re-interpolation:', {
-          annotationId: id,
-          trackId: annotation.track_id,
-          frameId: annotation.frame_id
-        });
         import('./trackStore').then(({ useTrackStore }) => {
           const trackStore = useTrackStore.getState();
           const track = trackStore.tracks.get(annotation.track_id!);
@@ -714,27 +709,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             const newTracks = new Map(trackStore.tracks);
             newTracks.set(annotation.track_id!, updatedTrack);
             useTrackStore.setState({ tracks: newTracks });
-
-            console.log('[EditorStore] Added keyframe, now calling interpolateAroundKeyframe. Keyframes:',
-              Array.from(newKeyframes).length);
-
-            setTimeout(() => {
-              useTrackStore.getState().interpolateAroundKeyframe(annotation.track_id!, annotation.frame_id);
-            }, 50);
           }
-        });
-      }
-
-      if (isEditingExistingKeyframe && annotation.track_id && annotation.frame_id) {
-        console.log('[EditorStore] Existing keyframe edited, triggering smart re-interpolation:', {
-          annotationId: id,
-          trackId: annotation.track_id,
-          frameId: annotation.frame_id
-        });
-        import('./trackStore').then(({ useTrackStore }) => {
-          setTimeout(() => {
-            useTrackStore.getState().interpolateAroundKeyframe(annotation.track_id!, annotation.frame_id);
-          }, 50);
         });
       }
     }
