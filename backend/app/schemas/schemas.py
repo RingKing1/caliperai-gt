@@ -563,7 +563,7 @@ class EgoPose(BaseSchema):
 
 class FrameFilePaths(BaseSchema):
     """File paths for frame data."""
-    lidar: str
+    lidar: str | None = None
     cameras: Dict[str, str] = Field(default_factory=dict)
 
 

@@ -321,9 +321,18 @@ import re as _re
 def _resolve_frame_image_path(file_paths: dict, camera: str) -> Path | None:
     """Resolve a frame's on-disk camera image.
 
-    Imported bundles use either canonical keys ("front") or raw keys
+    Three on-disk layouts are produced by the import pipelines:
+
+    * canonical: ``<scene>/cameras/<camera>/<file>`` (multi-camera, with or
+      without a sibling ``lidar/`` directory);
+    * images fallback: ``<scene>/images/<file>`` with a single ``images`` key;
+    * flat fallback: ``<scene>/<file>`` with a single ``default`` (or folder
+      named) key.
+
+    Bundles use either canonical keys ("front") or raw keys
     ("camera_0_front100"); disk directories follow the same split, so try
-    both the canonical and raw camera directory.
+    both the canonical and raw camera directory. Single-camera bundles serve
+    their only stream regardless of the requested alias.
     """
     cameras = file_paths.get("cameras") or {}
     filename = cameras.get(camera)
@@ -335,15 +344,34 @@ def _resolve_frame_image_path(file_paths: dict, camera: str) -> Path | None:
                 filename = value
                 raw_key = key
                 break
+    if filename is None and len(cameras) == 1:
+        raw_key, filename = next(iter(cameras.items()))
     if not filename:
         return None
     meta = file_paths.get("_meta") or {}
-    lidar_dir = Path(meta.get("absolute_path", "")).parent
-    if not str(lidar_dir) or not lidar_dir.is_absolute():
+    absolute_path = meta.get("absolute_path", "")
+    if not absolute_path:
         return None
-    scene_dir = lidar_dir.parent
-    for dirname in (camera, raw_key):
-        candidate = scene_dir / "cameras" / dirname / filename
+    primary = Path(absolute_path)
+    if not primary.is_absolute():
+        return None
+    relative_path = meta.get("relative_path") or ""
+    if relative_path:
+        depth = len(Path(relative_path).parts) - 1
+        if depth >= len(primary.parents):
+            return None
+        scene_dir = primary.parents[depth]
+    else:
+        # Legacy rows only recorded absolute paths; the primary used to be a
+        # lidar file two levels below the scene directory.
+        scene_dir = primary.parent.parent
+    candidates = (
+        scene_dir / "cameras" / camera / filename,
+        scene_dir / "cameras" / raw_key / filename,
+        scene_dir / "images" / filename,
+        scene_dir / filename,
+    )
+    for candidate in candidates:
         if candidate.exists():
             return candidate
     return None

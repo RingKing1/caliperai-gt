@@ -383,6 +383,16 @@ pytest -q
       `id=scene_id` 导致落盘目录 UUID 与数据库主键不一致的问题。新增 ego_pose 键与
       6 相机布局两管线对等测试（295 测试全绿），并用真实 6 相机 10 帧 ZIP 实测
       upload / zip 两条管线产出一致（10 帧 × 6 相机、6 路标定、10 个 KITTI 标注就位）。
+- [x] **frames 路由遮蔽 + 回退布局取图历史问题修复**：`create_frames_bulk` 原误写为
+      `GET ""` 且排在 `list_frames` 前，遮蔽所有 `GET /frames?scene_id=`（422），现改为
+      `POST /frames/bulk`。取图端点 `GET /scenes/{id}/frames/{idx}/image` 的路径解析
+      硬编码 `<scene>/cameras/<cam>/`，且场景根靠“主文件是 lidar”的假设（`parent.parent`）
+      推导，导致 images/ 与平铺回退布局必然 404（无 lidar 的纯相机标准布局同样受影响）；
+      同时 `FrameFilePaths.lidar` 必填使纯图像帧的 `GET /frames` 响应校验直接 500。
+      现解析器按 `_meta.relative_path` 深度推导场景根，依次尝试 cameras / images / 场景根
+      三种位置；单相机场景任意相机别名（含默认 `front`）均可取到唯一图像；`lidar` 改为可选。
+      补 3 个路由表测试与 12 个解析器回归测试，真实环境验证 images / 平铺 / 6 相机三种布局
+      取图与 `GET /frames` 均正常（304 测试全绿，容器内 6 个 minio 基线 error 为既有项）。
 
 ### 待完成（按 ROI 排序）
 

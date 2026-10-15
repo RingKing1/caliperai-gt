@@ -333,7 +333,7 @@ export interface Frame {
     velocity?: number[];
   };
   file_paths: {
-    lidar: string;
+    lidar?: string;
     cameras: Record<string, string>;
   };
   is_context?: boolean;
