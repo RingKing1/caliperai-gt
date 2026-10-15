@@ -11,6 +11,7 @@ import struct
 import hashlib
 import time
 import gzip as gzip_module
+import logging
 from pathlib import Path
 from typing import Annotated, List, Optional, Dict, Tuple
 from collections import OrderedDict
@@ -23,8 +24,11 @@ import numpy as np
 
 from app.models.models import User, Permission
 from app.services.rbac_service import RequirePermissions, RequirePermissionsWithQuery
+
 from app.services.storage_service import get_storage_service, StorageService
 from app.core.redis_cache import redis_pcd_cache, redis_gzip_cache
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -113,7 +117,7 @@ async def get_cached_gzip(cache_key: str) -> Optional[bytes]:
             point_count = int(parts[1])
             return await redis_gzip_cache.get(file_path, point_count)
     except Exception as e:
-        print(f"[GZIP CACHE GET ERROR] {e}", flush=True)
+        logger.warning("gzip cache get failed: %s", e)
     return None
 
 
@@ -126,7 +130,7 @@ async def set_cached_gzip(cache_key: str, compressed_data: bytes):
             point_count = int(parts[1])
             await redis_gzip_cache.set(file_path, point_count, compressed_data)
     except Exception as e:
-        print(f"[GZIP CACHE SET ERROR] {e}", flush=True)
+        logger.warning("gzip cache set failed: %s", e)
 
 
 def parse_pcd_file(file_path: str) -> dict:
@@ -240,10 +244,10 @@ def _maybe_subsample(
     new_colors = None
     if colors is not None:
         new_colors = colors.reshape(point_count, 3)[idx].reshape(-1)
-    print(
-        f"[SUBSAMPLE] {point_count} -> {_MAX_DISPLAY_POINTS} points "
-        f"(cap to stay within browser GPU limits)",
-        flush=True,
+    logger.info(
+        "[SUBSAMPLE] %s -> %s points (cap to stay within browser GPU limits)",
+        point_count,
+        _MAX_DISPLAY_POINTS,
     )
     return new_positions, new_intensities, new_colors, _MAX_DISPLAY_POINTS, True
 
@@ -320,10 +324,12 @@ def _maybe_center(
         return positions, None
     offset = np.floor(means)
     centered_f32 = (xyz_f32.astype(np.float64) - offset).astype(np.float32)
-    print(
-        f"[RECENTER] offset=({offset[0]:.0f}, {offset[1]:.0f}, {offset[2]:.0f}) "
-        f"— cloud was in CRS-like coords, re-centered to origin",
-        flush=True,
+    logger.info(
+        "[RECENTER] offset=(%.0f, %.0f, %.0f) — cloud was in CRS-like coords, "
+        "re-centered to origin",
+        offset[0],
+        offset[1],
+        offset[2],
     )
     return centered_f32.reshape(-1), [float(offset[0]), float(offset[1]), float(offset[2])]
 
@@ -494,14 +500,15 @@ async def get_cached_pointcloud_async(
     try:
         cached = await redis_pcd_cache.get(file_path, mtime)
         if cached is not None:
-            print(
-                f"[CACHE HIT] {Path(file_path).name} - "
-                f"{len(cached[0])/1024:.1f}KB in {(time.time()-start_time)*1000:.1f}ms",
-                flush=True,
+            logger.debug(
+                "[CACHE HIT] %s - %.1fKB in %.1fms",
+                Path(file_path).name,
+                len(cached[0]) / 1024,
+                (time.time() - start_time) * 1000,
             )
             return cached
     except Exception as e:
-        print(f"[CACHE ERROR] {e}", flush=True)
+        logger.warning("pcd cache get failed: %s", e)
 
     suffix = Path(file_path).suffix.lower()
     parse_start = time.time()
@@ -524,13 +531,15 @@ async def get_cached_pointcloud_async(
             colors=result[2],
         )
     except Exception as e:
-        print(f"[CACHE STORE ERROR] {e}", flush=True)
+        logger.warning("pcd cache store failed: %s", e)
 
     total_time = (time.time() - start_time) * 1000
-    print(
-        f"[CACHE MISS] {Path(file_path).name} - {result[3]} points, "
-        f"parse: {parse_time:.1f}ms, total: {total_time:.1f}ms",
-        flush=True,
+    logger.debug(
+        "[CACHE MISS] %s - %s points, parse: %.1fms, total: %.1fms",
+        Path(file_path).name,
+        result[3],
+        parse_time,
+        total_time,
     )
 
     return result
@@ -641,10 +650,10 @@ async def get_lidar_data(
                 cached_compressed = await get_cached_gzip(gzip_cache_key)
 
                 if cached_compressed:
-                    print(
-                        f"[GZIP-HIT] {Path(file_path).name}: "
-                        f"{len(cached_compressed)/1024:.0f}KB (cached)",
-                        flush=True,
+                    logger.debug(
+                        "[GZIP-HIT] %s: %.0fKB (cached)",
+                        Path(file_path).name,
+                        len(cached_compressed) / 1024,
                     )
                     compressed_data = cached_compressed
                 else:
@@ -652,12 +661,12 @@ async def get_lidar_data(
                         gzip_module.compress, binary_data, 1
                     )
                     await set_cached_gzip(gzip_cache_key, compressed_data)
-                    print(
-                        f"[GZIP-NEW] {Path(file_path).name}: "
-                        f"{len(binary_data)/1024:.0f}KB -> "
-                        f"{len(compressed_data)/1024:.0f}KB "
-                        f"({len(compressed_data)/len(binary_data)*100:.0f}%)",
-                        flush=True,
+                    logger.debug(
+                        "[GZIP-NEW] %s: %.0fKB -> %.0fKB (%.0f%%)",
+                        Path(file_path).name,
+                        len(binary_data) / 1024,
+                        len(compressed_data) / 1024,
+                        len(compressed_data) / len(binary_data) * 100,
                     )
 
                 headers = {
@@ -802,10 +811,12 @@ async def get_image(
             }
         )
     except ImportError:
-        print("[WARNING] PIL/Pillow not installed, cannot resize images. Install with: pip install Pillow")
+        logger.warning(
+            "PIL/Pillow not installed, cannot resize images. Install with: pip install Pillow"
+        )
         return FileResponse(full_path, media_type=media_type)
     except Exception as e:
-        print(f"[WARNING] Failed to resize image {file_path}: {e}")
+        logger.warning("Failed to resize image %s: %s", file_path, e)
         return FileResponse(full_path, media_type=media_type)
 
 

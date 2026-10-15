@@ -9,6 +9,7 @@ identical apart from *when* the HTTP response is returned.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -27,6 +28,8 @@ from app.services.dataset_import.taxonomy import (
     derive_and_merge_taxonomy,
     scan_annotations_for_classes,
 )
+
+logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str, int, str], Awaitable[None]]
 
@@ -84,9 +87,10 @@ async def execute_directory_import(
     scene_dirs, scene_parent_names = detect_scene_dirs(
         root_path, debug=spec.detect_debug
     )
-    print(
-        f"{spec.log_prefix} Scene directories to import: "
-        f"{[d.name for d in scene_dirs]}"
+    logger.info(
+        "%s Scene directories to import: %s",
+        spec.log_prefix,
+        [d.name for d in scene_dirs],
     )
 
     await report(
@@ -97,9 +101,9 @@ async def execute_directory_import(
 
     if derive_taxonomy and scene_dirs:
         await report("taxonomy", 12, "Deriving taxonomy from annotations")
-        print(
-            f"{spec.log_prefix} derive_taxonomy=True, scanning annotations "
-            f"for classes..."
+        logger.info(
+            "%s derive_taxonomy=True, scanning annotations for classes...",
+            spec.log_prefix,
         )
         discovered_classes = scan_annotations_for_classes(scene_dirs)
         if discovered_classes:

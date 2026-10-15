@@ -339,7 +339,7 @@ async def upload_zip_and_import_dataset(
     zip_path = Path(temp_dir) / "upload.zip"
     
     try:
-        print("[ZIP IMPORT] Receiving uploaded ZIP file...")
+        log.info("[ZIP IMPORT] Receiving uploaded ZIP file...")
         file_size = 0
         chunk_size = 1024 * 1024 * 10
         
@@ -351,10 +351,10 @@ async def upload_zip_and_import_dataset(
                 f.write(chunk)
                 file_size += len(chunk)
                 if file_size % (chunk_size * 10) == 0:
-                    print(f"[ZIP IMPORT] Received {file_size / (1024*1024):.1f} MB...")
+                    log.info("[ZIP IMPORT] Received %.1f MB...", file_size / (1024*1024))
         
-        print(f"[ZIP IMPORT] Uploaded file size: {file_size / (1024*1024):.1f} MB")
-        print("[ZIP IMPORT] Extracting ZIP file...")
+        log.info("[ZIP IMPORT] Uploaded file size: %.1f MB", file_size / (1024*1024))
+        log.info("[ZIP IMPORT] Extracting ZIP file...")
         extract_dir = Path(temp_dir) / "extracted"
         extract_dir.mkdir(parents=True, exist_ok=True)
         

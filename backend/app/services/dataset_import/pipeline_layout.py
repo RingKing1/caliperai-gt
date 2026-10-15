@@ -5,9 +5,12 @@ recognise scene folders, apply generic-name parent substitution and
 classify the per-scene data source. Kept dependency-light (no DB / ORM) so
 the behaviour is trivially unit-testable.
 """
+import logging
 from pathlib import Path
 
 from app.services.dataset_import.constants import GENERIC_FOLDER_NAMES
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_DATA_SUFFIXES = {
     ".jpg", ".jpeg", ".png", ".pcd", ".bin", ".ply",
@@ -64,10 +67,10 @@ def detect_scene_dirs(
         return scene_dirs, scene_parent_names
 
     if debug:
-        print("[IMPORT DEBUG] No scene folders found, checking for flat image structure...")
+        logger.debug("No scene folders found, checking for flat image structure...")
     root_data_files = find_data_files(root_path)
     if debug:
-        print(f"[IMPORT DEBUG] Found {len(root_data_files)} data files in root")
+        logger.debug("Found %d data files in root", len(root_data_files))
 
     if root_data_files:
         return [root_path], scene_parent_names
@@ -78,9 +81,10 @@ def detect_scene_dirs(
                 subdir_files = find_data_files(subdir)
                 if subdir_files:
                     if debug:
-                        print(
-                            f"[IMPORT DEBUG] Found {len(subdir_files)} files in "
-                            f"{subdir.name}, treating as scene"
+                        logger.debug(
+                            "Found %d files in %s, treating as scene",
+                            len(subdir_files),
+                            subdir.name,
                         )
                     scene_dirs.append(subdir)
 

@@ -15,6 +15,7 @@ purpose (zero behaviour change) and made explicit on :class:`PipelineSpec`:
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import uuid
 from dataclasses import dataclass, field
@@ -44,6 +45,8 @@ from app.services.dataset_import.schemas import RenamedScene
 from app.services.dataset_import.storage import schedule_scene_mirror
 from app.services.dataset_import.tasks import get_or_create_scene_import_task
 from app.services.dataset_service import auto_create_tasks_for_scene
+
+logger = logging.getLogger(__name__)
 
 IMAGE_SUFFIXES = (".jpg", ".png", ".jpeg")
 IMAGES_FOLDER_SUFFIXES = (
@@ -245,9 +248,8 @@ def read_scene_ego_poses(
                         f"{relative_path_base}/ego_poses/ego_poses.json"
                     )
             except Exception as exc:
-                print(
-                    f"[IMPORT] Failed to read ego_poses from metadata.json: "
-                    f"{exc}"
+                logger.warning(
+                    "Failed to read ego_poses from metadata.json: %s", exc
                 )
 
     return ego_poses_data, ego_poses_rel_path
@@ -520,9 +522,10 @@ def collect_scene_files(
             "cameras": {camera_name: camera_base},
         }
         attributes.flag_modified(scene, "storage_paths")
-        print(
-            f"[IMPORT] Treating flat image structure as single camera: "
-            f"{camera_name}, path: {relative_path_base}"
+        logger.info(
+            "Treating flat image structure as single camera: %s, path: %s",
+            camera_name,
+            relative_path_base,
         )
 
     return permanent_data_files, lidar_files, camera_files
@@ -686,7 +689,7 @@ async def import_one_scene(
                 f"Auto-created for {scene_name} ({frame_count} frames)"
             ),
         )
-        print(f"{prefix} Using task {task.id} for imported annotations")
+        logger.info("%s Using task %s for imported annotations", prefix, task.id)
 
         try:
             annotations_3d, annotations_2d = await import_scene_annotations(
@@ -706,15 +709,22 @@ async def import_one_scene(
                 f"Scene {scene_name}: Failed to import annotations: {exc}"
             )
 
-        print(
-            f"{prefix} Successfully imported scene {scene_name} with "
-            f"{frame_count} frames"
+        logger.info(
+            "%s Successfully imported scene %s with %s frames",
+            prefix,
+            scene_name,
+            frame_count,
         )
         return frame_count
     except Exception as exc:
         import traceback
 
-        print(f"{prefix} ERROR Scene {scene_dir.name}: {exc}")
-        print(f"{prefix} ERROR Traceback: {traceback.format_exc()}")
+        logger.error(
+            "%s ERROR Scene %s: %s\n%s",
+            prefix,
+            scene_dir.name,
+            exc,
+            traceback.format_exc(),
+        )
         errors.append(f"Scene {scene_dir.name}: {exc}")
         return None

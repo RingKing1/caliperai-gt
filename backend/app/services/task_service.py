@@ -540,12 +540,12 @@ async def create_task(db: AsyncSession, task_in: TaskCreate, user: User) -> Task
                     task=task,
                 )
                 if annotations_3d > 0 or annotations_2d > 0:
-                    print(
+                    logger.info(
                         f"[TASK-CREATE] Auto-imported {annotations_3d} 3D and "
                         f"{annotations_2d} 2D annotations for task {task.id}"
                     )
             except Exception as e:  # noqa: BLE001 - import never blocks creation
-                print(f"[TASK-CREATE] Failed to auto-import annotations: {str(e)}")
+                logger.warning("[TASK-CREATE] Failed to auto-import annotations: %s", e)
 
     return task
 

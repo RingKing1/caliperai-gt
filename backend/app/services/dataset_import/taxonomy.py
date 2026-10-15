@@ -21,6 +21,8 @@ from app.models.models import (
 )
 from app.services.dataset_import.constants import AUTO_CLASS_COLORS
 
+logger = logging.getLogger(__name__)
+
 
 def scan_annotations_for_classes(scene_dirs: List[Path]) -> set:
     """
@@ -96,7 +98,7 @@ def scan_annotations_for_classes(scene_dirs: List[Path]) -> set:
             except Exception:
                 continue
     
-    print(f"[DERIVE TAXONOMY] Found {len(classes)} unique classes: {classes}")
+    logger.info(f"[DERIVE TAXONOMY] Found {len(classes)} unique classes: {classes}")
     return classes
 
 
@@ -126,7 +128,7 @@ async def derive_and_merge_taxonomy(
         The created or updated Taxonomy, or None if no classes discovered
     """
     if not discovered_classes:
-        print("[DERIVE TAXONOMY] No classes discovered, skipping taxonomy creation")
+        logger.info(f"[DERIVE TAXONOMY] No classes discovered, skipping taxonomy creation")
         return None
     
     taxonomy_result = await db.execute(
@@ -160,10 +162,10 @@ async def derive_and_merge_taxonomy(
             updated_classes = list(taxonomy.classes or []) + new_classes
             taxonomy.classes = updated_classes
             await db.flush()
-            print(f"[DERIVE TAXONOMY] Merged {len(new_classes)} new classes into existing taxonomy '{taxonomy.name}'")
-            print(f"[DERIVE TAXONOMY] New classes: {[c['name'] for c in new_classes]}")
+            logger.info(f"[DERIVE TAXONOMY] Merged {len(new_classes)} new classes into existing taxonomy '{taxonomy.name}'")
+            logger.info(f"[DERIVE TAXONOMY] New classes: {[c['name'] for c in new_classes]}")
         else:
-            print(f"[DERIVE TAXONOMY] All discovered classes already exist in taxonomy '{taxonomy.name}'")
+            logger.info(f"[DERIVE TAXONOMY] All discovered classes already exist in taxonomy '{taxonomy.name}'")
         
         return taxonomy
     
@@ -196,8 +198,8 @@ async def derive_and_merge_taxonomy(
         )
         await db.flush()
         
-        print(f"[DERIVE TAXONOMY] Created new taxonomy '{taxonomy.name}' with {len(taxonomy_classes)} classes")
-        print(f"[DERIVE TAXONOMY] Classes: {[c['name'] for c in taxonomy_classes]}")
+        logger.info(f"[DERIVE TAXONOMY] Created new taxonomy '{taxonomy.name}' with {len(taxonomy_classes)} classes")
+        logger.info(f"[DERIVE TAXONOMY] Classes: {[c['name'] for c in taxonomy_classes]}")
         
         return taxonomy
 
@@ -310,7 +312,7 @@ async def ensure_segmentation_taxonomy(
                 )
             )
             await db.flush()
-            print(f"[IMPORT] Reused existing segmentation_3d taxonomy '{cand.name}' ({cand.id})")
+            logger.info(f"[IMPORT] Reused existing segmentation_3d taxonomy '{cand.name}' ({cand.id})")
             return cand
 
     taxonomy = Taxonomy(
@@ -332,7 +334,7 @@ async def ensure_segmentation_taxonomy(
         )
     )
     await db.flush()
-    print(f"[IMPORT] Created segmentation_3d taxonomy with {len(classes)} classes: {[c['name'] for c in classes]}")
+    logger.info(f"[IMPORT] Created segmentation_3d taxonomy with {len(classes)} classes: {[c['name'] for c in classes]}")
     return taxonomy
 
 
@@ -409,7 +411,7 @@ def map_class_to_taxonomy(class_label: str, class_mapping: dict) -> str:
     if label_lower.replace("-", "_") in class_mapping:
         return class_mapping[label_lower.replace("-", "_")]
     
-    print(f"[IMPORT] Warning: Class '{class_label}' not found in taxonomy, using as-is")
+    logger.warning(f"[IMPORT] Warning: Class '{class_label}' not found in taxonomy, using as-is")
     return class_label
 
 
@@ -476,8 +478,6 @@ async def create_taxonomy_from_classes(
         annotation_mode: "fusion_3d" or "2d_only" - determines annotation types for classes
         coco_categories: Optional COCO categories dict with id -> {name, supercategory}
     """
-    logger = logging.getLogger(__name__)
-    
     if not class_ids:
         return
     

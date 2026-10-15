@@ -1,5 +1,6 @@
 """Per-scene annotation import: parse on-disk labels into 2D/3D/4D rows."""
 import json
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -28,6 +29,9 @@ from app.services.dataset_import.taxonomy import (
     ensure_segmentation_taxonomy,
     map_class_to_taxonomy,
 )
+
+logger = logging.getLogger(__name__)
+
 async def import_scene_annotations(
     db: AsyncSession,
     scene: Scene,
@@ -60,25 +64,25 @@ async def import_scene_annotations(
     """
     from sqlalchemy import delete
     
-    print(f"[DEBUG] import_scene_annotations called for scene {scene.name} at {scene_dir}")
+    logger.debug(f"[DEBUG] import_scene_annotations called for scene {scene.name} at {scene_dir}")
     
     if overwrite:
         deleted_3d = await db.execute(delete(Annotation3D).where(Annotation3D.task_id == task.id))
         deleted_2d = await db.execute(delete(Annotation2D).where(Annotation2D.task_id == task.id))
         await db.execute(delete(Track2D).where(Track2D.task_id == task.id))
-        print(f"[IMPORT] Overwrite mode: Deleted {deleted_3d.rowcount} 3D and {deleted_2d.rowcount} 2D existing annotations")
+        logger.info(f"[IMPORT] Overwrite mode: Deleted {deleted_3d.rowcount} 3D and {deleted_2d.rowcount} 2D existing annotations")
     
     annotations_dir = scene_dir / "annotations"
-    print(f"[DEBUG] Checking annotations_dir: {annotations_dir}, exists: {annotations_dir.exists()}")
+    logger.debug(f"[DEBUG] Checking annotations_dir: {annotations_dir}, exists: {annotations_dir.exists()}")
     
     if not annotations_dir.exists():
         parent_annotations_dir = scene_dir.parent / "annotations"
-        print(f"[DEBUG] Checking parent annotations_dir: {parent_annotations_dir}, exists: {parent_annotations_dir.exists()}")
+        logger.debug(f"[DEBUG] Checking parent annotations_dir: {parent_annotations_dir}, exists: {parent_annotations_dir.exists()}")
         if parent_annotations_dir.exists():
             annotations_dir = parent_annotations_dir
     
     if not annotations_dir.exists():
-        print("[DEBUG] No annotations directory found, returning 0,0")
+        logger.debug(f"[DEBUG] No annotations directory found, returning 0,0")
 
         return 0, 0
     
@@ -101,12 +105,12 @@ async def import_scene_annotations(
                     cid = cls.get("id")
                     if cid:
                         class_info_by_id[cid] = {"name": cls.get("name") or cid, "color": cls.get("color")}
-                print(f"[DEBUG] Loaded {len(taxonomy.classes)} classes from taxonomy '{taxonomy.name}'")
+                logger.debug(f"[DEBUG] Loaded {len(taxonomy.classes)} classes from taxonomy '{taxonomy.name}'")
     
     if class_mapping:
-        print(f"[DEBUG] Built class mapping with {len(class_mapping)} entries")
+        logger.debug(f"[DEBUG] Built class mapping with {len(class_mapping)} entries")
     else:
-        print("[DEBUG] No taxonomy found for dataset, using raw class labels")
+        logger.debug(f"[DEBUG] No taxonomy found for dataset, using raw class labels")
     
     annotations_3d_count = 0
     annotations_2d_count = 0
@@ -135,7 +139,7 @@ async def import_scene_annotations(
     tasks_with_taxonomy: List[Tuple[Task, Optional[str]]] = [
         (t, tx.name if tx else None) for t, tx in task_taxonomy_result.all()
     ]
-    print(f"[DEBUG] Loaded {len(tasks_with_taxonomy)} tasks for multi-taxonomy routing")
+    logger.debug(f"[DEBUG] Loaded {len(tasks_with_taxonomy)} tasks for multi-taxonomy routing")
 
     lidar_annotations_dir = annotations_dir / "lidar"
     if not lidar_annotations_dir.exists():
@@ -224,9 +228,9 @@ async def import_scene_annotations(
             matched_task = match_folder_to_task(json_file.parent.name, tasks_with_taxonomy)
             if matched_task:
                 annotation_task = matched_task
-                print(f"[DEBUG] Routing '{json_file.name}' in '{json_file.parent.name}' -> task '{matched_task.name}'")
+                logger.debug(f"[DEBUG] Routing '{json_file.name}' in '{json_file.parent.name}' -> task '{matched_task.name}'")
             else:
-                print(f"[DEBUG] No task match for folder '{json_file.parent.name}', using default task")
+                logger.debug(f"[DEBUG] No task match for folder '{json_file.parent.name}', using default task")
 
         camera_name = json_file.stem
         
@@ -449,7 +453,7 @@ async def import_scene_annotations(
             attributes=override.get("attributes") or {},
         ))
     if imported_tracks_2d:
-        print(f"[IMPORT] Recreated {len(imported_tracks_2d)} 2D track(s) from imported annotations")
+        logger.info(f"[IMPORT] Recreated {len(imported_tracks_2d)} 2D track(s) from imported annotations")
 
     try:
         label_files = sorted(annotations_dir.rglob("*.label"))
@@ -462,12 +466,12 @@ async def import_scene_annotations(
                 try:
                     frame_index = int(label_file.stem.lstrip("0") or "0")
                 except ValueError:
-                    print(f"[IMPORT] Cannot parse frame index from {label_file.name}")
+                    logger.warning(f"[IMPORT] Cannot parse frame index from {label_file.name}")
                     continue
 
                 frame = frame_by_index.get(frame_index)
                 if not frame:
-                    print(f"[IMPORT] No frame for index {frame_index} ({label_file.name})")
+                    logger.warning(f"[IMPORT] No frame for index {frame_index} ({label_file.name})")
                     continue
 
                 kitti = np.frombuffer(label_file.read_bytes(), dtype=np.uint32)
@@ -490,7 +494,7 @@ async def import_scene_annotations(
                 seg_frames_imported += 1
 
             if seg_frames_imported:
-                print(f"[IMPORT] Restored 3D segmentation for {seg_frames_imported} frame(s)")
+                logger.info(f"[IMPORT] Restored 3D segmentation for {seg_frames_imported} frame(s)")
                 # Ensure the dataset has a segmentation_3d taxonomy whose class order
                 # matches the stored 0-based labels, so the editor can color points.
                 try:
@@ -506,10 +510,10 @@ async def import_scene_annotations(
                             task.taxonomy_id = seg_tax.id
                             await db.flush()
                 except Exception as tax_err:
-                    print(f"[IMPORT] Could not derive segmentation taxonomy: {tax_err}")
+                    logger.warning(f"[IMPORT] Could not derive segmentation taxonomy: {tax_err}")
     except Exception as e:
         import traceback
-        print(f"[IMPORT] Error restoring 3D segmentation: {type(e).__name__}: {str(e) or traceback.format_exc()}")
+        logger.error(f"[IMPORT] Error restoring 3D segmentation: {type(e).__name__}: {str(e) or traceback.format_exc()}")
 
     return annotations_3d_count, annotations_2d_count
 
