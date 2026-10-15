@@ -498,9 +498,20 @@ def collect_scene_files(
             else scene_name
         )
         camera_files = {camera_name: permanent_data_files}
+        # Files may live under an images/ subfolder; the camera base must
+        # point at the directory actually containing the frame files so the
+        # frontend can resolve {storage_paths.cameras[key]}/{filename}.
+        via_images_dir = permanent_images_path.exists() and all(
+            f.parent == permanent_images_path for f in permanent_data_files
+        )
+        camera_base = (
+            f"{relative_path_base}/images"
+            if via_images_dir
+            else relative_path_base
+        )
         scene.storage_paths = {
             **scene.storage_paths,
-            "cameras": {camera_name: relative_path_base},
+            "cameras": {camera_name: camera_base},
         }
         attributes.flag_modified(scene, "storage_paths")
         print(

@@ -407,7 +407,15 @@ pytest -q
       10 帧 ZIP 分别走 upload 与 zip 两条管线，均产出 10 帧 × 6 相机、6 路标定、130 个
       3D 标注、MinIO 82 对象且 storage_paths 五键对等（310 测试全绿，容器内 6 个 minio
       基线 error 为既有项）。**分叉的“语义口径统一”（是否要让两管线行为真的一致）仍
-      待与前端联调后决定**，当前仅完成去重与显式化，行为零变更；video 管线结构不同，未并入。
+      需逐项确认**：ego 合成、数据集级标定继承、改名跳查重、相机键命名等分叉仍按原样
+      保留；video 管线结构不同，未并入。
+- [x] **upload 管线 images/ 回退布局相机 base 对齐 zip**：upload 把 images/ 子目录场景
+      归为单相机时，`storage_paths.cameras` 的 base 误写为场景根（文件实际在 `images/`
+      子目录），前端按 `{base}/{filename}` 拼出的 `/data/image` URL 必然 404；zip 管线
+      写的是 `…/images` 本就正确。现 upload 检测到帧文件全部位于 `images/` 时 base
+      追加 `/images`，松散平铺文件仍用场景根（不回归）。补 2 个单测，真实 multipart
+      上传两种布局复验前端取图 URL 均 200（312 测试全绿）。注意：修复前已入库的旧场景
+      仍带错误 base，需要时按 `images_base` 做一次性数据订正。
 - [ ] **P0 收尾（3）：长上传后台 job 化**：把数分钟的上传/解压/导入改为“后台 job +
       进度查询”，消除长事务；需新增进度端点并与前端联调。
 - [ ] **P1 其余业务域补 service 层**：`tasks.py`、`qa.py`、`datasets.py`、

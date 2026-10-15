@@ -4,8 +4,51 @@ These pin the historical per-route divergences that ``PipelineSpec`` keeps
 explicit instead of silently unifying.
 """
 import json
+from pathlib import Path
 
+from app.models.models import Scene
 from app.services.dataset_import import scene_pipeline as sp
+
+
+def _collect_upload(tmp_path: Path, layout: str):
+    scene_dir = tmp_path / "scene"
+    if layout == "images":
+        images = scene_dir / "images"
+        images.mkdir(parents=True)
+        files = [images / "0000.jpg", images / "0001.jpg"]
+    else:
+        scene_dir.mkdir(parents=True)
+        files = [scene_dir / "a.jpg", scene_dir / "b.jpg"]
+    for f in files:
+        f.write_bytes(b"")
+    scene = Scene(storage_paths={"cameras": None})
+    data_files, lidar_files, camera_files = sp.collect_scene_files(
+        sp.UPLOAD_PIPELINE,
+        scene,
+        scene_dir,
+        scene_dir,
+        "scene",
+        "uploads/dataset/scene",
+    )
+    return scene, data_files, lidar_files, camera_files
+
+
+def test_upload_single_camera_images_folder_base_points_inside_images(tmp_path):
+    scene, data_files, _lidar, camera_files = _collect_upload(tmp_path, "images")
+    assert len(data_files) == 2
+    assert list(camera_files) == ["scene"]
+    assert scene.storage_paths["cameras"] == {
+        "scene": "uploads/dataset/scene/images"
+    }
+
+
+def test_upload_single_camera_loose_files_base_is_scene_root(tmp_path):
+    scene, data_files, _lidar, camera_files = _collect_upload(tmp_path, "flat")
+    assert len(data_files) == 2
+    assert list(camera_files) == ["scene"]
+    assert scene.storage_paths["cameras"] == {
+        "scene": "uploads/dataset/scene"
+    }
 
 
 class _FakeDataset:
