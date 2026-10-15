@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.catalog import DatasetResponse, TaxonomyResponse
 from app.schemas.common import (
@@ -142,19 +142,6 @@ class TaskStageHistoryResponse(BaseSchema):
     created_at: datetime
 
 
-class TaskWorkflowInfo(BaseSchema):
-    """Workflow information for a task."""
-    id: UUID
-    stage: str
-    status: str
-    valid_transitions: list[str] = Field(default_factory=list)
-    can_submit: bool = False
-    can_start_qa: bool = False
-    can_start_customer_qa: bool = False
-    skip_customer_qa: bool = False
-    revision_count: int = 0
-
-
 class TaskResponse(TaskBase, TimestampSchema):
     id: UUID
     scene_id: UUID
@@ -231,3 +218,85 @@ class TaskEditorContextResponse(BaseSchema):
         description="Primary taxonomy per annotation mode (fusion_3d / 2d_only).",
     )
     selected_taxonomy: Optional[TaxonomyResponse] = None
+
+
+# Workflow endpoint request/response models (moved from endpoints/workflow.py).
+class StatusTransitionRequest(BaseModel):
+    """Request to transition task status."""
+    status: str
+    reason: Optional[str] = None
+
+
+class AssignmentRequest(BaseModel):
+    """Request to assign a task."""
+    user_id: str
+
+
+class ReviewCompleteRequest(BaseModel):
+    """Request to complete a review."""
+    accepted: bool
+    reason: Optional[str] = None
+
+
+class TaskWorkflowInfo(BaseModel):
+    """Current workflow state of a task."""
+    task_id: str
+    stage: str
+    status: str
+    assignee_id: Optional[str] = None
+    reviewer_id: Optional[str] = None
+    customer_reviewer_id: Optional[str] = None
+    skip_customer_qa: bool
+    revision_count: int
+    available_transitions: List[str]
+
+
+class StageHistoryItem(BaseModel):
+    """Single history entry."""
+    id: str
+    from_stage: str
+    from_status: str
+    to_stage: str
+    to_status: str
+    changed_by_id: Optional[str] = None
+    reason: Optional[str] = None
+    created_at: str
+
+
+class AssignmentHistoryItem(BaseModel):
+    """Single assignment history entry."""
+    id: str
+    action: str
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    role: str
+    stage: str
+    changed_by_id: Optional[str] = None
+    changed_by_name: Optional[str] = None
+    reason: Optional[str] = None
+    created_at: str
+
+
+class BulkAssignRequest(BaseModel):
+    """Request for bulk task assignment."""
+    task_ids: List[str]
+    user_id: str
+
+
+class BulkSubmitRequest(BaseModel):
+    """Request for bulk task submission."""
+    task_ids: List[str]
+
+
+class BulkOperationResult(BaseModel):
+    """Result of a bulk operation."""
+    success_count: int
+    failed_count: int
+    tasks: List[TaskWorkflowInfo]
+
+
+class SetStageRequest(BaseModel):
+    """Request to forcefully set stage (admin override)."""
+    stage: str
+    reset_revision_count: bool = False
+

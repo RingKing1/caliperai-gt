@@ -4,15 +4,26 @@ Workflow API Endpoints with RBAC protection.
 Provides endpoints for task stage/status transitions.
 """
 import uuid
-from typing import Annotated, List, Optional
+from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.models.models import Task, TaskStageHistory, TaskAssignmentHistory, User, Permission, UserRole, TaskStatus, TaskStage, Taxonomy, QAReview
+from app.schemas.task import (
+    AssignmentHistoryItem,
+    AssignmentRequest,
+    BulkAssignRequest,
+    BulkOperationResult,
+    BulkSubmitRequest,
+    ReviewCompleteRequest,
+    SetStageRequest,
+    StageHistoryItem,
+    StatusTransitionRequest,
+    TaskWorkflowInfo,
+)
 from app.services.workflow_service import WorkflowService, WorkflowError
 from app.services.rbac_service import (
     get_current_user,
@@ -22,64 +33,6 @@ from app.services.rbac_service import (
 
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
-
-
-
-class StatusTransitionRequest(BaseModel):
-    """Request to transition task status."""
-    status: str
-    reason: Optional[str] = None
-
-
-class AssignmentRequest(BaseModel):
-    """Request to assign a task."""
-    user_id: str
-
-
-class ReviewCompleteRequest(BaseModel):
-    """Request to complete a review."""
-    accepted: bool
-    reason: Optional[str] = None
-
-
-class TaskWorkflowInfo(BaseModel):
-    """Current workflow state of a task."""
-    task_id: str
-    stage: str
-    status: str
-    assignee_id: Optional[str] = None
-    reviewer_id: Optional[str] = None
-    customer_reviewer_id: Optional[str] = None
-    skip_customer_qa: bool
-    revision_count: int
-    available_transitions: List[str]
-
-
-class StageHistoryItem(BaseModel):
-    """Single history entry."""
-    id: str
-    from_stage: str
-    from_status: str
-    to_stage: str
-    to_status: str
-    changed_by_id: Optional[str] = None
-    reason: Optional[str] = None
-    created_at: str
-
-
-class AssignmentHistoryItem(BaseModel):
-    """Single assignment history entry."""
-    id: str
-    action: str
-    user_id: Optional[str] = None
-    user_name: Optional[str] = None
-    role: str
-    stage: str
-    changed_by_id: Optional[str] = None
-    changed_by_name: Optional[str] = None
-    reason: Optional[str] = None
-    created_at: str
-
 
 
 @router.get("/tasks/{task_id}/info", response_model=TaskWorkflowInfo)
@@ -689,25 +642,6 @@ async def on_editor_open(
     )
 
 
-
-class BulkAssignRequest(BaseModel):
-    """Request for bulk task assignment."""
-    task_ids: List[str]
-    user_id: str
-
-
-class BulkSubmitRequest(BaseModel):
-    """Request for bulk task submission."""
-    task_ids: List[str]
-
-
-class BulkOperationResult(BaseModel):
-    """Result of a bulk operation."""
-    success_count: int
-    failed_count: int
-    tasks: List[TaskWorkflowInfo]
-
-
 @router.post("/tasks/bulk-assign", response_model=BulkOperationResult)
 async def bulk_assign_tasks(
     request: BulkAssignRequest,
@@ -876,13 +810,6 @@ async def skip_qa_stage(
         revision_count=task.revision_count,
         available_transitions=available,
     )
-
-
-
-class SetStageRequest(BaseModel):
-    """Request to forcefully set stage (admin override)."""
-    stage: str
-    reset_revision_count: bool = False
 
 
 @router.post("/tasks/{task_id}/set-stage", response_model=TaskWorkflowInfo)

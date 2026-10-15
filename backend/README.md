@@ -77,7 +77,7 @@ backend/
 │   │   ├── auth.py              # 登录/JWT 令牌/改密/角色/当前用户 + SSO provider/token
 │   │   ├── knowledge.py         # RAG 知识库统计/检索/重建索引
 │   │   ├── chat.py              # AI 会话与 RAG 知识块
-│   │   └── schemas.py           # 纯门面：按域重导出 231 个公开名，import 路径零改动
+│   │   └── schemas.py           # 纯门面：按域重导出 240 个公开名，import 路径零改动
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
 │       ├── database.py          # engine / session / get_db / init_db
@@ -547,7 +547,7 @@ pytest -q
       端点 1315 → 481 行（全域 2428 → 481），5 条薄路由，365 测试全绿，
       真实数据冒烟 200/200/200/200/404，OpenAPI 27 个 operation 与组件
       schema 零差异。**P1 五个业务域全部完成**。
-- [~] **P2 模型 / schema 分包（进行中，15/N，仅剩 workflow 消歧与 sam2）**：目标是把 `models/models.py`
+- [~] **P2 模型 / schema 分包（进行中，16/N，仅剩 sam2 随 P3 迁移）**：目标是把 `models/models.py`
   （3627 行 / 60 类）按域拆入 `models/` 包（org、user、catalog、scene、task、
       annotation、qa、efficiency、chat），`models.py` 保留为门面重导出，保证
       67 处 `from app.models.models import X` 与 alembic/env.py 零改动。
@@ -685,8 +685,20 @@ pytest -q
       UP035 随拆文件产生（同既定口径）外零净增，并移除端点因此次搬迁而
       失效的 uuid.UUID 死导入（F401 回到基线 6 个），新文件 E/F/I/N/W
       零告警（E501 项目全局 ignore）。
-      **P2 剩余：workflow 10 个（TaskWorkflowInfo 同名异构需先消歧）
-      与 sam2 14 个（随 P3 微服务迁移），合计 24 个。**
+      - [x] **P2（16/N）workflow 10 个内联模型归位 schemas/task.py，
+      TaskWorkflowInfo 同名异构消歧**：endpoint 版富 TaskWorkflowInfo（9 字段，
+      18 条工作流路由 + BulkOperationResult 的真实 API 契约）取代 schemas/task.py
+      中零引用、未进 OpenAPI 的同名瘦类（11 字段但全是另一套字段名）；
+      StatusTransitionRequest/AssignmentRequest/ReviewCompleteRequest/
+      StageHistoryItem/AssignmentHistoryItem/BulkAssignRequest/BulkSubmitRequest/
+      BulkOperationResult/SetStageRequest 一并并入 task.py；门面新增 9 个名
+      （231 → 240 项 __all__），TaskWorkflowInfo 名字不变、来源切换。
+      在线 OpenAPI 规范化 JSON 逐字节一致（证明瘦类本就不在对外契约中）；
+      21 个 response_model + 10 个请求体路由绑定断言通过；真实 DB 冒烟
+      info/history/assignment-history 200，transition/set-stage 空体 422
+      （临时冒烟用户已删除）；373 测试全绿；ruff 按"端点+task.py 合并基线"
+      对比零净增。**P2 仅剩 sam2 14 个内联模型，按既定计划随 P3 微服务
+      迁移一起归位（schemas 可先落 schemas/sam2.py，端点物理迁移时仅改 import）。**
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；
