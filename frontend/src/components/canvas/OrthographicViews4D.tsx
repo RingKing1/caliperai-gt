@@ -86,6 +86,33 @@ const CanvasCleanup: React.FC = () => {
   return null;
 };
 
+const BackgroundClickHandler: React.FC = () => {
+  const startPos = useRef<{ x: number; y: number } | null>(null);
+  return (
+    <mesh
+      position={[0, 0, -1]}
+      onPointerDown={(e) => {
+        if (e.button === 0) {
+          startPos.current = { x: e.clientX, y: e.clientY };
+        }
+      }}
+      onPointerUp={(e) => {
+        if (e.button === 0 && startPos.current) {
+          const dx = e.clientX - startPos.current.x;
+          const dy = e.clientY - startPos.current.y;
+          if (dx * dx + dy * dy < 25) {
+            useEditorStore.getState().setOrthoLockedEdge(null);
+          }
+          startPos.current = null;
+        }
+      }}
+    >
+      <planeGeometry args={[10000, 10000]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+    </mesh>
+  );
+};
+
 const RotationDial: React.FC<{
   radius: number;
   color: string;
@@ -183,6 +210,7 @@ const DraggableHandle: React.FC<{
   const [isDragging, setIsDragging] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const lastPos = useRef<{ x: number, y: number } | null>(null);
+  const startPos = useRef<{ x: number, y: number } | null>(null);
 
   const visibleSize = 0.5 * scale;
   const hitAreaMultiplier = 3.0;
@@ -194,6 +222,7 @@ const DraggableHandle: React.FC<{
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setIsDragging(true);
     lastPos.current = { x: e.clientX, y: e.clientY };
+    startPos.current = { x: e.clientX, y: e.clientY };
   };
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
@@ -219,6 +248,15 @@ const DraggableHandle: React.FC<{
     setIsDragging(false);
     lastPos.current = null;
     onEnd();
+
+    if (startPos.current) {
+      const dx = e.clientX - startPos.current.x;
+      const dy = e.clientY - startPos.current.y;
+      if (dx * dx + dy * dy < 25) {
+        useEditorStore.getState().setOrthoLockedEdge(null);
+      }
+      startPos.current = null;
+    }
   };
 
   const handlePointerOver = () => {
@@ -1261,13 +1299,22 @@ const OrthoViewPanel: React.FC<{
 
       {/* Edge Guidance Indicator */}
       {isActive && (
-        <div className="absolute top-1 left-12 z-10 pointer-events-none flex items-center gap-1">
+        <div className="absolute top-1 left-12 z-10 flex items-center gap-1">
           {orthoEdgeState.lockedEdge ? (
-            <span className="text-[9px] text-rose-300 bg-rose-950/80 border border-rose-500/60 px-1.5 py-0.5 rounded font-mono shadow">
-              🔒 Locked: {orthoEdgeState.lockedEdge.toUpperCase()} (Click to unlock)
-            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                useEditorStore.getState().setOrthoLockedEdge(null);
+              }}
+              title="点击解锁当前选中的边框"
+              className="text-[9px] text-rose-300 bg-rose-950/80 hover:bg-rose-900/90 border border-rose-500/60 px-1.5 py-0.5 rounded font-mono shadow flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <span>🔒 锁定: {orthoEdgeState.lockedEdge.toUpperCase()}</span>
+              <span className="text-[8px] opacity-75 underline ml-0.5">(点击解锁)</span>
+            </button>
           ) : (
-            <span className="text-[9px] text-cyan-300 bg-cyan-950/80 border border-cyan-500/50 px-1.5 py-0.5 rounded font-mono shadow">
+            <span className="text-[9px] text-cyan-300 bg-cyan-950/80 border border-cyan-500/50 px-1.5 py-0.5 rounded font-mono shadow pointer-events-none">
               ↕ {orthoEdgeState.verticalEdge ?? 'top'} [W/S]  ↔ {orthoEdgeState.horizontalEdge ?? 'right'} [A/D]
             </span>
           )}
@@ -1351,7 +1398,7 @@ const OrthoViewPanel: React.FC<{
         </div>
       )}
 
-      <Canvas>
+      <Canvas onPointerMissed={(e) => { if (e.detail === 1) useEditorStore.getState().setOrthoLockedEdge(null); }}>
         <CanvasCleanup />
         {/* Camera follows displayCenter + pan offset */}
         <OrthographicCamera makeDefault position={[displayCenter.x + pan.x, displayCenter.y + pan.y, 10]} zoom={zoom} />
@@ -1390,6 +1437,9 @@ const OrthoViewPanel: React.FC<{
           onUpdate={onLocalUpdate}
           onCommit={onCommit}
         />
+
+        {/* Background plane — handles left-click to unlock edge when clicking outside */}
+        <BackgroundClickHandler />
       </Canvas>
     </div>
   );

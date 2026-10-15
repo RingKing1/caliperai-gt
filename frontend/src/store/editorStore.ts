@@ -452,24 +452,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setBoxPlacementActive: (active) => set({ isBoxPlacementActive: active }),
 
   selectAnnotation: (id, additive = false) => {
-    const { selection } = get();
+    const { selection, orthoEdgeState } = get();
+    const newOrthoState = orthoEdgeState.lockedEdge
+      ? { ...orthoEdgeState, lockedEdge: null }
+      : orthoEdgeState;
     if (additive) {
       const ids = selection.selectedAnnotationIds.includes(id)
         ? selection.selectedAnnotationIds.filter((i) => i !== id)
         : [...selection.selectedAnnotationIds, id];
-      set({ selection: { ...selection, selectedAnnotationIds: ids } });
+      set({ selection: { ...selection, selectedAnnotationIds: ids }, orthoEdgeState: newOrthoState });
     } else {
-      set({ selection: { ...selection, selectedAnnotationIds: [id] } });
+      set({ selection: { ...selection, selectedAnnotationIds: [id] }, orthoEdgeState: newOrthoState });
     }
   },
 
   deselectAll: () => {
+    const { orthoEdgeState } = get();
+    const newOrthoState = orthoEdgeState.lockedEdge
+      ? { ...orthoEdgeState, lockedEdge: null }
+      : orthoEdgeState;
     set({
       selection: {
         selectedAnnotationIds: [],
         hoveredAnnotationId: undefined,
         selectedPoints: undefined,
       },
+      orthoEdgeState: newOrthoState,
     });
   },
 

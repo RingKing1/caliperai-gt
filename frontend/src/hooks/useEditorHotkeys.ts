@@ -637,6 +637,8 @@ export const useEditorHotkeys = ({
           e.preventDefault();
           if (showShortcutsHelp) {
             setShowShortcutsHelp(false);
+          } else if (store.orthoEdgeState.lockedEdge) {
+            store.setOrthoLockedEdge(null);
           } else if (store.isBoxPlacementActive) {
             // User is mid-drag placing a box — CuboidCreator's own Escape handler
             // cancels the drag and resets isBoxPlacementActive. Don't exit the
