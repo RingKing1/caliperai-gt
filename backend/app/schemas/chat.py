@@ -4,11 +4,10 @@ Request/response validation for chat endpoints.
 """
 from datetime import datetime
 from enum import Enum
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
-
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatMessageRole(str, Enum):
