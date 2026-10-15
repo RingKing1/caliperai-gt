@@ -31,7 +31,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.v1.endpoints.datasets import auto_create_tasks_for_scene
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.file_security import (
@@ -75,6 +74,7 @@ from app.services.dataset_import import (
     schedule_scene_mirror,
 )
 from app.services.dataset_import.schemas import ImportJobResponse
+from app.services.dataset_service import auto_create_tasks_for_scene
 from app.services.rbac_service import RequirePermissions, get_current_user
 
 log = logging.getLogger(__name__)

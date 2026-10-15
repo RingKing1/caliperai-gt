@@ -40,6 +40,7 @@ backend/
 │   │   ├── annotation_service.py   # ★ 跨模态标注写路径统一业务层（参考范式）
 │   │   ├── task_service.py         # ★ 标注任务域：生命周期/查询/编辑器引导（见 §12）
 │   │   ├── qa_service.py           # ★ 质检域：评审会话/逐条判定/评论/建议（见 §12）
+│   │   ├── dataset_service.py      # ★ 数据集域：CRUD/分类法挂接/任务自动创建（见 §12）
 │   │   ├── workflow_service.py     # 任务阶段/状态状态机
 │   │   ├── rbac_service.py         # JWT 校验 + 权限/角色依赖
 │   │   ├── sam2_service.py         # SAM2 客户端（mock / 调远程 GPU 服务）
@@ -453,9 +454,19 @@ pytest -q
       冒烟通过。顺带修复历史 bug：`POST /qa/annotation-reviews/{id}/resolve`
       对不存在记录引用了未导入的 `status` 常量，原行为是 500 NameError，现正确
       返回 404；成功路径行为不变（manual suggestion 仍保持其原有 commit 语义）。
-- [ ] **P1（剩余）业务域补 service 层**：`datasets.py`（约 619 行）、
-      `scenes.py`（约 622 行）、`efficiency.py`（约 2428 行，建议最后拆）等
-      仍有约 590 处直接 DB 访问；按 tasks/qa 域范式逐域提取、独立提交。
+- [x] **P1（3/5）数据集域提取 `dataset_service`**：`endpoints/datasets.py`
+      619 → 241 行薄端点，11 个路由（数据集 CRUD、内嵌/关联分类法、挂分类法自动
+      建任务、变体数据集）全部下沉 `services/dataset_service.py`（537 行）。
+      领域异常区分 404（Dataset/Campaign/Taxonomy）/409（重名）/400（重复挂接、
+      无分类法）；纯规则 `compute_dataset_stats` 与 `make_scene_taxonomy_task`
+      可脱离 DB 单测，新增 4 个单测（338 测试全绿）。`auto_create_tasks_for_scene`
+      迁入 service 并在端点模块重导出，`scene_pipeline` / `scenes` / `import_data`
+      三个调用方改从 service 导入（顺带消除 scene_pipeline 的 service→endpoint
+      反向依赖，并清掉这些文件原有的 ruff 导入排序/未用导入告警）。OpenAPI 11 条
+      路由契约零差异，真实数据集 detail/taxonomy/taxonomies 冒烟通过。
+- [ ] **P1（剩余）业务域补 service 层**：`scenes.py`（约 622 行）、
+      `efficiency.py`（约 2428 行，建议最后拆）等仍有约 590 处直接 DB 访问；
+      按 tasks/qa/datasets 域范式逐域提取、独立提交。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
   `models/` 包按域组织（org、user、catalog、scene、task、annotation、qa、
       efficiency、chat），`__init__.py` 重导出保证 import 零改动；

@@ -1,27 +1,31 @@
 """
 Scene endpoints with RBAC protection.
 """
+from io import BytesIO
+from pathlib import Path
 from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from pathlib import Path
-from io import BytesIO
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models.models import Scene, Dataset, Frame, User, Permission
-from app.api.v1.endpoints.datasets import auto_create_tasks_for_scene
+from app.models.models import Dataset, Frame, Permission, Scene, User
 from app.schemas.schemas import (
     SceneCreate,
-    SceneUpdate,
     SceneResponse,
+    SceneUpdate,
 )
+from app.services.dataset_service import auto_create_tasks_for_scene
+from app.services.rbac_service import (
+    RequirePermissions,
+    RequirePermissionsWithQuery,
+)
+from app.services.scene_hybrid_search_service import search_scenes_hybrid
 from app.services.scene_search_service import (
     CLASS_GROUPS,
     SceneSearchFilters,
@@ -32,12 +36,6 @@ from app.services.scene_search_service import (
 from app.services.scene_semantic_search_service import (
     embedding_coverage,
     search_scenes_semantic,
-)
-from app.services.scene_hybrid_search_service import search_scenes_hybrid
-from app.services.rbac_service import (
-    get_current_user,
-    RequirePermissions,
-    RequirePermissionsWithQuery,
 )
 
 router = APIRouter()
@@ -313,6 +311,7 @@ async def get_embedding_coverage(
 
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 import re as _re

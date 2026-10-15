@@ -26,7 +26,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
 
-from app.api.v1.endpoints.datasets import auto_create_tasks_for_scene
 from app.core.file_security import DATA_EXTENSIONS, rename_data_files_to_uuid
 from app.models.models import Dataset, Scene, User
 from app.services.dataset_import.calibration import (
@@ -44,6 +43,7 @@ from app.services.dataset_import.scene_importer import import_scene_annotations
 from app.services.dataset_import.schemas import RenamedScene
 from app.services.dataset_import.storage import schedule_scene_mirror
 from app.services.dataset_import.tasks import get_or_create_scene_import_task
+from app.services.dataset_service import auto_create_tasks_for_scene
 
 IMAGE_SUFFIXES = (".jpg", ".png", ".jpeg")
 IMAGES_FOLDER_SUFFIXES = (
