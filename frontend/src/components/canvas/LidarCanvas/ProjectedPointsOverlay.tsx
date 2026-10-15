@@ -378,7 +378,7 @@ export const ProjectedPointsOverlay: React.FC<ProjectedPointsOverlayProps> = ({
 
       const isSelected = selectedAnnotationIds.includes(annotation.id);
 
-      ctx.strokeStyle = isSelected ? '#ff0000' : color;
+      ctx.strokeStyle = isSelected ? '#facc15' : color;
       ctx.lineWidth = isSelected ? 3 : 0.5;
       ctx.globalAlpha = isSelected ? 1.0 : 0.4;
 
@@ -399,7 +399,7 @@ export const ProjectedPointsOverlay: React.FC<ProjectedPointsOverlayProps> = ({
         if (frontCorners.some((c) => c.visible)) {
           ctx.save();
           ctx.globalAlpha = 0.35;
-          ctx.fillStyle = color;
+          ctx.fillStyle = '#facc15';
           ctx.beginPath();
           ctx.moveTo(frontCorners[0].x, frontCorners[0].y);
           ctx.lineTo(frontCorners[1].x, frontCorners[1].y);

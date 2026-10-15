@@ -110,8 +110,8 @@ export const PendingCuboid4D: React.FC<PendingCuboid4DProps> = ({
         <Edges
           scale={1}
           threshold={15}
-          color={classColor}
-          lineWidth={2}
+          color="#facc15"
+          lineWidth={2.5}
         />
       )}
 

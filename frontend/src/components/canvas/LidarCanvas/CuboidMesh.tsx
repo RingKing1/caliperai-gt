@@ -106,11 +106,12 @@ export const CuboidMesh: React.FC<CuboidMeshProps> = ({
   // Review-accepted boxes (pre-label QA pass) render red unless QA-locked/selected
   const isAccepted = annotation.is_verified === true && !isLocked;
   const acceptedColor = '#ef4444';
+  const selectedColor = '#facc15'; // High-visibility yellow highlight for selected 3D box
 
-  const color = isSelected ? '#ffffff' : isHovered ? '#60a5fa' : isAccepted ? acceptedColor : classColor;
+  const color = isSelected ? selectedColor : isHovered ? '#60a5fa' : isAccepted ? acceptedColor : classColor;
 
   const trackColor = '#a855f7';
-  const fillColor = isAccepted ? acceptedColor : classColor;
+  const fillColor = isSelected ? selectedColor : (isAccepted ? acceptedColor : classColor);
   const keyframeColor = '#eab308';
 
   const screenToWorld = useCallback((clientX: number, clientY: number, z: number): THREE.Vector3 | null => {
@@ -217,14 +218,14 @@ export const CuboidMesh: React.FC<CuboidMeshProps> = ({
         <meshBasicMaterial
           color={fillColor}
           transparent
-          opacity={isLocked ? 0.08 : isSelected ? 0.3 : (isTracked ? 0.15 : 0.1)}
+          opacity={isLocked && !isSelected ? 0.08 : isSelected ? 0.25 : (isTracked ? 0.15 : 0.1)}
           depthWrite={false}
         />
         <Edges
           scale={1}
           threshold={15}
-          color={isLocked ? '#00cc44' : isPending ? '#facc15' : color}
-          lineWidth={isPending ? 2 : isKeyframe ? 2 : 1}
+          color={isSelected ? selectedColor : (isLocked ? '#00cc44' : isPending ? '#facc15' : color)}
+          lineWidth={isSelected ? 2.5 : isPending ? 2 : isKeyframe ? 2 : 1}
         />
       </mesh>
 
@@ -330,12 +331,12 @@ export const CuboidMesh: React.FC<CuboidMeshProps> = ({
         {/* Arrow shaft - starts from center and extends beyond front edge */}
         <mesh position={[data.dimensions.length / 3, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
           <cylinderGeometry args={[0.06, 0.06, data.dimensions.length * 0.66, 8]} />
-          <meshBasicMaterial color={isSelected ? '#ffffff' : '#ff0000'} />
+          <meshBasicMaterial color={isSelected ? selectedColor : '#ff0000'} />
         </mesh>
         {/* Arrow head - larger cone beyond front edge */}
         <mesh position={[data.dimensions.length * 0.66 + 0.15, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
           <coneGeometry args={[0.18, 0.4, 8]} />
-          <meshBasicMaterial color={isSelected ? '#ffffff' : '#ff0000'} />
+          <meshBasicMaterial color={isSelected ? selectedColor : '#ff0000'} />
         </mesh>
       </group>
 
@@ -344,9 +345,9 @@ export const CuboidMesh: React.FC<CuboidMeshProps> = ({
         <mesh scale={[1.08, 1.08, 1.08]}>
           <boxGeometry args={[data.dimensions.length, data.dimensions.width, data.dimensions.height]} />
           <meshBasicMaterial
-            color="#3b82f6"
+            color={selectedColor}
             transparent
-            opacity={0.4}
+            opacity={0.45}
             wireframe
           />
         </mesh>

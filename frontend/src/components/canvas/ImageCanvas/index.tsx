@@ -276,6 +276,7 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({
               imageSize={imageSize}
               isAutoAnnotation={ann.source !== 'manual'}
               isVerified={ann.is_verified}
+              isSelected={selection.selectedAnnotationIds.includes(ann.id)}
             />
           ))}
         </Layer>

@@ -18,6 +18,7 @@ export interface ProjectedCuboidProps {
   imageSize: { width: number; height: number };
   isAutoAnnotation: boolean;
   isVerified: boolean;
+  isSelected?: boolean;
   showDebugInfo?: boolean;
 }
 
@@ -29,6 +30,7 @@ export const ProjectedCuboid: React.FC<ProjectedCuboidProps> = ({
   imageSize,
   isAutoAnnotation,
   isVerified,
+  isSelected = false,
   showDebugInfo = false,
 }) => {
   const { projectedEdges, debugInfo, isVisible } = useMemo(() => {
@@ -97,10 +99,10 @@ export const ProjectedCuboid: React.FC<ProjectedCuboidProps> = ({
         <Line
           key={i}
           points={[edge.start.x, edge.start.y, edge.end.x, edge.end.y]}
-          stroke={classColor}
-          strokeWidth={2}
+          stroke={isSelected ? '#facc15' : classColor}
+          strokeWidth={isSelected ? 3 : 2}
           dash={dash}
-          opacity={0.8}
+          opacity={isSelected ? 1.0 : 0.8}
         />
       ))}
 
