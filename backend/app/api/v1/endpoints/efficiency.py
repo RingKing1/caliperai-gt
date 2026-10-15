@@ -9,312 +9,89 @@ Provides session tracking, activity logging, and efficiency analytics:
 - Performance alerts
 - Leaderboards and gamification
 """
+import uuid as uuid_lib
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, List, Optional
 from uuid import UUID
-import uuid as uuid_lib
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
-from pydantic import BaseModel, Field
-from sqlalchemy import select, func, and_, or_, desc, update, case, cast, Float, String
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from sqlalchemy import Float, String, and_, case, cast, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.models.models import (
-    User, Task, Permission, Organization, OrganizationMember,
-    TimeSession, ActivityEvent, ActivityEventType, UserLoginSession,
-    UserGoal, GoalType, Achievement, AchievementType,
-    PerformanceAlert, AlertType, AlertSeverity,
-    DailyUserStats, TeamChallenge, ChallengeParticipant,
-    Annotation, Annotation3D, AnnotationFusion, Annotation2D, Annotation4D, TaskStatus, TaskStage,
-    Campaign, Dataset, Scene, Taxonomy,
+    Achievement,
+    AchievementType,
+    ActivityEvent,
+    ActivityEventType,
+    AlertSeverity,
+    AlertType,
+    Annotation,
+    Annotation2D,
+    Annotation3D,
+    Annotation4D,
+    AnnotationFusion,
+    Campaign,
+    ChallengeParticipant,
+    DailyUserStats,
+    Dataset,
+    GoalType,
+    OrganizationMember,
+    PerformanceAlert,
+    Permission,
+    Scene,
+    Task,
+    TaskStage,
+    TaskStatus,
+    Taxonomy,
+    TeamChallenge,
+    TimeSession,
+    User,
+    UserGoal,
+    UserLoginSession,
 )
-from app.services.rbac_service import get_current_user, RequirePermissions
+from app.services.efficiency import sessions as session_service
+from app.services.efficiency.common import get_display_name
+from app.services.efficiency.errors import (
+    EfficiencyForbiddenError,
+    EfficiencyNotFoundError,
+    EfficiencyValidationError,
+)
+from app.services.efficiency.schemas import (
+    AchievementResponse,
+    ActivityEventRequest,
+    ActivityEventResponse,
+    AnnotationBreakdown,
+    BatchActivityRequest,
+    CreateChallengeRequest,
+    EfficiencyStats,
+    HeartbeatRequest,
+    HeartbeatResponse,
+    LeaderboardEntry,
+    LiveUserStatus,
+    LoginSessionEndRequest,
+    LoginSessionEndResponse,
+    LoginSessionHeartbeatRequest,
+    LoginSessionHeartbeatResponse,
+    LoginSessionStartRequest,
+    LoginSessionStartResponse,
+    PerformanceAlertResponse,
+    QualityMetrics,
+    SessionEndRequest,
+    SessionEndResponse,
+    SessionStartRequest,
+    SessionStartResponse,
+    TeamChallengeResponse,
+    TeamMemberStats,
+    UserGoalCreate,
+    UserGoalResponse,
+    WorkflowMetrics,
+)
+from app.services.rbac_service import RequirePermissions, get_current_user
 
 router = APIRouter()
 
-
-
-class ClientInfo(BaseModel):
-    """Client browser/device information."""
-    browser: Optional[str] = None
-    os: Optional[str] = None
-    screen_resolution: Optional[str] = None
-    timezone: Optional[str] = None
-
-
-class SessionStartRequest(BaseModel):
-    """Request to start a new session."""
-    task_id: UUID
-    client_info: Optional[ClientInfo] = None
-
-
-class SessionStartResponse(BaseModel):
-    """Response after starting a session."""
-    session_id: UUID
-    started_at: datetime
-    message: str
-
-
-class HeartbeatRequest(BaseModel):
-    """Heartbeat to keep session alive."""
-    session_id: UUID
-    is_active: bool = True
-    current_frame: Optional[int] = None
-    
-
-class HeartbeatResponse(BaseModel):
-    """Response to heartbeat."""
-    session_id: UUID
-    active_duration_seconds: int
-    idle_duration_seconds: int
-    is_idle: bool
-
-
-class SessionEndRequest(BaseModel):
-    """Request to end a session."""
-    session_id: UUID
-    
-
-class SessionEndResponse(BaseModel):
-    """Response after ending a session."""
-    session_id: UUID
-    total_active_seconds: int
-    total_idle_seconds: int
-    action_count: int
-
-
-
-class LoginSessionStartRequest(BaseModel):
-    """Request to start a global login session."""
-    organization_id: Optional[UUID] = None
-    client_info: Optional[ClientInfo] = None
-
-
-class LoginSessionStartResponse(BaseModel):
-    """Response after starting a login session."""
-    session_id: UUID
-    started_at: datetime
-    message: str
-
-
-class LoginSessionHeartbeatRequest(BaseModel):
-    """Heartbeat for global login session."""
-    session_id: UUID
-    is_window_focused: bool = True
-    is_mouse_in_window: bool = True
-    is_active: bool = True
-
-
-class LoginSessionHeartbeatResponse(BaseModel):
-    """Response to login session heartbeat."""
-    session_id: UUID
-    active_duration_seconds: int
-    idle_duration_seconds: int
-    total_session_seconds: int
-    today_active_seconds: int = 0
-
-
-class LoginSessionEndRequest(BaseModel):
-    """Request to end a login session."""
-    session_id: UUID
-
-
-class LoginSessionEndResponse(BaseModel):
-    """Response after ending a login session."""
-    session_id: UUID
-    total_active_seconds: int
-    total_idle_seconds: int
-    total_session_seconds: int
-
-
-class ActivityEventRequest(BaseModel):
-    """Request to log an activity event."""
-    session_id: Optional[UUID] = None
-    task_id: Optional[UUID] = None
-    event_type: str
-    metadata: Optional[dict] = Field(default_factory=dict)
-
-
-class ActivityEventResponse(BaseModel):
-    """Response after logging activity."""
-    event_id: UUID
-    timestamp: datetime
-
-
-class BatchActivityRequest(BaseModel):
-    """Batch multiple activity events."""
-    session_id: Optional[UUID] = None
-    task_id: Optional[UUID] = None
-    events: List[ActivityEventRequest]
-
-
-class UserGoalCreate(BaseModel):
-    """Create a new goal."""
-    goal_type: str
-    target_value: float
-    period_start: datetime
-    period_end: datetime
-
-
-class UserGoalResponse(BaseModel):
-    """User goal with progress."""
-    id: UUID
-    goal_type: str
-    target_value: float
-    current_value: float
-    period_start: datetime
-    period_end: datetime
-    is_achieved: bool
-    achieved_at: Optional[datetime]
-    progress_percentage: float
-    is_self_assigned: bool
-
-
-class AchievementResponse(BaseModel):
-    """Achievement earned by user."""
-    id: UUID
-    achievement_type: str
-    earned_at: datetime
-    metadata: dict
-    is_seen: bool
-    title: str
-    description: str
-    icon: str
-
-
-class LiveUserStatus(BaseModel):
-    """Real-time status of a user."""
-    user_id: UUID
-    display_name: str
-    current_task_id: Optional[UUID] = None
-    current_task_name: Optional[str] = None
-    is_active: bool
-    last_activity: Optional[datetime] = None
-    session_duration_seconds: int = 0
-    labels_today: int = 0
-
-
-class AnnotationBreakdown(BaseModel):
-    """Breakdown of annotations by type."""
-    cuboids_3d: int = 0
-    boxes_2d: int = 0
-    fusion: int = 0
-    total: int = 0
-
-
-class WorkflowMetrics(BaseModel):
-    """Task workflow metrics."""
-    tasks_assigned: int = 0
-    tasks_in_progress: int = 0
-    tasks_submitted: int = 0
-    tasks_accepted: int = 0
-    tasks_rejected: int = 0
-    revision_count: int = 0
-
-
-class QualityMetrics(BaseModel):
-    """Quality metrics for a user."""
-    first_time_acceptance_rate: float = 0.0
-    rejection_rate: float = 0.0
-    revision_turnaround_hours: float = 0.0
-    quality_score: float = 0.0
-
-
-class TeamMemberStats(BaseModel):
-    """Team member statistics for efficiency dashboard."""
-    user_id: UUID
-    display_name: str
-    email: Optional[str] = None
-    role: Optional[str] = None
-    
-    is_online: bool = False
-    is_active: bool = False
-    current_task_id: Optional[UUID] = None
-    current_task_name: Optional[str] = None
-    last_activity: Optional[datetime] = None
-    session_duration_seconds: int = 0
-    
-    annotations: AnnotationBreakdown = AnnotationBreakdown()
-    
-    workflow: WorkflowMetrics = WorkflowMetrics()
-    
-    quality: QualityMetrics = QualityMetrics()
-    
-    active_time_seconds: int = 0
-    labels_per_hour: float = 0.0
-    avg_time_per_label_seconds: float = 0.0
-    
-    period_start: Optional[datetime] = None
-    period_end: Optional[datetime] = None
-
-
-class LeaderboardEntry(BaseModel):
-    """Entry in leaderboard."""
-    rank: int
-    user_id: UUID
-    display_name: str
-    labels_count: int
-    acceptance_rate: float
-    avg_time_per_label_seconds: float
-    streak_days: int
-
-
-class TeamChallengeResponse(BaseModel):
-    """Team challenge details."""
-    id: UUID
-    title: str
-    description: Optional[str]
-    goal_type: str
-    target_value: float
-    current_value: float
-    progress_percentage: float
-    start_date: datetime
-    end_date: datetime
-    is_active: bool
-    is_completed: bool
-    participant_count: int
-    top_contributors: List[LeaderboardEntry]
-
-
-class CreateChallengeRequest(BaseModel):
-    """Request to create a team challenge."""
-    title: str
-    description: Optional[str] = None
-    goal_type: str
-    target_value: float
-    start_date: datetime
-    end_date: datetime
-    organization_id: Optional[UUID] = None
-
-
-class PerformanceAlertResponse(BaseModel):
-    """Performance alert for managers."""
-    id: UUID
-    user_id: UUID
-    display_name: str
-    alert_type: str
-    severity: str
-    title: str
-    message: str
-    metrics: dict
-    is_acknowledged: bool
-    created_at: datetime
-
-
-class EfficiencyStats(BaseModel):
-    """Personal efficiency statistics."""
-    today_labels: int
-    today_active_time_seconds: int
-    today_sessions: int
-    week_labels: int
-    week_active_time_seconds: int
-    labels_per_hour: float
-    acceptance_rate: Optional[float] = None
-    current_streak_days: int
-    rank_in_team: Optional[int] = None
-    vs_team_avg_percentage: float
 
 
 ACHIEVEMENT_INFO = {
@@ -387,79 +164,19 @@ ACHIEVEMENT_INFO = {
 
 
 
-def generate_alias(user_id: UUID, seed: int = 0) -> str:
-    """Generate consistent anonymous alias for a user."""
-    user_bytes = user_id.bytes[:4]
-    index = int.from_bytes(user_bytes, 'big') % 100
-    return f"Annotator {index + 1}"
+# ---------------------------------------------------------------------------
+# Time-tracking sessions (business logic in services/efficiency/sessions.py)
+# ---------------------------------------------------------------------------
 
 
-async def get_display_name(
-    db: AsyncSession, 
-    user: User, 
-    requesting_user: User,
-    organization_id: Optional[UUID] = None
-) -> str:
-    """Get display name based on organization settings."""
-    if user.id == requesting_user.id:
-        return user.full_name or user.username
-    
-    if organization_id:
-        result = await db.execute(
-            select(Organization).where(Organization.id == organization_id)
-        )
-        org = result.scalar_one_or_none()
-        if org and org.settings:
-            display_real_names = org.settings.get("display_real_names", True)
-            if not display_real_names:
-                return generate_alias(user.id)
-    
-    return user.full_name or user.username
-
-
-async def update_daily_stats(
-    db: AsyncSession,
-    user_id: UUID,
-    labels_created: int = 0,
-    labels_updated: int = 0,
-    labels_deleted: int = 0,
-    active_time_seconds: int = 0,
-    idle_time_seconds: int = 0,
-) -> None:
-    """Update or create daily stats for a user."""
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    result = await db.execute(
-        select(DailyUserStats).where(
-            and_(
-                DailyUserStats.user_id == user_id,
-                DailyUserStats.stats_date == today,
-            )
-        )
-    )
-    stats = result.scalar_one_or_none()
-    
-    if stats:
-        stats.labels_created += labels_created
-        stats.labels_updated += labels_updated
-        stats.labels_deleted += labels_deleted
-        stats.total_active_time += active_time_seconds
-        stats.total_idle_time += idle_time_seconds
-        stats.updated_at = datetime.utcnow()
-    else:
-        stats = DailyUserStats(
-            id=uuid_lib.uuid4(),
-            user_id=user_id,
-            stats_date=today,
-            labels_created=labels_created,
-            labels_updated=labels_updated,
-            labels_deleted=labels_deleted,
-            total_active_time=active_time_seconds,
-            total_idle_time=idle_time_seconds,
-            total_session_count=1 if active_time_seconds > 0 else 0,
-        )
-        db.add(stats)
-
+def _http_for_efficiency_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, EfficiencyNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, EfficiencyForbiddenError):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, EfficiencyValidationError):
+        return HTTPException(status_code=400, detail=str(exc))
+    raise exc
 
 
 @router.post("/sessions/start", response_model=SessionStartResponse)
@@ -468,54 +185,11 @@ async def start_session(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ) -> SessionStartResponse:
-    """
-    Start a new time tracking session for a task.
-    Called when user opens the annotation editor.
-    """
-    task = await db.get(Task, request.task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    await db.execute(
-        update(TimeSession)
-        .where(
-            and_(
-                TimeSession.user_id == current_user.id,
-                TimeSession.task_id == request.task_id,
-                TimeSession.is_active == True,
-            )
-        )
-        .values(
-            is_active=False,
-            session_end=datetime.utcnow(),
-        )
-    )
-    
-    session = TimeSession(
-        id=uuid_lib.uuid4(),
-        user_id=current_user.id,
-        task_id=request.task_id,
-        client_info=request.client_info.model_dump() if request.client_info else {},
-    )
-    db.add(session)
-    
-    event = ActivityEvent(
-        id=uuid_lib.uuid4(),
-        user_id=current_user.id,
-        task_id=request.task_id,
-        session_id=session.id,
-        event_type=ActivityEventType.SESSION_START.value,
-        metadata={"client_info": session.client_info},
-    )
-    db.add(event)
-    
-    await db.commit()
-    
-    return SessionStartResponse(
-        session_id=session.id,
-        started_at=session.session_start,
-        message="Session started successfully",
-    )
+    """Start a new time tracking session for a task."""
+    try:
+        return await session_service.start_session(db, request, current_user)
+    except EfficiencyNotFoundError as exc:
+        raise _http_for_efficiency_error(exc)
 
 
 @router.post("/sessions/heartbeat", response_model=HeartbeatResponse)
@@ -524,67 +198,15 @@ async def session_heartbeat(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ) -> HeartbeatResponse:
-    """
-    Send heartbeat to keep session alive.
-    Should be called every 30 seconds while user is on task.
-    """
-    session = await db.get(TimeSession, request.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if session.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not your session")
-    if not session.is_active:
-        raise HTTPException(status_code=400, detail="Session already ended")
-    
-    now = datetime.utcnow()
-    
-    time_since_last = (now - session.last_heartbeat_at).total_seconds()
-    
-    idle_threshold = 180
-    
-    if time_since_last > idle_threshold:
-        session.idle_duration_seconds += int(time_since_last)
-        if not session.is_idle:
-            event = ActivityEvent(
-                id=uuid_lib.uuid4(),
-                user_id=current_user.id,
-                task_id=session.task_id,
-                session_id=session.id,
-                event_type=ActivityEventType.SESSION_PAUSE.value,
-            )
-            db.add(event)
-        session.is_idle = True
-    else:
-        if request.is_active:
-            session.active_duration_seconds += int(min(time_since_last, 30))
-            if session.is_idle:
-                event = ActivityEvent(
-                    id=uuid_lib.uuid4(),
-                    user_id=current_user.id,
-                    task_id=session.task_id,
-                    session_id=session.id,
-                    event_type=ActivityEventType.SESSION_RESUME.value,
-                )
-                db.add(event)
-            session.is_idle = False
-        else:
-            session.idle_duration_seconds += int(min(time_since_last, 30))
-            session.is_idle = True
-    
-    session.heartbeat_count += 1
-    session.last_heartbeat_at = now
-    
-    if request.current_frame is not None:
-        session.frames_visited += 1
-    
-    await db.commit()
-    
-    return HeartbeatResponse(
-        session_id=session.id,
-        active_duration_seconds=session.active_duration_seconds,
-        idle_duration_seconds=session.idle_duration_seconds,
-        is_idle=session.is_idle,
-    )
+    """Send heartbeat to keep session alive (every 30s while on task)."""
+    try:
+        return await session_service.session_heartbeat(db, request, current_user)
+    except (
+        EfficiencyNotFoundError,
+        EfficiencyForbiddenError,
+        EfficiencyValidationError,
+    ) as exc:
+        raise _http_for_efficiency_error(exc)
 
 
 @router.post("/sessions/end", response_model=SessionEndResponse)
@@ -593,60 +215,11 @@ async def end_session(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ) -> SessionEndResponse:
-    """
-    End a time tracking session.
-    Called when user leaves the annotation editor.
-    """
-    session = await db.get(TimeSession, request.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if session.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not your session")
-    
-    now = datetime.utcnow()
-    
-    if session.is_active:
-        time_since_last = (now - session.last_heartbeat_at).total_seconds()
-        if time_since_last < 180:
-            session.active_duration_seconds += int(min(time_since_last, 30))
-    
-    session.is_active = False
-    session.session_end = now
-    
-    event = ActivityEvent(
-        id=uuid_lib.uuid4(),
-        user_id=current_user.id,
-        task_id=session.task_id,
-        session_id=session.id,
-        event_type=ActivityEventType.SESSION_END.value,
-        metadata={
-            "active_seconds": session.active_duration_seconds,
-            "idle_seconds": session.idle_duration_seconds,
-            "action_count": session.action_count,
-        },
-    )
-    db.add(event)
-    
-    await update_daily_stats(
-        db,
-        current_user.id,
-        active_time_seconds=session.active_duration_seconds,
-        idle_time_seconds=session.idle_duration_seconds,
-    )
-    
-    task = await db.get(Task, session.task_id)
-    if task:
-        task.total_time_seconds += session.active_duration_seconds
-    
-    await db.commit()
-    
-    return SessionEndResponse(
-        session_id=session.id,
-        total_active_seconds=session.active_duration_seconds,
-        total_idle_seconds=session.idle_duration_seconds,
-        action_count=session.action_count,
-    )
-
+    """End a time tracking session."""
+    try:
+        return await session_service.end_session(db, request, current_user)
+    except (EfficiencyNotFoundError, EfficiencyForbiddenError) as exc:
+        raise _http_for_efficiency_error(exc)
 
 
 @router.post("/login-sessions/start", response_model=LoginSessionStartResponse)
@@ -655,65 +228,8 @@ async def start_login_session(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ) -> LoginSessionStartResponse:
-    """
-    Start a global login session for activity tracking.
-    Called when user logs in or opens the app.
-    
-    This tracks overall time spent in the application,
-    independent of task-specific time tracking.
-    """
-    now = datetime.now(timezone.utc)
-    
-    existing_result = await db.execute(
-        select(UserLoginSession)
-        .where(
-            and_(
-                UserLoginSession.user_id == current_user.id,
-                UserLoginSession.is_active == True,
-            )
-        )
-    )
-    existing_session = existing_result.scalar_one_or_none()
-    
-    if existing_session:
-        return LoginSessionStartResponse(
-            session_id=existing_session.id,
-            started_at=existing_session.session_start,
-            message="Reconnected to existing session",
-        )
-    
-    client_info_dict = {}
-    if request.client_info:
-        client_info_dict = {
-            "browser": request.client_info.browser,
-            "os": request.client_info.os,
-            "screen_resolution": request.client_info.screen_resolution,
-            "timezone": request.client_info.timezone,
-        }
-    
-    session = UserLoginSession(
-        id=uuid_lib.uuid4(),
-        user_id=current_user.id,
-        organization_id=request.organization_id,
-        session_start=now,
-        last_heartbeat_at=now,
-        last_active_at=now,
-        is_active=True,
-        is_window_focused=True,
-        is_mouse_in_window=True,
-        active_duration_seconds=0,
-        idle_duration_seconds=0,
-        heartbeat_count=0,
-        client_info=client_info_dict,
-    )
-    db.add(session)
-    await db.commit()
-    
-    return LoginSessionStartResponse(
-        session_id=session.id,
-        started_at=session.session_start,
-        message="Login session started",
-    )
+    """Start a global login session for activity tracking."""
+    return await session_service.start_login_session(db, request, current_user)
 
 
 @router.post("/login-sessions/heartbeat", response_model=LoginSessionHeartbeatResponse)
@@ -722,68 +238,17 @@ async def login_session_heartbeat(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ) -> LoginSessionHeartbeatResponse:
-    """
-    Send heartbeat for a login session.
-    Should be called every 30 seconds while user is in the app.
-    
-    Tracks:
-    - is_window_focused: Browser window has focus
-    - is_mouse_in_window: Mouse cursor is inside the window
-    - is_active: User has interacted recently (not idle)
-    """
-    session = await db.get(UserLoginSession, request.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Login session not found")
-    if session.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not your session")
-    if not session.is_active:
-        raise HTTPException(status_code=400, detail="Session already ended")
-    
-    now = datetime.now(timezone.utc)
-    time_since_last_heartbeat = (now - session.last_heartbeat_at).total_seconds()
-    
-    time_to_add = min(time_since_last_heartbeat, 60)
-    
-    is_truly_active = (
-        request.is_window_focused and 
-        request.is_mouse_in_window and 
-        request.is_active
-    )
-    
-    if is_truly_active:
-        session.active_duration_seconds += int(time_to_add)
-        session.last_active_at = now
-    else:
-        session.idle_duration_seconds += int(time_to_add)
-    
-    session.last_heartbeat_at = now
-    session.heartbeat_count += 1
-    session.is_window_focused = request.is_window_focused
-    session.is_mouse_in_window = request.is_mouse_in_window
-    
-    await db.commit()
-    
-    total_session_seconds = int((now - session.session_start).total_seconds())
-    
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_sessions_result = await db.execute(
-        select(func.sum(UserLoginSession.active_duration_seconds))
-        .where(
-            and_(
-                UserLoginSession.user_id == current_user.id,
-                UserLoginSession.session_start >= today_start,
-            )
+    """Send heartbeat for a global login session (every 30s while in app)."""
+    try:
+        return await session_service.login_session_heartbeat(
+            db, request, current_user
         )
-    )
-    today_active_seconds = today_sessions_result.scalar() or 0
-    
-    return LoginSessionHeartbeatResponse(
-        session_id=session.id,
-        active_duration_seconds=session.active_duration_seconds,
-        idle_duration_seconds=session.idle_duration_seconds,
-        total_session_seconds=total_session_seconds,
-        today_active_seconds=int(today_active_seconds),
-    )
+    except (
+        EfficiencyNotFoundError,
+        EfficiencyForbiddenError,
+        EfficiencyValidationError,
+    ) as exc:
+        raise _http_for_efficiency_error(exc)
 
 
 @router.post("/login-sessions/end", response_model=LoginSessionEndResponse)
@@ -792,39 +257,11 @@ async def end_login_session(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ) -> LoginSessionEndResponse:
-    """
-    End a login session.
-    Called when user logs out or closes the browser.
-    """
-    session = await db.get(UserLoginSession, request.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Login session not found")
-    if session.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not your session")
-    
-    now = datetime.now(timezone.utc)
-    
-    if session.is_active:
-        time_since_last = (now - session.last_heartbeat_at).total_seconds()
-        if time_since_last < 60:
-            if session.is_window_focused and session.is_mouse_in_window:
-                session.active_duration_seconds += int(time_since_last)
-            else:
-                session.idle_duration_seconds += int(time_since_last)
-    
-    session.is_active = False
-    session.session_end = now
-    
-    await db.commit()
-    
-    total_session_seconds = int((now - session.session_start).total_seconds())
-    
-    return LoginSessionEndResponse(
-        session_id=session.id,
-        total_active_seconds=session.active_duration_seconds,
-        total_idle_seconds=session.idle_duration_seconds,
-        total_session_seconds=total_session_seconds,
-    )
+    """End a global login session."""
+    try:
+        return await session_service.end_login_session(db, request, current_user)
+    except (EfficiencyNotFoundError, EfficiencyForbiddenError) as exc:
+        raise _http_for_efficiency_error(exc)
 
 
 @router.get("/login-sessions/current")
@@ -833,34 +270,7 @@ async def get_current_login_session(
     db: AsyncSession = Depends(get_db),
 ):
     """Get the current active login session for the user."""
-    result = await db.execute(
-        select(UserLoginSession)
-        .where(
-            and_(
-                UserLoginSession.user_id == current_user.id,
-                UserLoginSession.is_active == True,
-            )
-        )
-        .order_by(desc(UserLoginSession.session_start))
-    )
-    session = result.scalar_one_or_none()
-    
-    if not session:
-        return {"session": None, "message": "No active login session"}
-    
-    now = datetime.now(timezone.utc)
-    total_session_seconds = int((now - session.session_start).total_seconds())
-    
-    return {
-        "session_id": session.id,
-        "started_at": session.session_start,
-        "active_duration_seconds": session.active_duration_seconds,
-        "idle_duration_seconds": session.idle_duration_seconds,
-        "total_session_seconds": total_session_seconds,
-        "is_window_focused": session.is_window_focused,
-        "is_mouse_in_window": session.is_mouse_in_window,
-    }
-
+    return await session_service.get_current_login_session(db, current_user)
 
 
 @router.post("/activity/log", response_model=ActivityEventResponse)

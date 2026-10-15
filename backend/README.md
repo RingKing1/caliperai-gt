@@ -42,6 +42,7 @@ backend/
 │   │   ├── qa_service.py           # ★ 质检域：评审会话/逐条判定/评论/建议（见 §12）
 │   │   ├── dataset_service.py      # ★ 数据集域：CRUD/分类法挂接/任务自动创建（见 §12）
 │   │   ├── scene_service.py        # ★ 场景域：CRUD/检索参数解析/帧取图定位（见 §12）
+│   │   ├── efficiency/             # ★ 效率域服务包（sessions 已迁入，其余按子域续拆，见 §12）
 │   │   ├── workflow_service.py     # 任务阶段/状态状态机
 │   │   ├── rbac_service.py         # JWT 校验 + 权限/角色依赖
 │   │   ├── sam2_service.py         # SAM2 客户端（mock / 调远程 GPU 服务）
@@ -477,9 +478,18 @@ pytest -q
       与 9 条路由契约零差异）。领域异常 Scene/Dataset(复用数据集域)/Frame/
       Conflict/Validation 分层映射，新增 6 个单测（344 测试全绿），真实数据
       检索与帧缩略图冒烟通过。
-- [ ] **P1（剩余）业务域补 service 层**：`efficiency.py`（约 2428 行，
-      单文件最大，建议最后拆）等仍有约 590 处直接 DB 访问；按既有域范式
-      逐域提取、独立提交。
+- [~] **P1（5/N）效率域按子域续拆（进行中）**：`endpoints/efficiency.py`
+      是 2428 行 / 27 路由的最大单文件，本次先建 `services/efficiency/` 包
+      （`errors.py` 领域异常、`schemas.py` 内联 30 个请求/响应模型整体归位、
+      `common.py` 匿名别名/显示名/每日统计），并完成第一个子域 **sessions**：
+      7 个任务计时/登录会话路由改薄端点，业务逻辑入 `sessions.py`
+      （180s 空闲阈值、心跳 active/idle 计时、会话结束写日统计/任务总时长等
+      语义零变更）。领域异常 NotFound/Forbidden/Validation 映射 404/403/400；
+      新增 3 个 `generate_alias` 单测（347 测试全绿），OpenAPI 7 条会话路由与
+      组件 schema 零差异。**剩余子域**（仍在端点文件内，后续独立提交）：
+      activity（log/batch）、goals（4 路由）、achievements（3）、个人/团队
+      stats 与 leaderboard/live（约 700 行聚合）、alerts（2）、challenges（4）、
+      team-member-report。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
   `models/` 包按域组织（org、user、catalog、scene、task、annotation、qa、
       efficiency、chat），`__init__.py` 重导出保证 import 零改动；
