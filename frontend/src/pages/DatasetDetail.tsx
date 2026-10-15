@@ -4,7 +4,7 @@ import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { SceneSearchPanel } from '@/components/SceneSearchPanel';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { datasetApi, taxonomyApi, importApi, sceneApi, taskApi, userApi, dataopsApi, campaignApi, workflowApi, type ValidateResponse, type ImportResponse, type RenamedScene, type BrowseFolderResponse, type FolderItem } from '@/api/client';
-import type { Dataset, Taxonomy, Scene, Task } from '@/types';
+import type { Dataset, ImportJob, Taxonomy, Scene, Task } from '@/types';
 import TaskCreationModal from '@/components/TaskCreationModal';
 import { TaskDetailModal } from '@/components/TaskDetailModal';
 import { ExportButton } from '@/components/ExportModal';
@@ -16,6 +16,63 @@ import { StageProgressInline } from '@/components/workflow';
 import { useUpload } from '@/providers/UploadProvider';
 import { useCurrentOrganizationId } from '@/store/organizationStore';
 import { GettingStartedCard, SetupProgressBanner } from '@/components/onboarding';
+
+const getStoredAuthToken = (): string =>
+  localStorage.getItem('auth-storage')
+    ? JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.accessToken || ''
+    : '';
+
+const IMPORT_PHASE_LABELS: Record<string, string> = {
+  queued: '排队中',
+  preparing: '准备中',
+  extracting: '解压 ZIP 中',
+  discovering: '扫描场景',
+  taxonomy: '推导标签体系',
+  importing: '导入场景',
+  committing: '保存数据库',
+  completed: '完成',
+  failed: '失败',
+};
+
+const importPhaseLabel = (job: ImportJob): string =>
+  IMPORT_PHASE_LABELS[job.phase || ''] || '处理中';
+
+/**
+ * Poll a background import job until it completes or fails.
+ * onUpdate fires on every running/pending tick so the UI can show progress.
+ */
+const pollImportJob = async (
+  jobId: string,
+  onUpdate: (job: ImportJob) => void,
+): Promise<ImportJob> => {
+  return new Promise((resolve, reject) => {
+    const timer = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/v1/import/jobs/${jobId}`, {
+          headers: { Authorization: `Bearer ${getStoredAuthToken()}` },
+        });
+        if (!resp.ok) {
+          clearInterval(timer);
+          reject(new Error(`Import job status request failed (${resp.status})`));
+          return;
+        }
+        const job: ImportJob = await resp.json();
+        if (job.status === 'completed') {
+          clearInterval(timer);
+          resolve(job);
+        } else if (job.status === 'failed') {
+          clearInterval(timer);
+          reject(new Error(job.error || 'Import job failed'));
+        } else {
+          onUpdate(job);
+        }
+      } catch (e) {
+        clearInterval(timer);
+        reject(e);
+      }
+    }, 1000);
+  });
+};
 
 interface ImportDataModalProps {
   isOpen: boolean;
@@ -433,7 +490,8 @@ const ImportDataModal: React.FC<ImportDataModalProps> = ({
                   lastLoaded = e.loaded;
                   lastTime = now;
                 }
-                updateUpload(uploadId, { progress: percentComplete, speed: speedStr || undefined });
+                // network upload fills 0-50%; background job progress fills 50-100%
+                updateUpload(uploadId, { progress: percentComplete / 2, speed: speedStr || undefined });
               }
             });
 
@@ -441,23 +499,39 @@ const ImportDataModal: React.FC<ImportDataModalProps> = ({
               ? JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.accessToken
               : '';
 
-            xhr.open('POST', '/api/v1/import/upload-zip');
+            xhr.open('POST', '/api/v1/import/jobs/zip');
             xhr.setRequestHeader('Authorization', `Bearer ${token}`);
 
             xhr.onload = async () => {
-              if (xhr.status === 200) {
+              if (xhr.status === 202 || xhr.status === 200) {
                 try {
-                  const result = JSON.parse(xhr.responseText);
-                  if (!result.success && result.scenes_imported === 0) {
-                    const errMsg = (result.errors || []).join('; ') || 'Upload failed: no scenes were imported';
+                  const job: ImportJob = JSON.parse(xhr.responseText);
+                  updateUpload(uploadId, {
+                    status: 'processing',
+                    progress: 50,
+                    phase: importPhaseLabel(job),
+                  });
+                  const finalJob = await pollImportJob(job.id, (tick) =>
+                    updateUpload(uploadId, {
+                      status: 'processing',
+                      progress: 50 + Math.round(tick.progress / 2),
+                      phase: importPhaseLabel(tick),
+                    }),
+                  );
+                  const result = finalJob.result;
+                  if (!result || (!result.success && result.scenes_imported === 0)) {
+                    const errMsg = (result?.errors || []).join('; ') || 'Upload failed: no scenes were imported';
                     updateUpload(uploadId, { status: 'error', error: errMsg });
                   } else {
                     updateUpload(uploadId, { status: 'complete', progress: 100 });
+                    if (result.renamed_scenes?.length) onRenamedScenes(result.renamed_scenes);
                     onSuccess();
                   }
-                } catch {
-                  updateUpload(uploadId, { status: 'complete', progress: 100 });
-                  onSuccess();
+                } catch (jobErr) {
+                  updateUpload(uploadId, {
+                    status: 'error',
+                    error: (jobErr as Error).message || 'Import job failed',
+                  });
                 }
               } else {
                 let errorMessage = `Upload failed with status ${xhr.status}`;
@@ -563,7 +637,7 @@ const ImportDataModal: React.FC<ImportDataModalProps> = ({
         formData.append('files', file, relativePath);
       }
 
-      const response = await fetch('/api/v1/import/upload', {
+      const response = await fetch('/api/v1/import/jobs/upload', {
         method: 'POST',
         body: formData,
         headers: {
@@ -578,7 +652,16 @@ const ImportDataModal: React.FC<ImportDataModalProps> = ({
         throw new Error(errorData.detail || `Upload failed with status ${response.status}. For large datasets (100+ files), use ZIP upload.`);
       }
 
-      const result = await response.json();
+      const job: ImportJob = await response.json();
+      // Files are staged; the import itself runs server-side until completion.
+      const finalJob = await pollImportJob(job.id, () => undefined);
+      const result = finalJob.result;
+      if (!result || (!result.success && result.scenes_imported === 0)) {
+        throw new Error(
+          (result?.errors || []).join('; ') ||
+            'Upload failed: no scenes were imported',
+        );
+      }
       setImportResult(result);
       if (result.renamed_scenes?.length) onRenamedScenes(result.renamed_scenes);
       setStep('complete');

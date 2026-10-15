@@ -416,8 +416,19 @@ pytest -q
       追加 `/images`，松散平铺文件仍用场景根（不回归）。补 2 个单测，真实 multipart
       上传两种布局复验前端取图 URL 均 200（312 测试全绿）。注意：修复前已入库的旧场景
       仍带错误 base，需要时按 `images_base` 做一次性数据订正。
-- [ ] **P0 收尾（3）：长上传后台 job 化**：把数分钟的上传/解压/导入改为“后台 job +
-      进度查询”，消除长事务；需新增进度端点并与前端联调。
+- [x] **P0 收尾（3）：长上传后台 job 化**：新增 `import_jobs` 表（模型 +
+      Alembic 038 迁移）与 `POST /import/jobs/zip`、`POST /import/jobs/upload`
+      两个 202 端点；接收 worker 落盘 staging 后写入 pending job，由本进程
+      `asyncio.create_task` 执行解压/导入，进度用独立短事务写入，多 gunicorn worker
+      下任意 worker 均可轮询 `GET /import/jobs/{id}`、`GET /import/jobs?dataset_id=`。
+      导入仍保持原有单事务提交（不会出现半导入可见）；staging 临时目录由 job 收尾清理。
+      同步端点 `/import/upload`、`/import/upload-zip` 保留可用，内部统一改调
+      `execute_directory_import`（staging 之后的扫描/标定/分类法/逐场景/提交内核）。
+      前端 ZIP 改为“网络上传 0-50% + 后台处理 50-100%”分段进度，文件夹上传提交后轮询；
+      浮动上传队列显示中文阶段（排队/解压/扫描/导入/保存）。新增 6 个 job 测试，
+      318 测试全绿，真实 82MB 10 帧 6 相机 ZIP 实测：202 秒回、轮询跑完
+      10 帧/6 相机/130 标注，staging 零残留。已知边界：worker 进程被杀死时 running job
+      不会自动接管（表中有 heartbeat_at，后续可加超时回收）；video 入口未 job 化。
 - [ ] **P1 其余业务域补 service 层**：`tasks.py`、`qa.py`、`datasets.py`、
       `scenes.py`、`efficiency.py` 等仍有约 590 处直接 DB 访问；按标注域范式逐域提取。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为

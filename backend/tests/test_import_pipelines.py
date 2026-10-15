@@ -133,6 +133,7 @@ def _wait_called(mock, timeout=2.0):
 def _patch_pipeline_deps(monkeypatch, tmp_path):
     """Patch every heavy side effect used by the import_data endpoints."""
     from app.services.dataset_import import scene_pipeline
+    from app.services.dataset_import import import_runner
 
     mirror_mock = MagicMock()
     monkeypatch.setattr(import_storage, "_mirror_scene_to_minio", mirror_mock)
@@ -155,6 +156,9 @@ def _patch_pipeline_deps(monkeypatch, tmp_path):
         # collaborators there so the shared mocks are the ones awaited
         if hasattr(scene_pipeline, name):
             monkeypatch.setattr(scene_pipeline, name, value, raising=True)
+        # the directory-level core (taxonomy derivation) lives in import_runner
+        if hasattr(import_runner, name):
+            monkeypatch.setattr(import_runner, name, value, raising=True)
     return mocks
 
 

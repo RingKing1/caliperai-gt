@@ -8,6 +8,7 @@ export interface UploadTask {
   fileName: string;
   progress: number;
   speed: string;
+  phase?: string;
   status: 'uploading' | 'processing' | 'complete' | 'error';
   error?: string;
   startTime: number;

@@ -322,6 +322,36 @@ export interface Scene {
   updated_at: string;
 }
 
+export interface ImportJobResult {
+  success: boolean;
+  message: string;
+  scenes_imported: number;
+  frames_imported: number;
+  errors: string[];
+  renamed_scenes: Array<{
+    original_name: string;
+    new_name: string;
+    scene_id: string;
+  }>;
+}
+
+export interface ImportJob {
+  id: string;
+  dataset_id: string;
+  job_type: 'zip' | 'upload';
+  source_filename?: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  phase?: string | null;
+  progress: number;
+  total_scenes: number;
+  processed_scenes: number;
+  scenes_imported: number;
+  frames_imported: number;
+  message?: string | null;
+  result?: ImportJobResult | null;
+  error?: string | null;
+}
+
 export interface Frame {
   id: string;
   scene_id: string;

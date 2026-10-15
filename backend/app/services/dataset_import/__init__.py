@@ -58,6 +58,12 @@ from app.services.dataset_import.constants import (
 )
 from app.services.dataset_import.discovery import discover_frames, get_storage_paths
 from app.services.dataset_import.frame_rows import build_import_frame_rows
+from app.services.dataset_import.import_jobs import (
+    create_import_job,
+    list_import_jobs,
+    schedule_import_job,
+)
+from app.services.dataset_import.import_runner import execute_directory_import
 from app.services.dataset_import.naming import (
     generate_smart_scene_name,
     generate_smart_task_name,
@@ -152,4 +158,7 @@ __all__ = [
     # per-scene orchestration (upload + ZIP shared loop)
     "SceneImportRequest", "UPLOAD_PIPELINE", "ZIP_PIPELINE",
     "import_one_scene",
+    # background import jobs
+    "create_import_job", "list_import_jobs", "schedule_import_job",
+    "execute_directory_import",
 ]

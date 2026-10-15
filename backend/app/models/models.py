@@ -3569,3 +3569,59 @@ class KnowledgeChunk(Base):
     __table_args__ = (
         Index("ix_knowledge_chunks_source", "source"),
     )
+
+
+class ImportJob(Base, TimestampMixin):
+    """Background dataset import job (long ZIP/folder uploads).
+
+    The receiving gunicorn worker stages the upload, inserts a pending row
+    and runs the import in an ``asyncio`` task; any worker can serve polls
+    because the state lives in the database.
+    """
+
+    __tablename__ = "import_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("datasets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    job_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_filename: Mapped[Optional[str]] = mapped_column(
+        String(512), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    phase: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    total_scenes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    processed_scenes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scenes_imported: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    frames_imported: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    options: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    staged_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    result: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    heartbeat_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

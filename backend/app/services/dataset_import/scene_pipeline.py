@@ -65,6 +65,8 @@ class PipelineSpec:
     inherit_dataset_level_calibration: bool
     duplicate_name_check: str  # "always" | "unless_overridden"
     fallback_layout: str  # "single_camera" | "bucketed"
+    ignore_hidden_top_level: bool
+    detect_debug: bool
 
 
 UPLOAD_PIPELINE = PipelineSpec(
@@ -74,6 +76,8 @@ UPLOAD_PIPELINE = PipelineSpec(
     inherit_dataset_level_calibration=False,
     duplicate_name_check="always",
     fallback_layout="single_camera",
+    ignore_hidden_top_level=False,
+    detect_debug=True,
 )
 
 ZIP_PIPELINE = PipelineSpec(
@@ -83,6 +87,8 @@ ZIP_PIPELINE = PipelineSpec(
     inherit_dataset_level_calibration=True,
     duplicate_name_check="unless_overridden",
     fallback_layout="bucketed",
+    ignore_hidden_top_level=True,
+    detect_debug=False,
 )
 
 

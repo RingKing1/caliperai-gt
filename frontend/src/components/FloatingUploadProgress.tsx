@@ -51,7 +51,9 @@ const UploadItem: React.FC<{ upload: UploadTask; onCancel: () => void; onRemove:
         <>
           <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
             <span>
-              {upload.status === 'processing' ? 'Processing...' : `${upload.progress.toFixed(1)}%`}
+              {upload.status === 'processing'
+                ? (upload.phase || 'Processing...')
+                : `${upload.progress.toFixed(1)}%`}
             </span>
             {upload.speed && upload.status === 'uploading' && (
               <span>{upload.speed}</span>
@@ -59,7 +61,14 @@ const UploadItem: React.FC<{ upload: UploadTask; onCancel: () => void; onRemove:
           </div>
           <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
             {upload.status === 'processing' ? (
-              <div className="h-full bg-cyan-500 animate-pulse w-full" />
+              upload.progress > 0 ? (
+                <div
+                  className="h-full bg-cyan-500 transition-all duration-500"
+                  style={{ width: `${upload.progress}%` }}
+                />
+              ) : (
+                <div className="h-full bg-cyan-500 animate-pulse w-full" />
+              )
             ) : (
               <div 
                 className="h-full bg-primary transition-all duration-300"

@@ -16,7 +16,16 @@ from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +44,7 @@ from app.core.file_security import (
 from app.models.models import (
     Dataset,
     Frame,
+    ImportJob,
     Permission,
     Scene,
     User,
@@ -50,21 +60,21 @@ from app.services.dataset_import import (
     ImportResponse,
     RenamedScene,
     SceneConflict,
-    SceneImportRequest,
     SceneNameCheckRequest,
     SceneNameCheckResponse,
-    derive_and_merge_taxonomy,
-    detect_scene_dirs,
+    create_import_job,
     discover_frames,
+    execute_directory_import,
     generate_smart_scene_name,
     get_or_create_scene_import_task,
     get_storage_paths,
-    import_one_scene,
+    list_import_jobs,
     load_ego_poses,
     parse_calibration_file,
-    scan_annotations_for_classes,
+    schedule_import_job,
     schedule_scene_mirror,
 )
+from app.services.dataset_import.schemas import ImportJobResponse
 from app.services.rbac_service import RequirePermissions, get_current_user
 
 log = logging.getLogger(__name__)
@@ -249,76 +259,16 @@ async def upload_and_import_dataset(
             with open(file_path, "wb") as f:
                 f.write(content)
 
-        root_path = Path(temp_dir)
-        
-        print(f"[IMPORT DEBUG] Initial root_path: {root_path}")
-        print(f"[IMPORT DEBUG] Contents: {list(root_path.iterdir())}")
-        
-        subdirs = [d for d in root_path.iterdir() if d.is_dir()]
-        if len(subdirs) == 1 and not (root_path / "metadata.json").exists():
-            root_path = subdirs[0]
-        
-        scenes_imported = 0
-        frames_imported = 0
-        errors: List[str] = []
-        renamed_scenes: List[RenamedScene] = []
-
-        calibration_data = {}
-        calibration_path = root_path / "calibration"
-        if calibration_path.exists():
-            calibration_data = parse_calibration_file(calibration_path)
-        
-        scene_dirs, scene_parent_names = detect_scene_dirs(root_path, debug=True)
-        
-        print(f"[IMPORT DEBUG] Scene directories to import: {[d.name for d in scene_dirs]}")
-        print(f"[IMPORT DEBUG] Number of scene_dirs: {len(scene_dirs)}")
-        
-        if derive_taxonomy and scene_dirs:
-            print("[IMPORT] derive_taxonomy=True, scanning annotations for classes...")
-            discovered_classes = scan_annotations_for_classes(scene_dirs)
-            if discovered_classes:
-                taxonomy = await derive_and_merge_taxonomy(
-                    db=db,
-                    dataset=dataset,
-                    discovered_classes=discovered_classes,
-                    user_id=current_user.id,
-                )
-                if taxonomy:
-                    errors.append(f"Taxonomy: Created/updated '{taxonomy.name}' with {len(taxonomy.classes)} classes")
-            else:
-                errors.append("Taxonomy: No annotation classes found to derive")
-        
-        for scene_index, scene_dir in enumerate(scene_dirs, start=1):
-            frame_count = await import_one_scene(
-                db=db,
-                spec=UPLOAD_PIPELINE,
-                request=SceneImportRequest(
-                    dataset=dataset,
-                    user=current_user,
-                    dataset_upload_dir=dataset_upload_dir,
-                    overwrite_annotations=overwrite_annotations,
-                    preserve_folder_names=preserve_folder_names,
-                    dataset_calibration=calibration_data,
-                ),
-                scene_index=scene_index,
-                scene_dir=scene_dir,
-                parent_folder_name=scene_parent_names.get(scene_dir, scene_dir.name),
-                errors=errors,
-                renamed_scenes=renamed_scenes,
-            )
-            if frame_count is not None:
-                scenes_imported += 1
-                frames_imported += frame_count
-
-        await db.commit()
-        
-        return ImportResponse(
-            success=scenes_imported > 0,
-            message=f"Imported {scenes_imported} scenes with {frames_imported} frames",
-            scenes_imported=scenes_imported,
-            frames_imported=frames_imported,
-            errors=errors,
-            renamed_scenes=renamed_scenes,
+        return await execute_directory_import(
+            db,
+            root_path=Path(temp_dir),
+            dataset=dataset,
+            user=current_user,
+            spec=UPLOAD_PIPELINE,
+            dataset_upload_dir=dataset_upload_dir,
+            overwrite_annotations=overwrite_annotations,
+            preserve_folder_names=preserve_folder_names,
+            derive_taxonomy=derive_taxonomy,
         )
 
     except HTTPException:
@@ -424,12 +374,6 @@ async def upload_zip_and_import_dataset(
                 detail="Invalid or corrupted ZIP file"
             )
         
-        root_path = extract_dir
-        subdirs = [d for d in root_path.iterdir() if d.is_dir() and not d.name.startswith('.') and d.name != "__MACOSX"]
-
-        if len(subdirs) == 1 and not (root_path / "metadata.json").exists():
-            root_path = subdirs[0]
-
         try:
             name_overrides_dict: Dict[str, str] = json.loads(name_overrides)
         except Exception:
@@ -440,70 +384,20 @@ async def upload_zip_and_import_dataset(
         except Exception:
             scene_descriptions_dict = {}
 
-        scenes_imported = 0
-        frames_imported = 0
-        errors: List[str] = []
-        renamed_scenes: List[RenamedScene] = []
-
-        calibration_data = {}
-        calibration_path = root_path / "calibration"
-        if calibration_path.exists():
-            calibration_data = parse_calibration_file(calibration_path)
-        
-        scene_dirs, scene_parent_names = detect_scene_dirs(root_path)
-        
-        print(f"[ZIP IMPORT] Scene directories to import: {[d.name for d in scene_dirs]}")
-        
-        if derive_taxonomy and scene_dirs:
-            print("[ZIP IMPORT] derive_taxonomy=True, scanning annotations for classes...")
-            discovered_classes = scan_annotations_for_classes(scene_dirs)
-            if discovered_classes:
-                taxonomy = await derive_and_merge_taxonomy(
-                    db=db,
-                    dataset=dataset,
-                    discovered_classes=discovered_classes,
-                    user_id=current_user.id,
-                )
-                if taxonomy:
-                    errors.append(f"Taxonomy: Created/updated '{taxonomy.name}' with {len(taxonomy.classes)} classes")
-            else:
-                errors.append("Taxonomy: No annotation classes found to derive")
-        
-        for scene_index, scene_dir in enumerate(scene_dirs, start=1):
-            frame_count = await import_one_scene(
-                db=db,
-                spec=ZIP_PIPELINE,
-                request=SceneImportRequest(
-                    dataset=dataset,
-                    user=current_user,
-                    dataset_upload_dir=dataset_upload_dir,
-                    overwrite_annotations=overwrite_annotations,
-                    preserve_folder_names=preserve_folder_names,
-                    name_overrides=name_overrides_dict,
-                    scene_descriptions=scene_descriptions_dict,
-                    dataset_calibration=calibration_data,
-                ),
-                scene_index=scene_index,
-                scene_dir=scene_dir,
-                parent_folder_name=scene_parent_names.get(scene_dir, scene_dir.name),
-                errors=errors,
-                renamed_scenes=renamed_scenes,
-            )
-            if frame_count is not None:
-                scenes_imported += 1
-                frames_imported += frame_count
-
-        await db.commit()
-        
-        return ImportResponse(
-            success=scenes_imported > 0,
-            message=f"Imported {scenes_imported} scenes with {frames_imported} frames from ZIP",
-            scenes_imported=scenes_imported,
-            frames_imported=frames_imported,
-            errors=errors,
-            renamed_scenes=renamed_scenes,
+        return await execute_directory_import(
+            db,
+            root_path=extract_dir,
+            dataset=dataset,
+            user=current_user,
+            spec=ZIP_PIPELINE,
+            dataset_upload_dir=dataset_upload_dir,
+            overwrite_annotations=overwrite_annotations,
+            preserve_folder_names=preserve_folder_names,
+            derive_taxonomy=derive_taxonomy,
+            name_overrides=name_overrides_dict,
+            scene_descriptions=scene_descriptions_dict,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -517,6 +411,171 @@ async def upload_zip_and_import_dataset(
             shutil.rmtree(temp_dir)
         except Exception:
             pass
+
+
+@router.post("/jobs/upload", response_model=ImportJobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def start_folder_import_job(
+    current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_IMPORT))],
+    dataset_id: str = Form(...),
+    files: List[UploadFile] = File(...),
+    derive_taxonomy: bool = Form(False),
+    overwrite_annotations: bool = Form(False),
+    preserve_folder_names: bool = Form(True),
+    db: AsyncSession = Depends(get_db),
+) -> ImportJob:
+    """Stage a browser folder upload and import it in a background job.
+
+    Returns 202 with a job id immediately; poll ``GET /import/jobs/{id}``.
+    Files are validated while staged so path/magic-byte problems still
+    surface as 400 before the job is created.
+    """
+    await _get_import_dataset(db, dataset_id)
+
+    staged_dir = Path(tempfile.mkdtemp(prefix="import_job_upload_"))
+    try:
+        for upload_file in files:
+            raw_path = upload_file.filename or "unknown"
+            relative_path = validate_upload_path(raw_path)
+            content = await upload_file.read()
+            leaf_ext = Path(relative_path).suffix.lower()
+            if leaf_ext in DATA_EXTENSIONS:
+                validate_magic_bytes(content, Path(relative_path).name)
+            file_path = staged_dir / relative_path
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(file_path, "wb") as f:
+                f.write(content)
+    except HTTPException:
+        shutil.rmtree(staged_dir, ignore_errors=True)
+        raise
+    except Exception:
+        shutil.rmtree(staged_dir, ignore_errors=True)
+        raise
+
+    job = await create_import_job(
+        db,
+        dataset_id=dataset_id,
+        user_id=current_user.id,
+        job_type="upload",
+        source_filename=None,
+        staged_path=str(staged_dir),
+        options={
+            "derive_taxonomy": derive_taxonomy,
+            "overwrite_annotations": overwrite_annotations,
+            "preserve_folder_names": preserve_folder_names,
+        },
+    )
+    schedule_import_job(job.id)
+    return job
+
+
+@router.post("/jobs/zip", response_model=ImportJobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def start_zip_import_job(
+    current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_IMPORT))],
+    dataset_id: str = Form(...),
+    file: UploadFile = File(..., description="ZIP file containing the dataset folder"),
+    derive_taxonomy: bool = Form(False),
+    overwrite_annotations: bool = Form(False),
+    preserve_folder_names: bool = Form(True),
+    name_overrides: str = Form(default="{}"),
+    scene_descriptions: str = Form(default="{}"),
+    db: AsyncSession = Depends(get_db),
+) -> ImportJob:
+    """Stage a ZIP upload and extract/import it in a background job (202)."""
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must be a ZIP archive (.zip)",
+        )
+    validate_upload_path(file.filename)
+    await _get_import_dataset(db, dataset_id)
+
+    staged_dir = Path(tempfile.mkdtemp(prefix="import_job_zip_"))
+    zip_path = staged_dir / "upload.zip"
+    try:
+        with open(zip_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024 * 10)
+                if not chunk:
+                    break
+                f.write(chunk)
+        if zip_path.read_bytes()[:4] != b"PK\x03\x04":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is not a valid ZIP archive (magic bytes mismatch).",
+            )
+    except HTTPException:
+        shutil.rmtree(staged_dir, ignore_errors=True)
+        raise
+    except Exception:
+        shutil.rmtree(staged_dir, ignore_errors=True)
+        raise
+
+    try:
+        name_overrides_dict = json.loads(name_overrides)
+    except Exception:
+        name_overrides_dict = {}
+    try:
+        scene_descriptions_dict = json.loads(scene_descriptions)
+    except Exception:
+        scene_descriptions_dict = {}
+
+    job = await create_import_job(
+        db,
+        dataset_id=dataset_id,
+        user_id=current_user.id,
+        job_type="zip",
+        source_filename=file.filename,
+        staged_path=str(staged_dir),
+        options={
+            "derive_taxonomy": derive_taxonomy,
+            "overwrite_annotations": overwrite_annotations,
+            "preserve_folder_names": preserve_folder_names,
+            "name_overrides": name_overrides_dict,
+            "scene_descriptions": scene_descriptions_dict,
+        },
+    )
+    schedule_import_job(job.id)
+    return job
+
+
+@router.get("/jobs", response_model=List[ImportJobResponse])
+async def list_dataset_import_jobs(
+    current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_READ))],
+    dataset_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> List[ImportJob]:
+    """Recent background import jobs for a dataset (newest first)."""
+    return await list_import_jobs(db, dataset_id=dataset_id)
+
+
+@router.get("/jobs/{job_id}", response_model=ImportJobResponse)
+async def get_import_job_status(
+    job_id: UUID,
+    current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_READ))],
+    db: AsyncSession = Depends(get_db),
+) -> ImportJob:
+    """Poll a background import job's phase/progress/result."""
+    job = await db.get(ImportJob, job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Import job {job_id} not found",
+        )
+    return job
+
+
+async def _get_import_dataset(db: AsyncSession, dataset_id: str) -> Dataset:
+    query = select(Dataset).options(selectinload(Dataset.campaign)).where(
+        Dataset.id == UUID(dataset_id)
+    )
+    result = await db.execute(query)
+    dataset = result.scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dataset not found: {dataset_id}",
+        )
+    return dataset
 
 
 @router.post("/upload-video", response_model=ImportResponse)

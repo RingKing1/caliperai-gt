@@ -1,4 +1,5 @@
 """Request/response models for dataset import endpoints."""
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -100,3 +101,28 @@ class BrowseFolderResponse(BaseModel):
 
 
 
+
+
+class ImportJobResponse(BaseModel):
+    """Status of a background import job (POST /import/jobs/* + polling)."""
+
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    dataset_id: UUID
+    created_by: Optional[UUID] = None
+    job_type: str
+    source_filename: Optional[str] = None
+    status: str
+    phase: Optional[str] = None
+    progress: int = 0
+    total_scenes: int = 0
+    processed_scenes: int = 0
+    scenes_imported: int = 0
+    frames_imported: int = 0
+    message: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
