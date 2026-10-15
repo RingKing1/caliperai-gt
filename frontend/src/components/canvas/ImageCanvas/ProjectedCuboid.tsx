@@ -33,11 +33,11 @@ export const ProjectedCuboid: React.FC<ProjectedCuboidProps> = ({
   isSelected = false,
   showDebugInfo = false,
 }) => {
-  const { projectedEdges, debugInfo, isVisible } = useMemo(() => {
+  const { projectedEdges, frontFaceCorners, debugInfo, isVisible } = useMemo(() => {
     const cameraCalib = calibration.lidar_to_cameras[cameraId];
 
     if (!cameraCalib) {
-      return { projectedEdges: [], debugInfo: null, isVisible: false };
+      return { projectedEdges: [], frontFaceCorners: [], debugInfo: null, isVisible: false };
     }
 
     const visible = isCuboidVisibleInCameraLidarFrame(
@@ -50,7 +50,7 @@ export const ProjectedCuboid: React.FC<ProjectedCuboidProps> = ({
     );
 
     if (!visible) {
-      return { projectedEdges: [], debugInfo: null, isVisible: false };
+      return { projectedEdges: [], frontFaceCorners: [], debugInfo: null, isVisible: false };
     }
 
     const lidarCorners = getCuboidCorners(cuboid);
@@ -78,13 +78,19 @@ export const ProjectedCuboid: React.FC<ProjectedCuboidProps> = ({
       }
     }
 
+    const c0 = corners2D[0];
+    const c1 = corners2D[1];
+    const c5 = corners2D[5];
+    const c4 = corners2D[4];
+    const frontFaceCorners: Point2D[] = (c0 && c1 && c5 && c4) ? [c0, c1, c5, c4] : [];
+
     const debugInfo = {
       lidar: centerDebug.lidarPoint,
       camera: centerDebug.cameraPoint,
       image2D: centerDebug.imagePoint
     };
 
-    return { projectedEdges: edges, debugInfo, isVisible: true };
+    return { projectedEdges: edges, frontFaceCorners, debugInfo, isVisible: true };
   }, [cuboid, calibration, cameraId, imageSize]);
 
   if (!isVisible || projectedEdges.length === 0) {
@@ -95,11 +101,23 @@ export const ProjectedCuboid: React.FC<ProjectedCuboidProps> = ({
 
   return (
     <Group>
+      {isSelected && frontFaceCorners.length === 4 && (
+        <Line
+          points={[
+            frontFaceCorners[0].x, frontFaceCorners[0].y,
+            frontFaceCorners[1].x, frontFaceCorners[1].y,
+            frontFaceCorners[2].x, frontFaceCorners[2].y,
+            frontFaceCorners[3].x, frontFaceCorners[3].y,
+          ]}
+          closed={true}
+          fill="rgba(250, 204, 21, 0.35)"
+        />
+      )}
       {projectedEdges.map((edge, i) => (
         <Line
           key={i}
           points={[edge.start.x, edge.start.y, edge.end.x, edge.end.y]}
-          stroke={isSelected ? '#facc15' : classColor}
+          stroke={isSelected ? '#facc15' : (isVerified ? '#ef4444' : classColor)}
           strokeWidth={isSelected ? 3 : 2}
           dash={dash}
           opacity={isSelected ? 1.0 : 0.8}

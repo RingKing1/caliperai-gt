@@ -293,7 +293,7 @@ const CameraCard: React.FC<{
                   y1={edge.y1}
                   x2={edge.x2}
                   y2={edge.y2}
-                  stroke={classColor}
+                  stroke={selectedCuboid ? '#facc15' : classColor}
                   strokeWidth={3}
                   strokeLinecap="round"
                 />

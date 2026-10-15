@@ -377,8 +377,10 @@ export const ProjectedPointsOverlay: React.FC<ProjectedPointsOverlayProps> = ({
       }
 
       const isSelected = selectedAnnotationIds.includes(annotation.id);
+      const isAccepted = annotation.is_verified === true;
+      const boxColor = isAccepted ? '#ef4444' : color;
 
-      ctx.strokeStyle = isSelected ? '#facc15' : color;
+      ctx.strokeStyle = isSelected ? '#facc15' : boxColor;
       ctx.lineWidth = isSelected ? 3 : 0.5;
       ctx.globalAlpha = isSelected ? 1.0 : 0.4;
 

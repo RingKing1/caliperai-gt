@@ -22,11 +22,12 @@ export const FocusedCameraCard: React.FC<{
   cameraId: string;
   imageUrl: string | undefined;
   selectedCuboid: CuboidData | null;
+  selectedAnnotationId?: string | null;
   classColor: string;
   onClick: () => void;
   clickedPoint?: { x: number; y: number; z: number } | null;
-  allCuboids?: Array<{ cuboid: CuboidData; color: string; accepted: boolean }>;
-}> = React.memo(({ cameraId, imageUrl, selectedCuboid, classColor, onClick, clickedPoint, allCuboids }) => {
+  allCuboids?: Array<{ id?: string; cuboid: CuboidData; color: string; accepted: boolean }>;
+}> = React.memo(({ cameraId, imageUrl, selectedCuboid, selectedAnnotationId, classColor, onClick, clickedPoint, allCuboids }) => {
   const scene = useEditorStore(state => state.scene);
   const useFisheyeProjection = useEditorStore(state => state.lidarView.useFisheyeProjection);
   const clipBox = useEditorStore(state => state.lidarView.clipBox);
@@ -242,7 +243,13 @@ export const FocusedCameraCard: React.FC<{
       ctx.lineCap = 'round';
       ctx.lineWidth = 1;
       for (const item of allCuboids) {
-        if (selectedCuboid && item.cuboid === selectedCuboid) continue;
+        if (selectedAnnotationId && item.id === selectedAnnotationId) continue;
+        if (selectedCuboid && (
+          item.cuboid === selectedCuboid ||
+          (Math.abs(item.cuboid.center.x - selectedCuboid.center.x) < 1e-4 &&
+           Math.abs(item.cuboid.center.y - selectedCuboid.center.y) < 1e-4 &&
+           Math.abs(item.cuboid.center.z - selectedCuboid.center.z) < 1e-4)
+        )) continue;
         if (clipBox?.enabled) {
           const c = item.cuboid.center;
           if (c.x < clipBox.xMin || c.x > clipBox.xMax ||
@@ -310,8 +317,9 @@ export const FocusedCameraCard: React.FC<{
         [0,4],[1,5],[2,6],[3,7],
       ];
 
-      ctx.strokeStyle = classColor;
-      ctx.lineWidth   = 2;
+      const selectedColor = '#facc15'; // Bright yellow highlight for selected 3D box projection
+      ctx.strokeStyle = selectedColor;
+      ctx.lineWidth   = 2.5;
       ctx.globalAlpha = 1.0;
       ctx.lineCap     = 'round';
 
@@ -328,8 +336,8 @@ export const FocusedCameraCard: React.FC<{
       // Fill front face (corners 0,1,5,4)
       const fc = [pts[0], pts[1], pts[5], pts[4]];
       if (fc.every(p => p !== null)) {
-        ctx.fillStyle   = classColor;
-        ctx.globalAlpha = 0.25;
+        ctx.fillStyle   = selectedColor;
+        ctx.globalAlpha = 0.35;
         ctx.beginPath();
         ctx.moveTo(fc[0]!.x, fc[0]!.y);
         fc.slice(1).forEach(p => ctx.lineTo(p!.x, p!.y));
@@ -568,6 +576,7 @@ export const FocusedCameraViews: React.FC<FocusedCameraViewsProps> = ({
   // Current-frame cuboids for thin projections across all cameras (static review)
   const frameAnnotations = useCurrentFrameAnnotations();
   const taxonomy = useEditorStore((st) => st.taxonomy);
+  const selectedAnnotationId = useEditorStore((st) => st.selection.selectedAnnotationIds[0] || null);
   const allCuboids = React.useMemo(() => {
     const hiddenIds = useEditorStore.getState().hiddenAnnotationIds;
     return frameAnnotations
@@ -575,6 +584,7 @@ export const FocusedCameraViews: React.FC<FocusedCameraViewsProps> = ({
       .map((a) => {
         const def = taxonomy?.classes.find((c) => c.id === a.class_id);
         return {
+          id: a.id,
           cuboid: a.data as CuboidData,
           color: def?.color || '#3b82f6',
           accepted: a.is_verified === true,
@@ -664,6 +674,7 @@ export const FocusedCameraViews: React.FC<FocusedCameraViewsProps> = ({
               cameraId={cameraId}
               imageUrl={getImageUrl(cameraId)}
               selectedCuboid={selectedCuboid}
+              selectedAnnotationId={selectedAnnotationId}
               classColor={classColor}
               onClick={() => onCameraClick ? onCameraClick(cameraId) : useEditorStore.getState().activateCameraView(cameraId)}
               clickedPoint={clickedPoint}
