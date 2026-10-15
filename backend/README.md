@@ -38,6 +38,7 @@ backend/
 │   ├── services/                # 业务 / 集成服务层
 │   │   ├── dataset_import/        # ★ 导入域服务包（解析/标定/发现/分类法/存储/落库，见 §12）
 │   │   ├── annotation_service.py   # ★ 跨模态标注写路径统一业务层（参考范式）
+│   │   ├── task_service.py         # ★ 标注任务域：生命周期/查询/编辑器引导（见 §12）
 │   │   ├── workflow_service.py     # 任务阶段/状态状态机
 │   │   ├── rbac_service.py         # JWT 校验 + 权限/角色依赖
 │   │   ├── sam2_service.py         # SAM2 客户端（mock / 调远程 GPU 服务）
@@ -429,8 +430,21 @@ pytest -q
       318 测试全绿，真实 82MB 10 帧 6 相机 ZIP 实测：202 秒回、轮询跑完
       10 帧/6 相机/130 标注，staging 零残留。已知边界：worker 进程被杀死时 running job
       不会自动接管（表中有 heartbeat_at，后续可加超时回收）；video 入口未 job 化。
-- [ ] **P1 其余业务域补 service 层**：`tasks.py`、`qa.py`、`datasets.py`、
-      `scenes.py`、`efficiency.py` 等仍有约 590 处直接 DB 访问；按标注域范式逐域提取。
+- [x] **P1（1/5）标注任务域提取 `task_service`**：`endpoints/tasks.py`
+      829 → 217 行薄端点（鉴权 + HTTP 映射），全部生命周期 / 查询 / editor-context
+      逻辑平移到 `services/task_service.py`（810 行）。领域异常
+      `TaskNotFoundError` / `TaskForbiddenError` / `TaskValidationError`
+      （不继承 HTTPException），端点统一映射 404/403/400；纯规则
+      `frame_range_to_postgres` / `compute_frame_window` / `VALID_TRANSITIONS` /
+      `revision_reset_reason` / `is_task_participant` 可脱离 DB 单测。
+      `dataset_import/tasks.py` 复用同一份 `frame_range_to_postgres`（经
+      `dataset_import` 包重导出保持旧 import 路径可用）；`SubTaskRequest` /
+      `SplitTaskRequest` 从端点内联模型归位 `schemas.py`。新增 9 个纯规则单测
+      （327 测试全绿），真实数据冒烟 list / editor-context / frames / stats /
+      404 / split 400 全部通过；URL、响应模型、PATCH 三分支重置语义零变更。
+- [ ] **P1（剩余）业务域补 service 层**：`qa.py`（约 1018 行）、`datasets.py`
+      （约 619 行）、`scenes.py`（约 622 行）、`efficiency.py`（约 2428 行，
+      建议最后拆）等仍有约 590 处直接 DB 访问；按 tasks 域范式逐域提取、独立提交。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
   `models/` 包按域组织（org、user、catalog、scene、task、annotation、qa、
       efficiency、chat），`__init__.py` 重导出保证 import 零改动；

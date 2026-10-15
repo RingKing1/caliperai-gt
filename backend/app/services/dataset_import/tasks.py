@@ -1,18 +1,17 @@
 """Task creation/lookup helpers used during scene import."""
 from uuid import UUID
 
-from sqlalchemy import select
 from asyncpg import Range as PgRange
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Scene, Task
-
 from app.services.dataset_import.naming import generate_smart_task_name
+from app.services.task_service import frame_range_to_postgres
+
+__all__ = ["frame_range_to_postgres", "get_or_create_scene_import_task"]
 
 
-def frame_range_to_postgres(start: int, end: int) -> PgRange:
-    """Convert frame range to PostgreSQL INT4RANGE format."""
-    return PgRange(start, end + 1)
 async def get_or_create_scene_import_task(
     db: AsyncSession,
     scene: Scene,
@@ -44,8 +43,6 @@ async def get_or_create_scene_import_task(
 
     if existing_tasks:
         return existing_tasks[0]
-
-    from asyncpg import Range as PgRange
 
     smart_task_name = generate_smart_task_name(scene.name, frame_count, "Annot")
     task = Task(

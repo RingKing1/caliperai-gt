@@ -645,6 +645,16 @@ class TaskStatusUpdate(BaseSchema):
 
 
 
+class SubTaskRequest(BaseSchema):
+    name: str
+    frame_start: int
+    frame_end: int
+
+
+class SplitTaskRequest(BaseSchema):
+    sub_tasks: list[SubTaskRequest] = Field(...)
+
+
 class WorkflowTransitionRequest(BaseSchema):
     """Request to transition task status."""
     new_status: str = Field(..., description="New status to transition to")
