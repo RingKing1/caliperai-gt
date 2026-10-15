@@ -37,7 +37,7 @@ class HeartbeatRequest(BaseModel):
     session_id: UUID
     is_active: bool = True
     current_frame: Optional[int] = None
-    
+
 
 class HeartbeatResponse(BaseModel):
     """Response to heartbeat."""
@@ -50,7 +50,7 @@ class HeartbeatResponse(BaseModel):
 class SessionEndRequest(BaseModel):
     """Request to end a session."""
     session_id: UUID
-    
+
 
 class SessionEndResponse(BaseModel):
     """Response after ending a session."""
@@ -203,24 +203,24 @@ class TeamMemberStats(BaseModel):
     display_name: str
     email: Optional[str] = None
     role: Optional[str] = None
-    
+
     is_online: bool = False
     is_active: bool = False
     current_task_id: Optional[UUID] = None
     current_task_name: Optional[str] = None
     last_activity: Optional[datetime] = None
     session_duration_seconds: int = 0
-    
+
     annotations: AnnotationBreakdown = AnnotationBreakdown()
-    
+
     workflow: WorkflowMetrics = WorkflowMetrics()
-    
+
     quality: QualityMetrics = QualityMetrics()
-    
+
     active_time_seconds: int = 0
     labels_per_hour: float = 0.0
     avg_time_per_label_seconds: float = 0.0
-    
+
     period_start: Optional[datetime] = None
     period_end: Optional[datetime] = None
 

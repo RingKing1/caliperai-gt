@@ -42,7 +42,7 @@ backend/
 │   │   ├── qa_service.py           # ★ 质检域：评审会话/逐条判定/评论/建议（见 §12）
 │   │   ├── dataset_service.py      # ★ 数据集域：CRUD/分类法挂接/任务自动创建（见 §12）
 │   │   ├── scene_service.py        # ★ 场景域：CRUD/检索参数解析/帧取图定位（见 §12）
-│   │   ├── efficiency/             # ★ 效率域服务包（sessions 已迁入，其余按子域续拆，见 §12）
+│   │   ├── efficiency/             # ★ 效率域服务包（8 个子域全部迁入，见 §12）
 │   │   ├── workflow_service.py     # 任务阶段/状态状态机
 │   │   ├── rbac_service.py         # JWT 校验 + 权限/角色依赖
 │   │   ├── sam2_service.py         # SAM2 客户端（mock / 调远程 GPU 服务）
@@ -478,7 +478,7 @@ pytest -q
       与 9 条路由契约零差异）。领域异常 Scene/Dataset(复用数据集域)/Frame/
       Conflict/Validation 分层映射，新增 6 个单测（344 测试全绿），真实数据
       检索与帧缩略图冒烟通过。
-- [~] **P1（5/N）效率域按子域续拆（进行中）**：`endpoints/efficiency.py`
+- [x] **P1（5/N）效率域按子域续拆（建包 + sessions）**：`endpoints/efficiency.py`
       是 2428 行 / 27 路由的最大单文件，本次先建 `services/efficiency/` 包
       （`errors.py` 领域异常、`schemas.py` 内联 30 个请求/响应模型整体归位、
       `common.py` 匿名别名/显示名/每日统计），并完成第一个子域 **sessions**：
@@ -486,10 +486,8 @@ pytest -q
       （180s 空闲阈值、心跳 active/idle 计时、会话结束写日统计/任务总时长等
       语义零变更）。领域异常 NotFound/Forbidden/Validation 映射 404/403/400；
       新增 3 个 `generate_alias` 单测（347 测试全绿），OpenAPI 7 条会话路由与
-      组件 schema 零差异。**剩余子域**（仍在端点文件内，后续独立提交）：
-      activity（log/batch）、goals（4 路由）、achievements（3）、个人/团队
-      stats 与 leaderboard/live（约 700 行聚合）、alerts（2）、challenges（4）、
-      team-member-report。
+      组件 schema 零差异。其余子域（activity/goals/achievements/alerts/
+      challenges/stats/reports）见后续提交，效率域已全部拆分完成。
 - [x] **P1（5/N）效率域 activity + goals 子域**：新增包内
       `activity.py`（单条/批量事件，含任务会话计数联动）与 `goals.py`
       （目标 CRUD + 标注量实时进度，`count_labels_in_period` 五表统计与
@@ -510,6 +508,17 @@ pytest -q
       纯规则进度百分比补 2 个单测，4 条端点改薄路由（354 测试全绿，
       OpenAPI 契约零差异）。端点文件从 2428 行降至约 1100 行；仅剩个人/团队
       stats、live、leaderboard、team-member-report 五个大聚合路由待拆。
+- [x] **P1（5/N）效率域 stats + reports 子域（P1 收尾）**：新增 `stats.py`
+      承载个人统计、团队实时状态、team-stats 大聚合、排行榜 4 条路由，
+      `reports.py` 承载 team-member-report CSV 报告导出；纯规则抽为
+      `team_period_start` / `leaderboard_period_start` / `build_quality_metrics`
+      / `throughput_metrics` / `resolve_active_time` / `format_duration`
+      并补 10 个单测。五表统计与自动来源过滤统一复用模块常量，report
+      原 `HTTPException(404)` 改抛 `EfficiencyNotFoundError` 由端点映射；
+      顺带清除仅服务于死变量 `start_date` 的 F841 及其死时间取值。
+      端点 1315 → 481 行（全域 2428 → 481），5 条薄路由，365 测试全绿，
+      真实数据冒烟 200/200/200/200/404，OpenAPI 27 个 operation 与组件
+      schema 零差异。**P1 五个业务域全部完成**。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
   `models/` 包按域组织（org、user、catalog、scene、task、annotation、qa、
       efficiency、chat），`__init__.py` 重导出保证 import 零改动；
