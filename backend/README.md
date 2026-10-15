@@ -58,6 +58,7 @@ backend/
 │   │   ├── catalog.py           # 分类法/活动/数据集 + 关联表
 │   │   ├── scene.py             # 场景与帧
 │   │   ├── task.py              # 任务/分配与阶段历史/阶段快照
+│   │   ├── annotation.py        # 五模态标注/分割 blob/轨迹/变更历史
 │   ├── schemas/schemas.py       # ⚠ 单文件 180+ 个 Pydantic 模型（待分包）
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
@@ -559,8 +560,14 @@ pytest -q
       CheckConstraint，字符串拼接折行），models.py 1830 → 1483 行。40 张表
       DDL 逐字节一致，365 测试全绿，tasks 列表/详情/效率真实 DB 冒烟 200，
       新文件零告警。
-      **后续切片**：annotation（含 AnnotationHistory/AuditLog 归属待定）→
-      qa → chat/import；schema 归位随后进行。
+      - [x] **P2（6/N）annotation 域**：`annotation.py` 承载 Annotation /
+      SegmentationBlob / Annotation3D / AnnotationFusion / Track2D /
+      Annotation2D / Annotation4D 与 AnnotationChangeType + AnnotationHistory
+      （BYTEA、两条类型 CheckConstraint 原样相邻拼接折行）；AuditLog 为
+      用户行为审计，并入 `user.py`。models.py 1483 → 688 行。40 张表 DDL
+      逐字节一致，365 测试全绿，tasks 详情与 annotations 列表真实 DB 冒烟
+      200，新文件零告警。
+      **后续切片**：qa → chat/import；schema 归位随后进行。
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；
