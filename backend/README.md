@@ -46,8 +46,7 @@ backend/
 │   │   ├── workflow_service.py     # 任务阶段/状态状态机
 │   │   ├── rbac_service.py         # JWT 校验 + 权限/角色依赖
 │   │   ├── sam2_service.py         # SAM2 客户端（mock / 调远程 GPU 服务）
-│   │   ├── sam2_gpu_service.py     # ⚠ 独立部署的 FastAPI GPU 微服务（非领域服务）
-│   │   ├── clip_gpu_service.py     # ⚠ 独立部署的 CLIP embedding GPU 微服务
+│   │   ├── clip_client_service.py  # Chinese-CLIP 客户端（调远程 GPU 微服务）
 │   │   ├── chat_service.py / llm_service.py / knowledge_service.py
 │   │   ├── scene_*_search_service.py  # 结构化 / 语义 / 混合场景检索
 │   │   └── storage_service.py / gcs_service.py / sso_service.py ...
@@ -299,8 +298,8 @@ taxonomies / users / QA / import 等资源的增删改查。新增接口必须�
 | 模块 | 形态 |
 | :--- | :--- |
 | `sam2_service.py` | 主服务内的客户端，按 `SAM2_MODE` 在 mock 与远程服务间切换，带 embedding 缓存 |
-| `sam2_gpu_service.py` | **独立 FastAPI 进程**（默认 :8001），持 GPU 跑 SAM2 |
-| `clip_client_service.py` / `clip_gpu_service.py` | CLIP 客户端与独立 embedding GPU 进程 |
+| ../../microservices/sam2/service.py | **独立 FastAPI 进程**（默认 :8001），持 GPU 跑 SAM2，线模型共享 `app/schemas/sam2.py` |
+| `clip_client_service.py` / ../../microservices/clip/service.py | CLIP 客户端与独立 embedding GPU 进程（线模型共享 `app/schemas/clip.py`） |
 | `llm_service.py` / `chat_service.py` | Ollama LLM 接入与多轮对话 |
 | `knowledge_service.py` / `semantic_chunker.py` / `embedding_service.py` | RAG：分块、embedding、检索增强 |
 | `scene_search_service.py` / `scene_semantic_search_service.py` / `scene_hybrid_search_service.py` | 结构化标签检索、CLIP 语义检索、混合排序 |
@@ -365,7 +364,9 @@ pytest -q
     **无需重新 build 镜像**；只有改 `Dockerfile` / 依赖 / 基础镜像时才需要
     `docker compose build backend`。
 - 生产 WSGI 参数见 `gunicorn.conf.py`：`TIMEOUT` 默认 7200s 以兼容大型数据集上传。
-- SAM2 / CLIP GPU 服务另有 `Dockerfile.sam2*` / `Dockerfile.clip` 与独立 compose 文件。
+- SAM2 / CLIP GPU 服务已移出后端包，独立进程代码与镜像定义在仓库顶层 `microservices/`
+  （`microservices/sam2/`、`microservices/clip/`，构建上下文为仓库根目录），配套
+  `docker-compose.gpu.yml` / `docker-compose.sam2.yml` / `docker-compose.clip.yml`。
 
 ---
 
@@ -716,20 +717,33 @@ pytest -q
       端点基线逐规则零净增（13 个 E501 为项目全局 ignore 的长 Field 描述，
       原样保留）。**P2 模型/schema 分包全部完成。**
 - [ ] **P3 模块边界与工程化**：
-  - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
-    应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；
-    迁移后把微服务内同名线模型（sam2 的 14 个、clip 各自一份）与 `schemas/`
-    包去重共享，消除双份维护；
-  - 解开 `workflow_service` ↔ `dataops_service` 的懒加载循环依赖；
-  - 生产环境收敛为只走 Alembic，停用启动期 `create_all`；
-  - 清理 endpoint 中残留的 `print()` 调试输出，统一用 `logging`；
-  - 独立"风格大扫除"提交（与功能重构隔离，便于 review/blame）：`ruff check app
+  - [x] **GPU 微服务迁出 `services/` 并共享线模型（P3 2/N）**：
+    `sam2_gpu_service.py` → `microservices/sam2/service.py`、
+    `clip_gpu_service.py` → `microservices/clip/service.py`（`git mv` 保留历史），
+    三个 Dockerfile 随迁并改为仓库根构建上下文、只 COPY 所需 schema 叶子模块；
+    4 个 compose（gpu / sam2-cpu / clip / prod.gpu）context/dockerfile 同步。
+    SAM2 微服务 14 个线模型改导入 `app/schemas/sam2.py`（import 别名保留
+    历史类名），仅 4 处真实契约差异保留为薄子类：`SegmentRequest.multimask_output`、
+    `MaskResult.mask_index`（子类重声明 `masks` 防 response_model 剥字段）、
+    `SegmentResponse.embedding_key` 必填收窄、`VideoFrame.image_base64` 必填 +
+    `VideoPropagateRequest.propagate_direction`；CLIP 新建 `app/schemas/clip.py`
+    （TextEmbedRequest/EmbedResponse）门面重导出（254 → 256 项 __all__），
+    微服务与 `clip_client_service.py` 共用（客户端改 model_validate）。
+    验收：373 测试全绿；后端在线 OpenAPI 231 paths/259 组件逐字节一致；
+    微服务 FastAPI app 导入正常，新旧微服务 OpenAPI 归一化结构对比 5/5、
+    16/16 组件一致（仅类名/描述差异），TestClient 实测 mask_index 保留。
+  - [ ] 解开 `workflow_service` ↔ `dataops_service` 的懒加载循环依赖；
+  - [ ] 生产环境收敛为只走 Alembic，停用启动期 `create_all`；
+  - [x] **print 清理（P3 1/N）**：data/import_data 端点与 dataset_import 域、
+    task_service 残留 `print()` 全部改模块 logger（debug/info/warning/error
+    分级），`app/` 下无业务 print 调用；373 测试全绿、零行为变更。
+  - [ ] 独立"风格大扫除"提交（与功能重构隔离，便于 review/blame）：`ruff check
     --fix` 清历史 UP/W 告警——`UP006`/`UP035`（`List/Dict` → `list/dict`）、
     `UP042`/`UP045`/`UP007`（`Optional/Union` → `X | None`）、`W291`/`W293`
-    （行尾与空行空白）；P2 分包期间按"零净增"口径原样保留，不在分包提交里
-    夹带。验收：373 测试全绿 + 在线 OpenAPI 规范化 JSON 逐字节一致（Pydantic
-    v2 下两种泛型写法契约等价）；
-  - 推进 OpenAPI → TypeScript 类型生成，消除前端手写类型漂移。
+    （行尾与空行空白），范围含 `app/` 与 `microservices/`；P2 分包期间按
+    "零净增"口径原样保留，不在分包提交里夹带。验收：373 测试全绿 + 在线
+    OpenAPI 规范化 JSON 逐字节一致（Pydantic v2 下两种泛型写法契约等价）；
+  - [ ] 推进 OpenAPI → TypeScript 类型生成，消除前端手写类型漂移。
 
 ### 重构一个新业务域的推荐步骤
 

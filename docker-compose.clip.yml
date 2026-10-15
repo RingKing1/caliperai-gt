@@ -6,8 +6,8 @@
 services:
   clip:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.clip
+      context: .
+      dockerfile: microservices/clip/Dockerfile
     image: caliperai-gt-clip:latest
     container_name: anno-clip
     restart: unless-stopped

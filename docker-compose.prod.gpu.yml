@@ -7,8 +7,8 @@ services:
   # ==========================================================================
   sam2:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.sam2
+      context: .
+      dockerfile: microservices/sam2/Dockerfile
       args:
         - BUILDKIT_INLINE_CACHE=1
     image: calipergt-sam2:${VERSION:-latest}

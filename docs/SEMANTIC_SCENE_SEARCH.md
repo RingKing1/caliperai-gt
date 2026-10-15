@@ -8,7 +8,7 @@
 
 - `anno-clip`：独立 GPU 微服务，Chinese-CLIP `ViT-B-16`（OFA-Sys），512 维，
   与 SAM2 微服务同样的部署模式；代码见
-  `backend/app/services/clip_gpu_service.py`，镜像见 `backend/Dockerfile.clip`。
+  `microservices/clip/service.py`，镜像见 `microservices/clip/Dockerfile`。
 - 后端无 torch，通过 HTTP 调用：`backend/app/services/clip_client_service.py`。
 - 向量存 Postgres + pgvector 表 `frame_image_embeddings`
   （HNSW + `vector_cosine_ops`，迁移 `037_frame_image_embeddings.py`）。

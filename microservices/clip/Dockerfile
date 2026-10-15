@@ -7,7 +7,11 @@ RUN pip install --no-cache-dir tqdm six "timm>=0.9,<1.0" \
     && pip install --no-cache-dir --no-deps "cn_clip==1.6.0"
 
 WORKDIR /app
-COPY app/services/clip_gpu_service.py /app/clip_gpu_service.py
+# Wire schemas shared with the backend, then the CLIP service
+COPY backend/app/__init__.py /app/app/__init__.py
+COPY backend/app/schemas/__init__.py /app/app/schemas/__init__.py
+COPY backend/app/schemas/clip.py /app/app/schemas/clip.py
+COPY microservices/clip/service.py /app/clip_gpu_service.py
 
 ENV CLIP_MODEL_NAME=ViT-B-16
 ENV CLIP_MODEL_DIM=512

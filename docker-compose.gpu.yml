@@ -14,8 +14,8 @@ services:
   # ==========================================================================
   sam2:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.sam2
+      context: .
+      dockerfile: microservices/sam2/Dockerfile
     container_name: anno-sam2
     restart: unless-stopped
     shm_size: '4gb'  # Required for PyTorch

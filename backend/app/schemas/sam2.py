@@ -1,8 +1,9 @@
-"""SAM2 image/video segmentation proxy API schemas.
+"""SAM2 image/video segmentation wire schemas.
 
-These mirror the standalone SAM2 GPU microservice's wire models
-(app/services/sam2_gpu_service.py); the two copies are deduplicated when the
-microservice is moved out of the backend during P3.
+Shared by the backend proxy API and the standalone SAM2 GPU microservice
+(``microservices/sam2/service.py``). The microservice imports these models and
+keeps only its contract deltas (``multimask_output``, ``mask_index``, required
+``embedding_key``) as thin subclasses.
 """
 from typing import List, Optional
 

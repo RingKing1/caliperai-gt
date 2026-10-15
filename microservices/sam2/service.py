@@ -20,6 +20,23 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from app.schemas.sam2 import (
+    BoxPromptSchema as BoxPrompt,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    ObjectInitSchema as ObjectInit,
+    PointPromptSchema as PointPrompt,
+    PolygonPoint,
+    PolygonPointInitSchema as PolygonPointInit,
+    PropagatedBoxSchema as PropagatedBox,
+    SegmentRequest as _BaseSegmentRequest,
+    SegmentResponse as _BaseSegmentResponse,
+    SegmentResult,
+    VideoFrameSchema as _BaseVideoFrame,
+    VideoPropagateRequest as _BaseVideoPropagateRequest,
+    VideoPropagateResponse,
+)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -320,55 +337,27 @@ app.add_middleware(
 
 
 
-class PointPrompt(BaseModel):
-    x: float
-    y: float
-    label: int = Field(..., ge=0, le=1, description="1=foreground, 0=background")
-
-
-class BoxPrompt(BaseModel):
-    x1: float
-    y1: float
-    x2: float
-    y2: float
-
-
-class SegmentRequest(BaseModel):
-    image_base64: Optional[str] = None
-    image_url: Optional[str] = None
-    points: List[PointPrompt] = Field(default_factory=list)
-    box: Optional[BoxPrompt] = None
-    embedding_key: Optional[str] = None
+# Wire models are shared with the backend proxy (``app/schemas/sam2.py``).
+# Only microservice-only contract deltas stay here as thin subclasses:
+#  * ``multimask_output`` — internal candidate-count knob, absent from the
+#    proxy's frontend-facing schema;
+#  * ``mask_index`` — the microservice ranks up to 3 candidates, the proxy
+#    drops the index;
+#  * ``embedding_key`` is always emitted here (required vs optional upstream).
+class SegmentRequest(_BaseSegmentRequest):
     multimask_output: bool = True
-    simplify_tolerance: float = Field(default=0.01, ge=0.001, le=0.1, description="Polygon simplification (0.001=fine, 0.1=coarse)")
 
 
-class PolygonPoint(BaseModel):
-    x: float
-    y: float
-
-
-class MaskResult(BaseModel):
-    polygon: List[PolygonPoint]
-    score: float
-    area: int
+class MaskResult(SegmentResult):
+    # Required so FastAPI serialises mask_index through the response model.
     mask_index: int
 
 
-class SegmentResponse(BaseModel):
+class SegmentResponse(_BaseSegmentResponse):
+    # Tighten the item type back to MaskResult (the base proxy schema drops
+    # mask_index) and embedding_key is always emitted by this microservice.
     masks: List[MaskResult]
     embedding_key: str
-    inference_time_ms: float
-
-
-class EmbeddingRequest(BaseModel):
-    image_base64: Optional[str] = None
-    image_url: Optional[str] = None
-
-
-class EmbeddingResponse(BaseModel):
-    embedding_key: str
-    compute_time_ms: float
 
 
 class HealthResponse(BaseModel):
@@ -519,51 +508,13 @@ async def clear_cache():
 
 
 
-class PolygonPointInit(BaseModel):
-    """A point in a polygon."""
-    x: float
-    y: float
-
-
-class ObjectInit(BaseModel):
-    """Initial object annotation for tracking."""
-    object_id: int = Field(..., description="Unique object ID for this track")
-    box: BoxPrompt = Field(..., description="Initial bounding box [x1, y1, x2, y2]")
-    frame_index: int = Field(default=0, description="Frame index where object is initialized")
-    polygon: Optional[List[PolygonPointInit]] = Field(default=None, description="Optional polygon points for precise mask initialization (preserves shape details like mirrors)")
-
-
-class VideoFrame(BaseModel):
-    """A single video frame."""
-    frame_index: int
+class VideoFrame(_BaseVideoFrame):
+    # The video endpoint only accepts inline base64 frames (no presigned URLs).
     image_base64: str
 
 
-class VideoPropagateRequest(BaseModel):
-    """Request to propagate object annotations across video frames."""
-    frames: List[VideoFrame] = Field(..., description="List of video frames in order")
-    objects: List[ObjectInit] = Field(..., description="Objects to track with initial boxes")
-    min_confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Stop tracking if confidence drops below this")
+class VideoPropagateRequest(_BaseVideoPropagateRequest):
     propagate_direction: str = Field(default="forward", description="forward, backward, or both")
-
-
-class PropagatedBox(BaseModel):
-    """Propagated bounding box and polygon for an object in a frame."""
-    object_id: int
-    frame_index: int
-    box: BoxPrompt
-    confidence: float
-    status: str = Field(default="tracked", description="tracked, lost, or keyframe")
-    polygon: Optional[List[PolygonPointInit]] = Field(default=None, description="Propagated polygon (preserves shape details)")
-
-
-class VideoPropagateResponse(BaseModel):
-    """Response with propagated annotations."""
-    boxes: List[PropagatedBox]
-    total_frames: int
-    tracked_frames: int
-    lost_at_frame: Optional[int] = None
-    processing_time_ms: float
 
 
 

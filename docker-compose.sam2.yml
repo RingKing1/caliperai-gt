@@ -10,8 +10,8 @@ services:
   # ==========================================================================
   sam2:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.sam2-cpu
+      context: .
+      dockerfile: microservices/sam2/Dockerfile.cpu
     container_name: anno-sam2
     restart: unless-stopped
     environment:

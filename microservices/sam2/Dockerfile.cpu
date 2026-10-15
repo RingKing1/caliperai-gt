@@ -33,8 +33,11 @@ RUN pip install --no-cache-dir \
 # Create model directory
 RUN mkdir -p /models/sam2
 
-# Copy the service
-COPY app/services/sam2_gpu_service.py /app/sam2_service.py
+# Copy wire schemas shared with the backend, then the service
+COPY backend/app/__init__.py /app/app/__init__.py
+COPY backend/app/schemas/__init__.py /app/app/schemas/__init__.py
+COPY backend/app/schemas/sam2.py /app/app/schemas/sam2.py
+COPY microservices/sam2/service.py /app/sam2_service.py
 
 # Expose port
 EXPOSE 8001

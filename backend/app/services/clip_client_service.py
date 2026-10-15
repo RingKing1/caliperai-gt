@@ -10,6 +10,7 @@ from typing import List, Optional
 import httpx
 
 from app.core.config import settings
+from app.schemas.clip import EmbedResponse, TextEmbedRequest
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +47,10 @@ class ClipClientService:
         if not texts:
             return []
         client = await self._get_client()
-        response = await client.post("/embed/text", json={"texts": texts})
+        payload = TextEmbedRequest(texts=texts)
+        response = await client.post("/embed/text", json=payload.model_dump())
         response.raise_for_status()
-        return response.json()["vectors"]
+        return EmbedResponse.model_validate(response.json()).vectors
 
     async def embed_images(self, image_bytes_list: List[bytes]) -> List[List[float]]:
         if not image_bytes_list:
@@ -60,7 +62,7 @@ class ClipClientService:
         ]
         response = await client.post("/embed/images", files=files)
         response.raise_for_status()
-        return response.json()["vectors"]
+        return EmbedResponse.model_validate(response.json()).vectors
 
 
 clip_client = ClipClientService()

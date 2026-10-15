@@ -20,7 +20,7 @@ import numpy as np
 from fastapi import FastAPI, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
-from pydantic import BaseModel
+from app.schemas.clip import EmbedResponse, TextEmbedRequest
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -118,16 +118,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-class TextEmbedRequest(BaseModel):
-    texts: List[str]
-
-
-class EmbedResponse(BaseModel):
-    model: str
-    dimensions: int
-    vectors: List[List[float]]
 
 
 @app.get("/health")

@@ -118,6 +118,10 @@ from app.schemas.catalog import (
     TaxonomySummary,
     TaxonomyUpdate,
 )
+from app.schemas.clip import (
+    EmbedResponse,
+    TextEmbedRequest,
+)
 from app.schemas.common import (
     AnnotationSource,
     AnnotationType,
@@ -365,6 +369,8 @@ __all__ = [
     "VideoPropagateRequest",
     "PropagatedBoxSchema",
     "VideoPropagateResponse",
+    "TextEmbedRequest",
+    "EmbedResponse",
     "OrganizationRole",
     "OrganizationBase",
     "OrganizationCreate",

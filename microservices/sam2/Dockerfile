@@ -50,9 +50,12 @@ RUN mkdir -p /models/sam2
 # Set working directory
 WORKDIR /app
 
-# Copy the SAM2 service code
-COPY app/services/sam2_gpu_service.py /app/sam2_service.py
-COPY scripts/download_sam2_models.py /app/download_models.py
+# Copy wire schemas shared with the backend, then the SAM2 service code
+COPY backend/app/__init__.py /app/app/__init__.py
+COPY backend/app/schemas/__init__.py /app/app/schemas/__init__.py
+COPY backend/app/schemas/sam2.py /app/app/schemas/sam2.py
+COPY microservices/sam2/service.py /app/sam2_service.py
+COPY backend/scripts/download_sam2_models.py /app/download_models.py
 
 # Expose port
 EXPOSE 8001
