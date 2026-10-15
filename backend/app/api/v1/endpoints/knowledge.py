@@ -6,65 +6,26 @@ Provides:
 - Manual reindexing
 - Search debugging
 """
-from typing import Annotated, Optional, List
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.config import settings
 from app.models.models import User, UserRole
+from app.schemas.knowledge import (
+    KnowledgeStatsResponse,
+    ReindexResponse,
+    SearchRequest,
+    SearchResponse,
+    SearchResult,
+)
 from app.services.rbac_service import get_current_user, RequireRole
 from app.core.redis_cache import get_redis
 
 router = APIRouter()
-
-
-
-class KnowledgeStatsResponse(BaseModel):
-    """Knowledge base statistics."""
-    total_chunks: int
-    total_files: int
-    avg_chunk_size: int
-    last_indexed: Optional[str] = None
-    embedding_model: str
-    embedding_dimensions: int
-    rag_enabled: bool = Field(default=True)
-
-
-class SearchResult(BaseModel):
-    """Search result item."""
-    id: int
-    content: str
-    source_file: str
-    chunk_index: int
-    score: float
-    match_type: str
-    metadata: dict = Field(default_factory=dict)
-
-
-class SearchRequest(BaseModel):
-    """Search request."""
-    query: str = Field(..., min_length=1, max_length=500)
-    top_k: int = Field(default=5, ge=1, le=20)
-    search_type: str = Field(default="hybrid", pattern="^(semantic|keyword|hybrid)$")
-
-
-class SearchResponse(BaseModel):
-    """Search response."""
-    query: str
-    results: List[SearchResult]
-    total: int
-
-
-class ReindexResponse(BaseModel):
-    """Reindex response."""
-    success: bool
-    chunks_indexed: int
-    message: str
-
 
 
 async def get_knowledge_service(

@@ -71,8 +71,9 @@ backend/
 │   │   ├── task.py              # 任务/工作流/拆包/编辑器上下文/阶段历史
 │   │   ├── qa.py                # 评审会话/逐条判定/评论/建议
 │   │   ├── auth.py              # 登录/JWT 令牌/改密/角色/当前用户 + SSO provider/token
+│   │   ├── knowledge.py         # RAG 知识库统计/检索/重建索引
 │   │   ├── chat.py              # AI 会话与 RAG 知识块
-│   │   └── schemas.py           # 纯门面：按域重导出 195 个公开名，import 路径零改动
+│   │   └── schemas.py           # 纯门面：按域重导出 200 个公开名，import 路径零改动
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
 │       ├── database.py          # engine / session / get_db / init_db
@@ -246,7 +247,8 @@ async with async_session_factory() as session:
 - ORM：`models/models.py`（`Base(DeclarativeBase)` + `TimestampMixin` /
   `SoftDeleteMixin`）。软删除统一用 `is_deleted`，查询需显式过滤。
 - 请求/响应：`schemas/` 按域分包（common/org/user/catalog/scene/annotation/
-  task/qa/auth/chat），`schemas/schemas.py` 为纯门面重导出，公共基类 `BaseSchema`
+  task/qa/auth/knowledge/chat），`schemas/schemas.py` 为纯门面重导出，公共基类
+  `BaseSchema`
   在 `schemas/common.py`。
 - 枚举在 models 与 schemas 中各有定义，赋值前注意取 `.value`（`AnnotationService`
   的 `enum_value` 已封装这一点）。
@@ -541,7 +543,7 @@ pytest -q
       端点 1315 → 481 行（全域 2428 → 481），5 条薄路由，365 测试全绿，
       真实数据冒烟 200/200/200/200/404，OpenAPI 27 个 operation 与组件
       schema 零差异。**P1 五个业务域全部完成**。
-- [~] **P2 模型 / schema 分包（进行中，10/N，仅剩 endpoint 内联模型归位）**：目标是把 `models/models.py`
+- [~] **P2 模型 / schema 分包（进行中，11/N，仅剩 endpoint 内联模型归位）**：目标是把 `models/models.py`
   （3627 行 / 60 类）按域拆入 `models/` 包（org、user、catalog、scene、task、
       annotation、qa、efficiency、chat），`models.py` 保留为门面重导出，保证
       67 处 `from app.models.models import X` 与 alembic/env.py 零改动。
@@ -624,8 +626,18 @@ pytest -q
       me/refresh/roles/sso providers 全部符合预期（临时冒烟用户已删除）；
       新文件 E/F/I/N/W 零告警，auth 端点较基线少 1 个历史 F401（EmailStr
       死导入），sso 端点无告警，无新增告警。
-      **P2 剩余：7 个 endpoint 中 59 个内联模型**（sam2 14 / workflow 10 /
-      analytics 10 / gcs 9 / dataops 7 / knowledge 5 / segmentation 4）。
+      - [x] **P2（11/N）knowledge 内联模型归位 schemas/knowledge.py**：
+      新建 `schemas/knowledge.py` 承载 KnowledgeStatsResponse/SearchResult/
+      SearchRequest/SearchResponse/ReindexResponse 共 5 个 RAG 管理模型，
+      经门面重导出（195 → 200 项 __all__），端点仅保留 Annotated 依赖。
+      在线 OpenAPI 规范化 JSON 逐字节一致；路由级断言三条路由 response_model
+      与 /search body 均绑定新模块类（RAG_ENABLED=false 时依赖层先返回 503，
+      无法在线走 body 校验，故用绑定断言替代）；373 测试全绿；ruff 与基线
+      零净增（3 个 UP 历史告警随类迁入新模块，端点 W293×10/I001×2/F401×2
+      原样保留），无新增告警。
+      **P2 剩余：6 个 endpoint 中 54 个内联模型**（sam2 14 / workflow 10 /
+      analytics 10 / gcs 9 / dataops 7 / segmentation 4；workflow 存在
+      TaskWorkflowInfo 同名异构需先消歧，sam2 随 P3 微服务迁移）。
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；
