@@ -39,6 +39,7 @@ backend/
 │   │   ├── dataset_import/        # ★ 导入域服务包（解析/标定/发现/分类法/存储/落库，见 §12）
 │   │   ├── annotation_service.py   # ★ 跨模态标注写路径统一业务层（参考范式）
 │   │   ├── task_service.py         # ★ 标注任务域：生命周期/查询/编辑器引导（见 §12）
+│   │   ├── qa_service.py           # ★ 质检域：评审会话/逐条判定/评论/建议（见 §12）
 │   │   ├── workflow_service.py     # 任务阶段/状态状态机
 │   │   ├── rbac_service.py         # JWT 校验 + 权限/角色依赖
 │   │   ├── sam2_service.py         # SAM2 客户端（mock / 调远程 GPU 服务）
@@ -442,9 +443,19 @@ pytest -q
       `SplitTaskRequest` 从端点内联模型归位 `schemas.py`。新增 9 个纯规则单测
       （327 测试全绿），真实数据冒烟 list / editor-context / frames / stats /
       404 / split 400 全部通过；URL、响应模型、PATCH 三分支重置语义零变更。
-- [ ] **P1（剩余）业务域补 service 层**：`qa.py`（约 1018 行）、`datasets.py`
-      （约 619 行）、`scenes.py`（约 622 行）、`efficiency.py`（约 2428 行，
-      建议最后拆）等仍有约 590 处直接 DB 访问；按 tasks 域范式逐域提取、独立提交。
+- [x] **P1（2/5）质检域提取 `qa_service`**：`endpoints/qa.py` 1018 → 369 行
+      薄端点，23 个路由（评审会话 / 逐条标注判定 / 评论 / AI 建议 / 统计）
+      全部下沉 `services/qa_service.py`（940 行）。领域异常
+      `QANotFoundError` / `QAValidationError` 统一映射 404/400；纯规则
+      `next_stage_after_qa`（QA→客户质检/验收、客户质检→验收）与
+      `sort_suggestions`（severity 排序，未知级别按 medium）脱离 DB 可单测，
+      新增 7 个单测（334 测试全绿）。OpenAPI 23 路由方法/路径零差异，真实数据
+      冒烟通过。顺带修复历史 bug：`POST /qa/annotation-reviews/{id}/resolve`
+      对不存在记录引用了未导入的 `status` 常量，原行为是 500 NameError，现正确
+      返回 404；成功路径行为不变（manual suggestion 仍保持其原有 commit 语义）。
+- [ ] **P1（剩余）业务域补 service 层**：`datasets.py`（约 619 行）、
+      `scenes.py`（约 622 行）、`efficiency.py`（约 2428 行，建议最后拆）等
+      仍有约 590 处直接 DB 访问；按 tasks/qa 域范式逐域提取、独立提交。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
   `models/` 包按域组织（org、user、catalog、scene、task、annotation、qa、
       efficiency、chat），`__init__.py` 重导出保证 import 零改动；
