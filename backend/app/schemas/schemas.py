@@ -553,6 +553,19 @@ class SceneResponse(TimestampSchema):
     tasks: List['TaskResponse'] = Field(default_factory=list)
 
 
+class SceneSearchResponse(BaseSchema):
+    """Structured scene search response."""
+
+    query: Optional[str] = None
+    classes: list[str] = Field(default_factory=list)
+    groups: list[str] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+    class_groups: dict[str, list[str]]
+    results: list[dict]
+
+
 
 class EgoPose(BaseSchema):
     """Ego vehicle pose at a frame."""

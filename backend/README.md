@@ -41,6 +41,7 @@ backend/
 │   │   ├── task_service.py         # ★ 标注任务域：生命周期/查询/编辑器引导（见 §12）
 │   │   ├── qa_service.py           # ★ 质检域：评审会话/逐条判定/评论/建议（见 §12）
 │   │   ├── dataset_service.py      # ★ 数据集域：CRUD/分类法挂接/任务自动创建（见 §12）
+│   │   ├── scene_service.py        # ★ 场景域：CRUD/检索参数解析/帧取图定位（见 §12）
 │   │   ├── workflow_service.py     # 任务阶段/状态状态机
 │   │   ├── rbac_service.py         # JWT 校验 + 权限/角色依赖
 │   │   ├── sam2_service.py         # SAM2 客户端（mock / 调远程 GPU 服务）
@@ -464,9 +465,21 @@ pytest -q
       三个调用方改从 service 导入（顺带消除 scene_pipeline 的 service→endpoint
       反向依赖，并清掉这些文件原有的 ruff 导入排序/未用导入告警）。OpenAPI 11 条
       路由契约零差异，真实数据集 detail/taxonomy/taxonomies 冒烟通过。
-- [ ] **P1（剩余）业务域补 service 层**：`scenes.py`（约 622 行）、
-      `efficiency.py`（约 2428 行，建议最后拆）等仍有约 590 处直接 DB 访问；
-      按 tasks/qa/datasets 域范式逐域提取、独立提交。
+- [x] **P1（4/5）场景域提取 `scene_service`**：`endpoints/scenes.py`
+      621 → 345 行薄端点，9 个路由（场景 CRUD/标定、标签检索/混合检索/语义检索/
+      embedding 覆盖度、帧相机取图）的业务逻辑下沉 `services/scene_service.py`。
+      检索打分仍留在专门的 `scene_*_search_service`，新 service 只负责 query
+      参数解析与响应整形；纯规则 `split_filter_values` / `parse_label_filters`
+      （类名归一化、group 别名解析、非法 group 抛结构化 400）脱离 DB 可单测；
+      帧取图拆为“service 解析磁盘路径（404 决策）+ 端点 PIL 缩略图/流式响应
+      （表现层）”。`_resolve_frame_image_path` 迁入 service 并在端点保留旧名
+      重导出，内联模型 `SceneSearchResponse` 归位 `schemas.py`（OpenAPI 组件名
+      与 9 条路由契约零差异）。领域异常 Scene/Dataset(复用数据集域)/Frame/
+      Conflict/Validation 分层映射，新增 6 个单测（344 测试全绿），真实数据
+      检索与帧缩略图冒烟通过。
+- [ ] **P1（剩余）业务域补 service 层**：`efficiency.py`（约 2428 行，
+      单文件最大，建议最后拆）等仍有约 590 处直接 DB 访问；按既有域范式
+      逐域提取、独立提交。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
   `models/` 包按域组织（org、user、catalog、scene、task、annotation、qa、
       efficiency、chat），`__init__.py` 重导出保证 import 零改动；

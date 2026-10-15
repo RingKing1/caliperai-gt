@@ -10,8 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from app.api.v1.endpoints.scenes import _resolve_frame_image_path
 from app.schemas.schemas import FrameFilePaths
+from app.services.scene_service import (
+    resolve_frame_image_path as _resolve_frame_image_path,
+)
 
 
 def _frame_paths(tmp_path: Path, primary_rel: str, cameras: dict) -> dict:
