@@ -1,4 +1,5 @@
 """Database connection and session management."""
+import logging
 from typing import AsyncGenerator, Optional
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -12,6 +13,8 @@ from sqlalchemy.pool import NullPool, StaticPool
 from app.core.config import get_settings
 
 settings = get_settings()
+
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -74,6 +77,10 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     """Initialize database tables.
 
+    No-op when ``AUTO_CREATE_TABLES=false`` (production): the schema is then
+    provisioned exclusively by Alembic (``alembic upgrade head`` runs from the
+    container entrypoint when ``RUN_ALEMBIC_MIGRATIONS=true``).
+
     Every gunicorn worker runs this on boot, so DDL executes concurrently
     across processes. ``create_all(checkfirst=True)`` only guards within a
     single connection's snapshot, so without coordination the workers race
@@ -84,6 +91,12 @@ async def init_db() -> None:
     already present and no-ops via ``checkfirst``.
     """
     _INIT_DB_LOCK_KEY = 0x616E6E6F
+    if not settings.AUTO_CREATE_TABLES:
+        logger.info(
+            "AUTO_CREATE_TABLES=false, skipping create_all; "
+            "schema managed by Alembic"
+        )
+        return
     async with engine.begin() as conn:
         await conn.execute(
             text("SELECT pg_advisory_xact_lock(:key)"),

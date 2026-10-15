@@ -74,7 +74,9 @@ services:
       # Data paths
       - DATA_ROOT=/data
       - UPLOAD_ROOT=/uploads
-      # Production settings
+      # Production settings: schema managed exclusively by Alembic
+      - AUTO_CREATE_TABLES=false
+      - RUN_ALEMBIC_MIGRATIONS=true
       - WORKERS=${BACKEND_WORKERS:-6}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - TIMEOUT=600

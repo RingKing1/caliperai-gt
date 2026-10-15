@@ -42,11 +42,20 @@ def upgrade() -> None:
     # Create index for customer reviewer
     op.create_index('ix_tasks_customer_reviewer_id', 'tasks', ['customer_reviewer_id'])
     
-    # Add 'pending' to the taskstatus enum type FIRST
-    # This must run outside the transaction for PostgreSQL
-    op.execute("COMMIT")  # Commit current transaction first
-    op.execute("ALTER TYPE taskstatus ADD VALUE IF NOT EXISTS 'pending'")
-    op.execute("BEGIN")  # Start new transaction for remaining operations
+    # Legacy databases may carry a pre-Alembic `taskstatus` PG enum (the
+    # initial migration creates tasks.status as a String column). Only extend
+    # the enum when it actually exists; on PG12+ ADD VALUE is transactional as
+    # long as the new label is not used within the same transaction.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'taskstatus') THEN
+                ALTER TYPE taskstatus ADD VALUE IF NOT EXISTS 'pending';
+            END IF;
+        END $$;
+        """
+    )
     
     # Drop the old check constraint FIRST if it exists, then update data, then create new one
     op.execute("""

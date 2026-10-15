@@ -15,7 +15,7 @@
 | Web 框架 | FastAPI + Uvicorn/Gunicorn | 异步 ASGI，生产用 UvicornWorker |
 | ORM | SQLAlchemy 2.x async (`AsyncSession`) | `Mapped` 类型化声明式模型 |
 | 数据库 | PostgreSQL + pgvector | JSONB、INT4RANGE 帧范围、向量检索 |
-| 迁移 | Alembic（16 个版本） | 与启动期 `create_all` 双轨并存 |
+| 迁移 | Alembic（39 个版本） | 开发走 `create_all`；生产只走 Alembic（entrypoint 自动 upgrade） |
 | 校验 | Pydantic v2 | 请求 / 响应 schema 与 OpenAPI |
 | 缓存 | Redis | embedding 缓存等 |
 | 对象存储 | MinIO（S3 兼容）/ GCS | 按组织分桶 + 预签名 URL |
@@ -142,7 +142,7 @@ flowchart TD
 7. **未捕获异常**：`main.py` 的全局 handler 记录完整堆栈但只返回通用 500，
    `HTTPException` 透传保留正确状态码。
 
-启动期 `lifespan`：`init_db()`（PostgreSQL advisory lock 串行化 `create_all`）→
+启动期 `lifespan`：`init_db()`（默认 `create_all` + advisory lock；生产 `AUTO_CREATE_TABLES=false` 跳过）→
 `init_redis()` → RAG 索引初始化（可开关）→ 性能告警后台任务。
 
 ---
@@ -259,9 +259,17 @@ async with async_session_factory() as session:
 
 ### 5.3 迁移
 
-- 目录：`alembic/versions/001_*` … `016_*`。
-- 现状是双轨：启动时 `init_db()` 仍会 `create_all(checkfirst=True)`，同时存在 Alembic
-  迁移。**新增表 / 列必须补 Alembic 迁移**；长期目标是生产只走 Alembic（见 §12）。
+- 目录：`alembic/versions/001_*` … `039_*`。
+- 开发 / 测试（`AUTO_CREATE_TABLES=true`，默认）：启动时 `init_db()` 执行
+  `create_all(checkfirst=True)`（带 Postgres advisory lock 防多 worker 并发 DDL），
+  适合本地快速迭代。
+- 生产（`docker-compose.prod.yml`）：`AUTO_CREATE_TABLES=false` 关闭启动期 DDL，
+  容器 entrypoint（`scripts/entrypoint.sh`）在 `RUN_ALEMBIC_MIGRATIONS=true` 时
+  先执行一次 `alembic upgrade head` 再启动 gunicorn，schema 只走 Alembic。
+- 存量 `create_all` 库一次性切换：`alembic stamp 038 && alembic upgrade head`
+  （039 对账迁移全部 DDL 幂等，会补齐枚举→varchar、audit_logs 列名、
+  segmentation_blobs/frame_image_embeddings 表结构与缺失索引）。
+- **新增表 / 列必须补 Alembic 迁移**；迁移链已可在全新库一键到 head（001→039）。
 
 ---
 
@@ -738,7 +746,16 @@ pytest -q
     顶层导入；`_create_stage_snapshot` 保留运行期 try/except（快照失败
     不阻塞阶段流转），日志从 `logging.error` 临时导入改模块 logger +
     `logger.exception` 带堆栈。373 测试全绿、OpenAPI 零差异。
-  - [ ] 生产环境收敛为只走 Alembic，停用启动期 `create_all`；
+  - [x] **生产收敛为只走 Alembic（P3 4/N）**：新增 `AUTO_CREATE_TABLES`
+    开关（默认 true 保留开发体验），`init_db` 关闭时跳过 DDL；新增
+    `scripts/entrypoint.sh`（可选 `alembic upgrade head` 后 exec 主命令），
+    prod compose 设 `AUTO_CREATE_TABLES=false` + `RUN_ALEMBIC_MIGRATIONS=true`。
+    修复迁移链在全新库跑不通的历史漂移：008 守卫不存在的 taskstatus 枚举、
+    012 deadline 改幂等、新增 039 对账迁移（annotations 枚举→varchar、
+    audit_logs.created_at→timestamp、segmentation_blobs 新表型、补 frame
+    唯一约束等 13 个 ORM 索引、frame_image_embeddings 兜底）。全新库
+    001→039 全链通过，与 create_all 列/索引零缺口对比，存量库
+    stamp 038→upgrade 路径验证通过；373 测试全绿、OpenAPI 逐字节一致。
   - [x] **print 清理（P3 1/N）**：data/import_data 端点与 dataset_import 域、
     task_service 残留 `print()` 全部改模块 logger（debug/info/warning/error
     分级），`app/` 下无业务 print 调用；373 测试全绿、零行为变更。

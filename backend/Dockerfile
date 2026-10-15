@@ -50,9 +50,13 @@ COPY --chown=appuser:appuser ./alembic ./alembic
 COPY --chown=appuser:appuser ./alembic.ini ./alembic.ini
 COPY --chown=appuser:appuser ./gunicorn.conf.py ./gunicorn.conf.py
 COPY --chown=appuser:appuser ./knowledge_base ./knowledge_base
+COPY --chown=appuser:appuser ./scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Switch to non-root user
 USER appuser
+
+# Optional `alembic upgrade head` (RUN_ALEMBIC_MIGRATIONS=true) then exec CMD
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # Expose port
 EXPOSE 8000

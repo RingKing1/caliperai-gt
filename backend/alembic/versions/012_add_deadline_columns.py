@@ -8,7 +8,6 @@ Adds deadline columns to campaigns, datasets, and scenes tables.
 Tasks already have a deadline column.
 """
 from alembic import op
-import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
@@ -18,15 +17,30 @@ branch_labels = None
 depends_on = None
 
 
+def _add_deadline_if_missing(table_name: str) -> None:
+    # 001_initial already created these columns; guard so the migration stays
+    # idempotent on databases initialised from the full chain (and still adds
+    # them on older deployments that predate the columns).
+    op.execute(
+        f"""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = '{table_name}' AND column_name = 'deadline'
+            ) THEN
+                ALTER TABLE {table_name}
+                    ADD COLUMN deadline TIMESTAMP WITH TIME ZONE;
+            END IF;
+        END $$;
+        """
+    )
+
+
 def upgrade() -> None:
-    # Add deadline column to campaigns
-    op.add_column('campaigns', sa.Column('deadline', sa.DateTime(timezone=True), nullable=True))
-    
-    # Add deadline column to datasets
-    op.add_column('datasets', sa.Column('deadline', sa.DateTime(timezone=True), nullable=True))
-    
-    # Add deadline column to scenes
-    op.add_column('scenes', sa.Column('deadline', sa.DateTime(timezone=True), nullable=True))
+    # Add deadline column to campaigns, datasets and scenes (idempotent).
+    for table_name in ("campaigns", "datasets", "scenes"):
+        _add_deadline_if_missing(table_name)
 
 
 def downgrade() -> None:

@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/calipergt"
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
+    # Dev/test convenience: emit CREATE TABLE on boot. Production sets this to
+    # false and provisions the schema exclusively via `alembic upgrade head`.
+    AUTO_CREATE_TABLES: bool = True
     
     REDIS_URL: str = "redis://localhost:6379/0"
     
