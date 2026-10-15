@@ -14,8 +14,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from sqlalchemy import Float, String, and_, case, cast, desc, func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import String, and_, case, cast, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,34 +23,28 @@ from app.core.database import get_db
 from app.models.models import (
     Achievement,
     AchievementType,
-    ActivityEvent,
-    ActivityEventType,
-    AlertSeverity,
-    AlertType,
     Annotation,
     Annotation2D,
     Annotation3D,
     Annotation4D,
     AnnotationFusion,
     Campaign,
-    ChallengeParticipant,
     DailyUserStats,
     Dataset,
-    GoalType,
     OrganizationMember,
     PerformanceAlert,
     Permission,
     Scene,
     Task,
-    TaskStage,
     TaskStatus,
     Taxonomy,
     TeamChallenge,
     TimeSession,
     User,
-    UserGoal,
     UserLoginSession,
 )
+from app.services.efficiency import activity as activity_service
+from app.services.efficiency import goals as goal_service
 from app.services.efficiency import sessions as session_service
 from app.services.efficiency.common import get_display_name
 from app.services.efficiency.errors import (
@@ -273,6 +267,11 @@ async def get_current_login_session(
     return await session_service.get_current_login_session(db, current_user)
 
 
+# ---------------------------------------------------------------------------
+# Activity events (services/efficiency/activity.py)
+# ---------------------------------------------------------------------------
+
+
 @router.post("/activity/log", response_model=ActivityEventResponse)
 async def log_activity(
     request: ActivityEventRequest,
@@ -280,35 +279,7 @@ async def log_activity(
     db: AsyncSession = Depends(get_db),
 ) -> ActivityEventResponse:
     """Log a single activity event."""
-    event = ActivityEvent(
-        id=uuid_lib.uuid4(),
-        user_id=current_user.id,
-        task_id=request.task_id,
-        session_id=request.session_id,
-        event_type=request.event_type,
-        event_metadata=request.metadata or {},
-    )
-    db.add(event)
-    
-    if request.session_id:
-        session = await db.get(TimeSession, request.session_id)
-        if session and session.is_active:
-            session.action_count += 1
-            session.last_action_at = datetime.utcnow()
-            
-            if request.event_type == ActivityEventType.ANNOTATION_CREATE.value:
-                session.annotations_created += 1
-            elif request.event_type == ActivityEventType.ANNOTATION_UPDATE.value:
-                session.annotations_updated += 1
-            elif request.event_type == ActivityEventType.ANNOTATION_DELETE.value:
-                session.annotations_deleted += 1
-    
-    await db.commit()
-    
-    return ActivityEventResponse(
-        event_id=event.id,
-        timestamp=event.timestamp,
-    )
+    return await activity_service.log_activity(db, request, current_user)
 
 
 @router.post("/activity/batch")
@@ -318,58 +289,12 @@ async def log_activity_batch(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Log multiple activity events at once (for buffered logging)."""
-    events_logged = 0
-    
-    for event_req in request.events:
-        event = ActivityEvent(
-            id=uuid_lib.uuid4(),
-            user_id=current_user.id,
-            task_id=event_req.task_id or request.task_id,
-            session_id=event_req.session_id or request.session_id,
-            event_type=event_req.event_type,
-            event_metadata=event_req.metadata or {},
-        )
-        db.add(event)
-        events_logged += 1
-    
-    await db.commit()
-    
-    return {"events_logged": events_logged}
+    return await activity_service.log_activity_batch(db, request, current_user)
 
 
-
-_LABEL_GOAL_TYPES = {"daily_labels", "weekly_labels", "monthly_labels"}
-_AUTO_SOURCES_GOAL = ("auto", "airflow_model_v1", "airflow_model_v2", "auto_interpolated", "imported")
-
-
-async def _count_labels_in_period(
-    db: AsyncSession,
-    user_id: uuid_lib.UUID,
-    period_start: datetime,
-    period_end: datetime,
-) -> int:
-    """Count human-created annotations for a user within a time window."""
-    if period_start.tzinfo is None:
-        period_start = period_start.replace(tzinfo=timezone.utc)
-    if period_end.tzinfo is None:
-        period_end = period_end.replace(tzinfo=timezone.utc)
-
-    total = 0
-    for Model in [Annotation, Annotation3D, Annotation2D, Annotation4D, AnnotationFusion]:
-        result = await db.execute(
-            select(func.count(Model.id))
-            .join(Task, Model.task_id == Task.id)
-            .where(
-                and_(
-                    Task.assignee_id == user_id,
-                    Model.created_at >= period_start,
-                    Model.created_at < period_end,
-                    cast(Model.source, String).notin_(_AUTO_SOURCES_GOAL),
-                )
-            )
-        )
-        total += result.scalar() or 0
-    return total
+# ---------------------------------------------------------------------------
+# Personal goals (services/efficiency/goals.py)
+# ---------------------------------------------------------------------------
 
 
 @router.get("/goals/my", response_model=List[UserGoalResponse])
@@ -378,46 +303,8 @@ async def get_my_goals(
     db: AsyncSession = Depends(get_db),
     include_completed: bool = Query(False),
 ) -> List[UserGoalResponse]:
-    """Get current user's goals with live progress computed from actual annotation counts."""
-    now = datetime.utcnow()
-
-    query = select(UserGoal).where(UserGoal.user_id == current_user.id)
-    if not include_completed:
-        query = query.where(UserGoal.period_end >= now)
-    query = query.order_by(desc(UserGoal.period_start))
-
-    result = await db.execute(query)
-    goals = result.scalars().all()
-
-    responses = []
-    for g in goals:
-        if g.goal_type in _LABEL_GOAL_TYPES:
-            current_value = float(await _count_labels_in_period(
-                db, current_user.id, g.period_start, g.period_end
-            ))
-            if current_value != g.current_value:
-                g.current_value = current_value
-                if current_value >= g.target_value and not g.is_achieved:
-                    g.is_achieved = True
-                    g.achieved_at = now
-        else:
-            current_value = g.current_value
-
-        responses.append(UserGoalResponse(
-            id=g.id,
-            goal_type=g.goal_type,
-            target_value=g.target_value,
-            current_value=current_value,
-            period_start=g.period_start,
-            period_end=g.period_end,
-            is_achieved=g.is_achieved,
-            achieved_at=g.achieved_at,
-            progress_percentage=min((current_value / g.target_value) * 100, 100) if g.target_value > 0 else 0,
-            is_self_assigned=g.is_self_assigned,
-        ))
-
-    await db.commit()
-    return responses
+    """Get current user's goals with live progress from annotation counts."""
+    return await goal_service.list_my_goals(db, current_user, include_completed)
 
 
 @router.post("/goals", response_model=UserGoalResponse)
@@ -427,30 +314,7 @@ async def create_goal(
     db: AsyncSession = Depends(get_db),
 ) -> UserGoalResponse:
     """Create a new personal goal."""
-    new_goal = UserGoal(
-        id=uuid_lib.uuid4(),
-        user_id=current_user.id,
-        goal_type=goal.goal_type,
-        target_value=goal.target_value,
-        period_start=goal.period_start,
-        period_end=goal.period_end,
-        is_self_assigned=True,
-    )
-    db.add(new_goal)
-    await db.commit()
-    
-    return UserGoalResponse(
-        id=new_goal.id,
-        goal_type=new_goal.goal_type,
-        target_value=new_goal.target_value,
-        current_value=new_goal.current_value,
-        period_start=new_goal.period_start,
-        period_end=new_goal.period_end,
-        is_achieved=new_goal.is_achieved,
-        achieved_at=new_goal.achieved_at,
-        progress_percentage=0,
-        is_self_assigned=True,
-    )
+    return await goal_service.create_goal(db, goal, current_user)
 
 
 @router.put("/goals/{goal_id}", response_model=UserGoalResponse)
@@ -461,41 +325,10 @@ async def update_goal(
     db: AsyncSession = Depends(get_db),
 ) -> UserGoalResponse:
     """Update a personal goal."""
-    result = await db.execute(
-        select(UserGoal).where(
-            and_(
-                UserGoal.id == goal_id,
-                UserGoal.user_id == current_user.id,
-            )
-        )
-    )
-    existing_goal = result.scalar_one_or_none()
-    
-    if not existing_goal:
-        raise HTTPException(status_code=404, detail="Goal not found")
-    
-    existing_goal.goal_type = goal.goal_type
-    existing_goal.target_value = goal.target_value
-    existing_goal.period_start = goal.period_start
-    existing_goal.period_end = goal.period_end
-    
-    await db.commit()
-    await db.refresh(existing_goal)
-    
-    progress = min((existing_goal.current_value / existing_goal.target_value) * 100, 100) if existing_goal.target_value > 0 else 0
-    
-    return UserGoalResponse(
-        id=existing_goal.id,
-        goal_type=existing_goal.goal_type,
-        target_value=existing_goal.target_value,
-        current_value=existing_goal.current_value,
-        period_start=existing_goal.period_start,
-        period_end=existing_goal.period_end,
-        is_achieved=existing_goal.is_achieved,
-        achieved_at=existing_goal.achieved_at,
-        progress_percentage=progress,
-        is_self_assigned=existing_goal.is_self_assigned,
-    )
+    try:
+        return await goal_service.update_goal(db, goal_id, goal, current_user)
+    except EfficiencyNotFoundError as exc:
+        raise _http_for_efficiency_error(exc)
 
 
 @router.delete("/goals/{goal_id}")
@@ -505,24 +338,10 @@ async def delete_goal(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Delete a personal goal."""
-    result = await db.execute(
-        select(UserGoal).where(
-            and_(
-                UserGoal.id == goal_id,
-                UserGoal.user_id == current_user.id,
-            )
-        )
-    )
-    goal = result.scalar_one_or_none()
-    
-    if not goal:
-        raise HTTPException(status_code=404, detail="Goal not found")
-    
-    await db.delete(goal)
-    await db.commit()
-    
-    return {"status": "deleted"}
-
+    try:
+        return await goal_service.delete_goal(db, goal_id, current_user)
+    except EfficiencyNotFoundError as exc:
+        raise _http_for_efficiency_error(exc)
 
 
 @router.get("/achievements/my", response_model=List[AchievementResponse])

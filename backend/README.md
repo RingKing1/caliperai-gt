@@ -490,6 +490,12 @@ pytest -q
       activity（log/batch）、goals（4 路由）、achievements（3）、个人/团队
       stats 与 leaderboard/live（约 700 行聚合）、alerts（2）、challenges（4）、
       team-member-report。
+- [x] **P1（5/N）效率域 activity + goals 子域**：新增包内
+      `activity.py`（单条/批量事件，含任务会话计数联动）与 `goals.py`
+      （目标 CRUD + 标注量实时进度，`count_labels_in_period` 五表统计与
+      自动来源过滤迁入，纯规则 `_progress_percentage` 单测覆盖）；端点新增
+      6 条薄路由（351 测试全绿；顺带清掉 efficiency.py 基线全部 F401 死
+      导入，仅保留历史 F841），OpenAPI 契约零差异。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
   `models/` 包按域组织（org、user、catalog、scene、task、annotation、qa、
       efficiency、chat），`__init__.py` 重导出保证 import 零改动；
