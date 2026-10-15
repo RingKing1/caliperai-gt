@@ -53,14 +53,19 @@ async def create_frame(
     return frame
 
 
-@router.get("", response_model=list[FrameResponse])
+@router.post("/bulk", response_model=list[FrameResponse], status_code=status.HTTP_201_CREATED)
 async def create_frames_bulk(
     scene_id: UUID,
     frames: list[FrameCreate],
     current_user: Annotated[User, Depends(RequirePermissions(Permission.SCENES_CREATE))],
     db: AsyncSession = Depends(get_db),
 ) -> list[Frame]:
-    """Create multiple frames for a scene. Requires SCENES_CREATE permission."""
+    """Create multiple frames for a scene.
+
+    Requires SCENES_CREATE permission. Previously this was mis-decorated as
+    ``GET ""`` (a body-bearing GET that also shadowed ``list_frames``,
+    making ``GET /frames`` return 422); it now lives at ``POST /frames/bulk``.
+    """
     scene_query = select(Scene).where(
         Scene.id == scene_id,
         Scene.is_deleted == False,
