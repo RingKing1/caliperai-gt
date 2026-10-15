@@ -74,10 +74,11 @@ backend/
 │   │   ├── segmentation.py      # 点云分割标签存取/导出（快照 + delta 合并校验）
 │   │   ├── task.py              # 任务/工作流/拆包/编辑器上下文/阶段历史
 │   │   ├── qa.py                # 评审会话/逐条判定/评论/建议
+│   │   ├── sam2.py              # SAM2 图像/视频分割代理（点框 prompt、embedding、propagate）
 │   │   ├── auth.py              # 登录/JWT 令牌/改密/角色/当前用户 + SSO provider/token
 │   │   ├── knowledge.py         # RAG 知识库统计/检索/重建索引
 │   │   ├── chat.py              # AI 会话与 RAG 知识块
-│   │   └── schemas.py           # 纯门面：按域重导出 240 个公开名，import 路径零改动
+│   │   └── schemas.py           # 纯门面：按域重导出 254 个公开名，import 路径零改动
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
 │       ├── database.py          # engine / session / get_db / init_db
@@ -251,7 +252,7 @@ async with async_session_factory() as session:
 - ORM：`models/models.py`（`Base(DeclarativeBase)` + `TimestampMixin` /
   `SoftDeleteMixin`）。软删除统一用 `is_deleted`，查询需显式过滤。
 - 请求/响应：`schemas/` 按域分包（common/dataops/efficiency/org/user/catalog/
-  gcs/scene/annotation/segmentation/task/qa/auth/knowledge/chat），
+  gcs/scene/annotation/segmentation/task/qa/sam2/auth/knowledge/chat），
   `schemas/schemas.py` 为纯门面重导出，公共基类 `BaseSchema`
   在 `schemas/common.py`。
 - 枚举在 models 与 schemas 中各有定义，赋值前注意取 `.value`（`AnnotationService`
@@ -547,7 +548,7 @@ pytest -q
       端点 1315 → 481 行（全域 2428 → 481），5 条薄路由，365 测试全绿，
       真实数据冒烟 200/200/200/200/404，OpenAPI 27 个 operation 与组件
       schema 零差异。**P1 五个业务域全部完成**。
-- [~] **P2 模型 / schema 分包（进行中，16/N，仅剩 sam2 随 P3 迁移）**：目标是把 `models/models.py`
+- [x] **P2 模型 / schema 分包（完成，17/N）**：目标是把 `models/models.py`
   （3627 行 / 60 类）按域拆入 `models/` 包（org、user、catalog、scene、task、
       annotation、qa、efficiency、chat），`models.py` 保留为门面重导出，保证
       67 处 `from app.models.models import X` 与 alembic/env.py 零改动。
@@ -697,11 +698,28 @@ pytest -q
       21 个 response_model + 10 个请求体路由绑定断言通过；真实 DB 冒烟
       info/history/assignment-history 200，transition/set-stage 空体 422
       （临时冒烟用户已删除）；373 测试全绿；ruff 按"端点+task.py 合并基线"
-      对比零净增。**P2 仅剩 sam2 14 个内联模型，按既定计划随 P3 微服务
-      迁移一起归位（schemas 可先落 schemas/sam2.py，端点物理迁移时仅改 import）。**
+      对比零净增。
+      - [x] **P2（17/N，P2 收官）sam2 端点 14 个内联模型归位 schemas/sam2.py**：
+      PointPromptSchema/BoxPromptSchema/SegmentRequest/SegmentResult/
+      SegmentResponse/PolygonPoint/EmbeddingRequest/EmbeddingResponse +
+      视频侧 PolygonPointInitSchema/ObjectInitSchema/VideoFrameSchema/
+      VideoPropagateRequest/PropagatedBoxSchema/VideoPropagateResponse
+      全部迁入新模块并经门面重导出（240 → 254 项 __all__）。
+      独立 GPU 微服务 `services/sam2_gpu_service.py` 内仍有一份同名线模型
+      （主应用不导入，独立进程），其去重随 P3 微服务目录迁移处理，新模块
+      docstring 已标注。过程中首次提取漏带 EmbeddingResponse.compute_time_ms
+      字段，在线 OpenAPI 逐字节对比立刻检出（其余 13 类经原始端点模块逐类
+      JSON Schema 对比零差异），补字段后在线 OpenAPI 231 paths/259 组件
+      恢复逐字节一致；4 个 response_model + 4 个请求体绑定断言通过；在线
+      冒烟 video/propagate 空体 422、segment 点 label 越界 422、合法形状
+      缺图 400 均符合原行为（临时冒烟用户已删除）；373 测试全绿；ruff 与
+      端点基线逐规则零净增（13 个 E501 为项目全局 ignore 的长 Field 描述，
+      原样保留）。**P2 模型/schema 分包全部完成。**
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；
+    迁移后把微服务内同名线模型（sam2 的 14 个、clip 各自一份）与 `schemas/`
+    包去重共享，消除双份维护；
   - 解开 `workflow_service` ↔ `dataops_service` 的懒加载循环依赖；
   - 生产环境收敛为只走 Alembic，停用启动期 `create_all`；
   - 清理 endpoint 中残留的 `print()` 调试输出，统一用 `logging`；

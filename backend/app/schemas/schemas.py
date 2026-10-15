@@ -2,7 +2,7 @@
 Pydantic schemas for API request/response validation.
 
 Schema classes live in domain modules under app/schemas/ (annotation, auth,
-catalog, common, dataops, efficiency, gcs, knowledge, org, qa, scene,
+catalog, common, dataops, efficiency, gcs, knowledge, org, qa, sam2, scene,
 segmentation, task, user). This module is a facade that re-exports
 every public name so existing imports keep working unchanged:
     from app.schemas.schemas import TaskCreate, TaskResponse, ...
@@ -210,6 +210,22 @@ from app.schemas.qa import (
     SuggestionSeverity,
     SuggestionType,
 )
+from app.schemas.sam2 import (
+    BoxPromptSchema,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    ObjectInitSchema,
+    PointPromptSchema,
+    PolygonPoint,
+    PolygonPointInitSchema,
+    PropagatedBoxSchema,
+    SegmentRequest,
+    SegmentResponse,
+    SegmentResult,
+    VideoFrameSchema,
+    VideoPropagateRequest,
+    VideoPropagateResponse,
+)
 from app.schemas.scene import (
     CameraCalibration,
     EgoPose,
@@ -335,6 +351,20 @@ __all__ = [
     "BulkSubmitRequest",
     "BulkOperationResult",
     "SetStageRequest",
+    "PointPromptSchema",
+    "BoxPromptSchema",
+    "SegmentRequest",
+    "PolygonPoint",
+    "SegmentResult",
+    "SegmentResponse",
+    "EmbeddingRequest",
+    "EmbeddingResponse",
+    "PolygonPointInitSchema",
+    "ObjectInitSchema",
+    "VideoFrameSchema",
+    "VideoPropagateRequest",
+    "PropagatedBoxSchema",
+    "VideoPropagateResponse",
     "OrganizationRole",
     "OrganizationBase",
     "OrganizationCreate",
