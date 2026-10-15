@@ -21,8 +21,6 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.models.models import (
-    Achievement,
-    AchievementType,
     Annotation,
     Annotation2D,
     Annotation3D,
@@ -32,7 +30,6 @@ from app.models.models import (
     DailyUserStats,
     Dataset,
     OrganizationMember,
-    PerformanceAlert,
     Permission,
     Scene,
     Task,
@@ -43,7 +40,9 @@ from app.models.models import (
     User,
     UserLoginSession,
 )
+from app.services.efficiency import achievements as achievement_service
 from app.services.efficiency import activity as activity_service
+from app.services.efficiency import alerts as alert_service
 from app.services.efficiency import goals as goal_service
 from app.services.efficiency import sessions as session_service
 from app.services.efficiency.common import get_display_name
@@ -86,75 +85,6 @@ from app.services.rbac_service import RequirePermissions, get_current_user
 
 router = APIRouter()
 
-
-
-ACHIEVEMENT_INFO = {
-    AchievementType.SPEED_DEMON.value: {
-        "title": "Speed Demon",
-        "description": "Complete 10 labels in under 30 minutes",
-        "icon": "⚡"
-    },
-    AchievementType.LIGHTNING_FAST.value: {
-        "title": "Lightning Fast",
-        "description": "Top 10% speed for a week",
-        "icon": "🏎️"
-    },
-    AchievementType.QUALITY_CHAMPION.value: {
-        "title": "Quality Champion",
-        "description": "Achieve 95%+ acceptance rate",
-        "icon": "🏆"
-    },
-    AchievementType.PERFECTIONIST.value: {
-        "title": "Perfectionist",
-        "description": "10 tasks in a row without revision",
-        "icon": "💎"
-    },
-    AchievementType.ZERO_DEFECT.value: {
-        "title": "Zero Defect",
-        "description": "50 first-time accepts",
-        "icon": "✨"
-    },
-    AchievementType.CONSISTENCY_STAR.value: {
-        "title": "Consistency Star",
-        "description": "5-day streak of meeting goals",
-        "icon": "⭐"
-    },
-    AchievementType.MARATHON_RUNNER.value: {
-        "title": "Marathon Runner",
-        "description": "10-day streak of activity",
-        "icon": "🏃"
-    },
-    AchievementType.DEDICATED.value: {
-        "title": "Dedicated",
-        "description": "30-day active streak",
-        "icon": "🎖️"
-    },
-    AchievementType.CENTURY_CLUB.value: {
-        "title": "Century Club",
-        "description": "100 labels in a day",
-        "icon": "💯"
-    },
-    AchievementType.THOUSAND_LABELS.value: {
-        "title": "Thousand Labels",
-        "description": "1000 labels in a day",
-        "icon": "🎯"
-    },
-    AchievementType.MILESTONE_5K.value: {
-        "title": "5K Milestone",
-        "description": "5000 labels in a day",
-        "icon": "🌟"
-    },
-    AchievementType.ON_THE_RISE.value: {
-        "title": "On the Rise",
-        "description": "20% efficiency improvement",
-        "icon": "📈"
-    },
-    AchievementType.COMEBACK_KID.value: {
-        "title": "Comeback Kid",
-        "description": "Recovered from low performance",
-        "icon": "💪"
-    },
-}
 
 
 
@@ -344,32 +274,18 @@ async def delete_goal(
         raise _http_for_efficiency_error(exc)
 
 
+# ---------------------------------------------------------------------------
+# Achievements (services/efficiency/achievements.py)
+# ---------------------------------------------------------------------------
+
+
 @router.get("/achievements/my", response_model=List[AchievementResponse])
 async def get_my_achievements(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ) -> List[AchievementResponse]:
     """Get current user's achievements."""
-    result = await db.execute(
-        select(Achievement)
-        .where(Achievement.user_id == current_user.id)
-        .order_by(desc(Achievement.earned_at))
-    )
-    achievements = result.scalars().all()
-    
-    return [
-        AchievementResponse(
-            id=a.id,
-            achievement_type=a.achievement_type,
-            earned_at=a.earned_at,
-            metadata=a.achievement_metadata or {},
-            is_seen=a.is_seen,
-            title=ACHIEVEMENT_INFO.get(a.achievement_type, {}).get("title", a.achievement_type),
-            description=ACHIEVEMENT_INFO.get(a.achievement_type, {}).get("description", ""),
-            icon=ACHIEVEMENT_INFO.get(a.achievement_type, {}).get("icon", "🏅"),
-        )
-        for a in achievements
-    ]
+    return await achievement_service.list_my_achievements(db, current_user)
 
 
 @router.get("/achievements/unseen", response_model=List[AchievementResponse])
@@ -378,31 +294,7 @@ async def get_unseen_achievements(
     db: AsyncSession = Depends(get_db),
 ) -> List[AchievementResponse]:
     """Get current user's unseen achievements for notification purposes."""
-    result = await db.execute(
-        select(Achievement)
-        .where(
-            and_(
-                Achievement.user_id == current_user.id,
-                Achievement.is_seen == False,
-            )
-        )
-        .order_by(desc(Achievement.earned_at))
-    )
-    achievements = result.scalars().all()
-    
-    return [
-        AchievementResponse(
-            id=a.id,
-            achievement_type=a.achievement_type,
-            earned_at=a.earned_at,
-            metadata=a.achievement_metadata or {},
-            is_seen=a.is_seen,
-            title=ACHIEVEMENT_INFO.get(a.achievement_type, {}).get("title", a.achievement_type),
-            description=ACHIEVEMENT_INFO.get(a.achievement_type, {}).get("description", ""),
-            icon=ACHIEVEMENT_INFO.get(a.achievement_type, {}).get("icon", "🏅"),
-        )
-        for a in achievements
-    ]
+    return await achievement_service.list_unseen_achievements(db, current_user)
 
 
 @router.post("/achievements/{achievement_id}/mark-seen")
@@ -412,18 +304,12 @@ async def mark_achievement_seen(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Mark an achievement as seen."""
-    achievement = await db.get(Achievement, achievement_id)
-    if not achievement:
-        raise HTTPException(status_code=404, detail="Achievement not found")
-    if achievement.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not your achievement")
-    
-    achievement.is_seen = True
-    achievement.seen_at = datetime.utcnow()
-    await db.commit()
-    
-    return {"status": "marked_seen"}
-
+    try:
+        return await achievement_service.mark_achievement_seen(
+            db, achievement_id, current_user
+        )
+    except (EfficiencyNotFoundError, EfficiencyForbiddenError) as exc:
+        raise _http_for_efficiency_error(exc)
 
 
 @router.get("/stats/my", response_model=EfficiencyStats)
@@ -1122,6 +1008,11 @@ async def get_leaderboard(
 
 
 
+# ---------------------------------------------------------------------------
+# Performance alerts (services/efficiency/alerts.py)
+# ---------------------------------------------------------------------------
+
+
 @router.get("/alerts", response_model=List[PerformanceAlertResponse])
 async def get_performance_alerts(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.DASHBOARD_VIEW_TEAM))],
@@ -1131,36 +1022,9 @@ async def get_performance_alerts(
     limit: int = Query(50, ge=1, le=200),
 ) -> List[PerformanceAlertResponse]:
     """Get performance alerts for team."""
-    query = (
-        select(PerformanceAlert, User)
-        .join(User, PerformanceAlert.user_id == User.id)
-        .order_by(desc(PerformanceAlert.created_at))
-        .limit(limit)
+    return await alert_service.list_alerts(
+        db, current_user, organization_id, include_acknowledged, limit
     )
-    
-    if not include_acknowledged:
-        query = query.where(PerformanceAlert.is_acknowledged == False)
-    
-    result = await db.execute(query)
-    alerts = result.all()
-    
-    responses = []
-    for alert, user in alerts:
-        display_name = await get_display_name(db, user, current_user, organization_id)
-        responses.append(PerformanceAlertResponse(
-            id=alert.id,
-            user_id=user.id,
-            display_name=display_name,
-            alert_type=alert.alert_type,
-            severity=alert.severity,
-            title=alert.title,
-            message=alert.message,
-            metrics=alert.metrics or {},
-            is_acknowledged=alert.is_acknowledged,
-            created_at=alert.created_at,
-        ))
-    
-    return responses
 
 
 @router.post("/alerts/{alert_id}/acknowledge")
@@ -1170,18 +1034,10 @@ async def acknowledge_alert(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Acknowledge a performance alert."""
-    alert = await db.get(PerformanceAlert, alert_id)
-    if not alert:
-        raise HTTPException(status_code=404, detail="Alert not found")
-    
-    alert.is_acknowledged = True
-    alert.acknowledged_by_id = current_user.id
-    alert.acknowledged_at = datetime.utcnow()
-    
-    await db.commit()
-    
-    return {"status": "acknowledged"}
-
+    try:
+        return await alert_service.acknowledge_alert(db, alert_id, current_user)
+    except EfficiencyNotFoundError as exc:
+        raise _http_for_efficiency_error(exc)
 
 
 _CHALLENGE_LABEL_TYPES = {"total_labels", "daily_labels", "weekly_labels", "labels"}

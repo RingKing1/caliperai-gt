@@ -496,6 +496,13 @@ pytest -q
       自动来源过滤迁入，纯规则 `_progress_percentage` 单测覆盖）；端点新增
       6 条薄路由（351 测试全绿；顺带清掉 efficiency.py 基线全部 F401 死
       导入，仅保留历史 F841），OpenAPI 契约零差异。
+- [x] **P1（5/N）效率域 achievements + alerts 子域**：`achievements.py`
+      承载成就展示元数据 `ACHIEVEMENT_INFO`、我的/未读列表、标记已见
+      （纯函数 `achievement_display` 统一标题/描述/图标回退，2 个单测）；
+      `alerts.py` 承载团队绩效告警列表（显示名组织脱敏联动）与确认。
+      5 条端点改薄路由（353 测试全绿），404/403 经领域异常映射，
+      OpenAPI 契约零差异。**剩余**：个人 stats、live/team、team-stats、
+      leaderboard（约 700 行聚合）、challenges（4 路由）、team-member-report。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
   `models/` 包按域组织（org、user、catalog、scene、task、annotation、qa、
       efficiency、chat），`__init__.py` 重导出保证 import 零改动；
