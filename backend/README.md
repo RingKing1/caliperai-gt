@@ -68,6 +68,7 @@ backend/
 │   │   ├── efficiency.py        # PM 看板/标注效率分析响应（dashboard/leaderboard/daily）
 │   │   ├── org.py / user.py     # 组织成员 / 用户
 │   │   ├── catalog.py           # 分类法/活动/数据集
+│   │   ├── gcs.py               # GCS 连接/浏览/场景发现/导入
 │   │   ├── scene.py             # 场景/帧/标定/ego pose（含 FlexibleCalibration 别名）
 │   │   ├── annotation.py        # 五模态数据结构/标注/批量/迁移（含 AnnotationData 别名）
 │   │   ├── segmentation.py      # 点云分割标签存取/导出（快照 + delta 合并校验）
@@ -76,7 +77,7 @@ backend/
 │   │   ├── auth.py              # 登录/JWT 令牌/改密/角色/当前用户 + SSO provider/token
 │   │   ├── knowledge.py         # RAG 知识库统计/检索/重建索引
 │   │   ├── chat.py              # AI 会话与 RAG 知识块
-│   │   └── schemas.py           # 纯门面：按域重导出 222 个公开名，import 路径零改动
+│   │   └── schemas.py           # 纯门面：按域重导出 231 个公开名，import 路径零改动
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
 │       ├── database.py          # engine / session / get_db / init_db
@@ -250,7 +251,7 @@ async with async_session_factory() as session:
 - ORM：`models/models.py`（`Base(DeclarativeBase)` + `TimestampMixin` /
   `SoftDeleteMixin`）。软删除统一用 `is_deleted`，查询需显式过滤。
 - 请求/响应：`schemas/` 按域分包（common/dataops/efficiency/org/user/catalog/
-  scene/annotation/segmentation/task/qa/auth/knowledge/chat），
+  gcs/scene/annotation/segmentation/task/qa/auth/knowledge/chat），
   `schemas/schemas.py` 为纯门面重导出，公共基类 `BaseSchema`
   在 `schemas/common.py`。
 - 枚举在 models 与 schemas 中各有定义，赋值前注意取 `.value`（`AnnotationService`
@@ -546,7 +547,7 @@ pytest -q
       端点 1315 → 481 行（全域 2428 → 481），5 条薄路由，365 测试全绿，
       真实数据冒烟 200/200/200/200/404，OpenAPI 27 个 operation 与组件
       schema 零差异。**P1 五个业务域全部完成**。
-- [~] **P2 模型 / schema 分包（进行中，14/N，仅剩 endpoint 内联模型归位）**：目标是把 `models/models.py`
+- [~] **P2 模型 / schema 分包（进行中，15/N，仅剩 workflow 消歧与 sam2）**：目标是把 `models/models.py`
   （3627 行 / 60 类）按域拆入 `models/` 包（org、user、catalog、scene、task、
       annotation、qa、efficiency、chat），`models.py` 保留为门面重导出，保证
       67 处 `from app.models.models import X` 与 alembic/env.py 零改动。
@@ -672,9 +673,20 @@ pytest -q
       history/snapshots/stats 共 6 条全 200（临时冒烟用户已删除）；373 测试
       全绿；ruff 除 1 个 UP035 导入行随拆文件倍增外零净增（含保留 datetime
       历史 F401 不动），新文件 E/F/I/N/W 零告警。
-      **P2 剩余：3 个 endpoint 中 33 个内联模型**（sam2 14 / workflow 10 /
-      gcs 9；workflow 存在 TaskWorkflowInfo 同名异构需先消歧，sam2 随 P3
-      微服务迁移）。
+      - [x] **P2（15/N）gcs 内联模型归位 schemas/gcs.py**：
+      新建 `schemas/gcs.py` 承载 GCSCredentialsRequest/GCSConnectionTest/
+      GCSBucketResponse/GCSObjectResponse/GCSSceneResponse/
+      GCSListObjectsResponse/GCSDiscoverScenesResponse/GCSImportRequest/
+      GCSImportResponse 共 9 个模型，经门面重导出（222 → 231 项 __all__）。
+      在线 OpenAPI 规范化 JSON 逐字节一致；5 个 Pydantic response_model 与
+      2 个请求体（connect/import）的路由绑定断言通过；真实服务冒烟 import
+      缺字段 422、connect 空体 422、buckets 无凭证 400 均符合预期（临时
+      冒烟用户已删除）；373 测试全绿；ruff 除新模块 typing 导入行 2 个
+      UP035 随拆文件产生（同既定口径）外零净增，并移除端点因此次搬迁而
+      失效的 uuid.UUID 死导入（F401 回到基线 6 个），新文件 E/F/I/N/W
+      零告警（E501 项目全局 ignore）。
+      **P2 剩余：workflow 10 个（TaskWorkflowInfo 同名异构需先消歧）
+      与 sam2 14 个（随 P3 微服务迁移），合计 24 个。**
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；

@@ -2,8 +2,8 @@
 Pydantic schemas for API request/response validation.
 
 Schema classes live in domain modules under app/schemas/ (annotation, auth,
-catalog, common, dataops, efficiency, knowledge, org, qa, scene, segmentation,
-task, user). This module is a facade that re-exports
+catalog, common, dataops, efficiency, gcs, knowledge, org, qa, scene,
+segmentation, task, user). This module is a facade that re-exports
 every public name so existing imports keep working unchanged:
     from app.schemas.schemas import TaskCreate, TaskResponse, ...
 """
@@ -148,6 +148,17 @@ from app.schemas.efficiency import (
     StageBreakdown,
     TaskBreakdown,
     UserDailyStats,
+)
+from app.schemas.gcs import (
+    GCSBucketResponse,
+    GCSConnectionTest,
+    GCSCredentialsRequest,
+    GCSDiscoverScenesResponse,
+    GCSImportRequest,
+    GCSImportResponse,
+    GCSListObjectsResponse,
+    GCSObjectResponse,
+    GCSSceneResponse,
 )
 from app.schemas.knowledge import (
     KnowledgeStatsResponse,
@@ -297,6 +308,15 @@ __all__ = [
     "TaskDataOpsStats",
     "DatasetDataOpsStats",
     "SnapshotCompareResponse",
+    "GCSCredentialsRequest",
+    "GCSConnectionTest",
+    "GCSBucketResponse",
+    "GCSObjectResponse",
+    "GCSSceneResponse",
+    "GCSListObjectsResponse",
+    "GCSDiscoverScenesResponse",
+    "GCSImportRequest",
+    "GCSImportResponse",
     "OrganizationRole",
     "OrganizationBase",
     "OrganizationCreate",
