@@ -51,7 +51,9 @@ backend/
 │   │   ├── chat_service.py / llm_service.py / knowledge_service.py
 │   │   ├── scene_*_search_service.py  # 结构化 / 语义 / 混合场景检索
 │   │   └── storage_service.py / gcs_service.py / sso_service.py ...
-│   ├── models/models.py         # ⚠ 单文件 60 个 ORM 类（待分包，见 §12）
+│   ├── models/                  # ORM 模型包（base/enums 基础设施 + efficiency 域已拆出，见 §12）
+│   │   ├── base.py              # Base 重导出 + TimestampMixin/SoftDeleteMixin
+│   │   ├── enums.py             # 效率域枚举（后续按域迁入）
 │   ├── schemas/schemas.py       # ⚠ 单文件 180+ 个 Pydantic 模型（待分包）
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
@@ -519,10 +521,20 @@ pytest -q
       端点 1315 → 481 行（全域 2428 → 481），5 条薄路由，365 测试全绿，
       真实数据冒烟 200/200/200/200/404，OpenAPI 27 个 operation 与组件
       schema 零差异。**P1 五个业务域全部完成**。
-- [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
-  `models/` 包按域组织（org、user、catalog、scene、task、annotation、qa、
-      efficiency、chat），`__init__.py` 重导出保证 import 零改动；
-      `schemas/schemas.py` 与散落在 endpoint 中的内联 Pydantic 模型一并归位。
+- [~] **P2 模型 / schema 分包（进行中，1/N）**：目标是把 `models/models.py`
+  （3627 行 / 60 类）按域拆入 `models/` 包（org、user、catalog、scene、task、
+      annotation、qa、efficiency、chat），`models.py` 保留为门面重导出，保证
+      67 处 `from app.models.models import X` 与 alembic/env.py 零改动。
+      已完成基础设施 + efficiency 域：`base.py`（Base 重导出 + 两个 Mixin）、
+      `enums.py`（效率域 5 枚举）、`efficiency.py`（9 类：TimeSession /
+      UserLoginSession / ActivityEvent / UserGoal / Achievement / PerformanceAlert
+      / DailyUserStats / TeamChallenge / ChallengeParticipant），models.py
+      3627 → 2917 行。跨域引用全部是字符串 relationship/ForeignKey，无运行时
+      循环（跨域类型仅 TYPE_CHECKING 导入）；40 张表的 `CreateTable` DDL 与
+      拆分前逐字节一致，365 测试全绿，真实 DB 冒烟全 200，新文件 E/F/I/N/W
+      零告警（清掉历史 Geometry 死导入 F401）。**后续切片**：org/user →
+      catalog（含关联表）→ scene → task（含 history/audit）→ annotation →
+      qa → chat/import，每片做一次 DDL 逐字节核对；schema 归位随后进行。
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；
