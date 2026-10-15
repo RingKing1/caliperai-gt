@@ -55,6 +55,7 @@ backend/
 │   │   ├── base.py              # Base 重导出 + TimestampMixin/SoftDeleteMixin
 │   │   ├── enums.py             # 全部枚举 + ROLE_PERMISSIONS（随域迁移）
 │   │   ├── org.py / user.py     # 组织成员 / 用户与 SSO
+│   │   ├── catalog.py           # 分类法/活动/数据集 + 关联表
 │   ├── schemas/schemas.py       # ⚠ 单文件 180+ 个 Pydantic 模型（待分包）
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
@@ -542,8 +543,14 @@ pytest -q
       运行时依赖随之导入）；models.py 2917 → 2381 行。40 张表 DDL 仍逐字节
       一致，365 测试全绿，登录/用户/任务/数据集/效率真实 DB 冒烟 200，新文件
       E/F/I/N/W 零告警（继承的尾随空白顺手清理）。
-      **后续切片**：catalog（含关联表）→ scene → task（含 history/audit）→
-      annotation → qa → chat/import；schema 归位随后进行。
+      - [x] **P2（3/N）catalog 域**：`catalog.py` 承载 Taxonomy / Campaign /
+      Dataset 与 `dataset_taxonomy_association` 关联表（多个 service/endpoint
+      直接引用该 Table 对象，门面继续重导出）；models.py 2381 → 2017 行，
+      Column/Table 两个仅关联表使用的死导入一并清除。40 张表 DDL 逐字节一致，
+      365 测试全绿，datasets/campaigns/taxonomies/scenes 真实 DB 冒烟 200，
+      新文件 E/F/I/N/W 零告警。
+      **后续切片**：scene → task（含 history/audit）→ annotation → qa →
+      chat/import；schema 归位随后进行。
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；
