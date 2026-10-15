@@ -69,12 +69,13 @@ backend/
 │   │   ├── catalog.py           # 分类法/活动/数据集
 │   │   ├── scene.py             # 场景/帧/标定/ego pose（含 FlexibleCalibration 别名）
 │   │   ├── annotation.py        # 五模态数据结构/标注/批量/迁移（含 AnnotationData 别名）
+│   │   ├── segmentation.py      # 点云分割标签存取/导出（快照 + delta 合并校验）
 │   │   ├── task.py              # 任务/工作流/拆包/编辑器上下文/阶段历史
 │   │   ├── qa.py                # 评审会话/逐条判定/评论/建议
 │   │   ├── auth.py              # 登录/JWT 令牌/改密/角色/当前用户 + SSO provider/token
 │   │   ├── knowledge.py         # RAG 知识库统计/检索/重建索引
 │   │   ├── chat.py              # AI 会话与 RAG 知识块
-│   │   └── schemas.py           # 纯门面：按域重导出 210 个公开名，import 路径零改动
+│   │   └── schemas.py           # 纯门面：按域重导出 214 个公开名，import 路径零改动
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
 │       ├── database.py          # engine / session / get_db / init_db
@@ -248,8 +249,8 @@ async with async_session_factory() as session:
 - ORM：`models/models.py`（`Base(DeclarativeBase)` + `TimestampMixin` /
   `SoftDeleteMixin`）。软删除统一用 `is_deleted`，查询需显式过滤。
 - 请求/响应：`schemas/` 按域分包（common/efficiency/org/user/catalog/scene/
-  annotation/task/qa/auth/knowledge/chat），`schemas/schemas.py` 为纯门面
-  重导出，公共基类 `BaseSchema`
+  annotation/segmentation/task/qa/auth/knowledge/chat），`schemas/schemas.py`
+  为纯门面重导出，公共基类 `BaseSchema`
   在 `schemas/common.py`。
 - 枚举在 models 与 schemas 中各有定义，赋值前注意取 `.value`（`AnnotationService`
   的 `enum_value` 已封装这一点）。
@@ -544,7 +545,7 @@ pytest -q
       端点 1315 → 481 行（全域 2428 → 481），5 条薄路由，365 测试全绿，
       真实数据冒烟 200/200/200/200/404，OpenAPI 27 个 operation 与组件
       schema 零差异。**P1 五个业务域全部完成**。
-- [~] **P2 模型 / schema 分包（进行中，12/N，仅剩 endpoint 内联模型归位）**：目标是把 `models/models.py`
+- [~] **P2 模型 / schema 分包（进行中，13/N，仅剩 endpoint 内联模型归位）**：目标是把 `models/models.py`
   （3627 行 / 60 类）按域拆入 `models/` 包（org、user、catalog、scene、task、
       annotation、qa、efficiency、chat），`models.py` 保留为门面重导出，保证
       67 处 `from app.models.models import X` 与 alembic/env.py 零改动。
@@ -648,9 +649,20 @@ pytest -q
       373 测试全绿；ruff 除 1 个 UP035 导入行随拆文件倍增（同 9/N 口径）
       外零净增，并清掉随 PMDashboardStats 搬来的 5 个空白 W293，新文件
       E/F/I/N/W 零告警。
-      **P2 剩余：5 个 endpoint 中 44 个内联模型**（sam2 14 / workflow 10 /
-      gcs 9 / dataops 7 / segmentation 4；workflow 存在 TaskWorkflowInfo
-      同名异构需先消歧，sam2 随 P3 微服务迁移）。
+      - [x] **P2（13/N）segmentation 内联模型归位 schemas/segmentation.py**：
+      新建 `schemas/segmentation.py` 承载 SegmentationLabelsCreate（含
+      snapshot/delta 合并的 model_validator）/SegmentationLabelsResponse/
+      SegmentationExportRequest/SegmentationStats 共 4 个模型，经门面重导出
+      （210 → 214 项 __all__）。在线 OpenAPI 规范化 JSON 逐字节一致；
+      validator 6 个正反用例（合法快照/合法 delta/全缺/半 delta/长度不符/
+      instance 长度不符）全部保持原行为；POST 存取与 export 两条请求体及
+      stats/GET 响应的路由绑定断言通过；373 测试全绿；ruff 除 1 个 UP035
+      导入行随拆文件倍增（同既定口径）外零净增，且消除端点文件 1 个历史
+      W292（sed 规范化文件尾换行），新文件 E/F/I/N/W 零告警（E501 项目
+      配置全局 ignore）。
+      **P2 剩余：4 个 endpoint 中 40 个内联模型**（sam2 14 / workflow 10 /
+      gcs 9 / dataops 7；workflow 存在 TaskWorkflowInfo 同名异构需先消歧，
+      sam2 随 P3 微服务迁移）。
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；
