@@ -723,6 +723,12 @@ pytest -q
   - 解开 `workflow_service` ↔ `dataops_service` 的懒加载循环依赖；
   - 生产环境收敛为只走 Alembic，停用启动期 `create_all`；
   - 清理 endpoint 中残留的 `print()` 调试输出，统一用 `logging`；
+  - 独立"风格大扫除"提交（与功能重构隔离，便于 review/blame）：`ruff check app
+    --fix` 清历史 UP/W 告警——`UP006`/`UP035`（`List/Dict` → `list/dict`）、
+    `UP042`/`UP045`/`UP007`（`Optional/Union` → `X | None`）、`W291`/`W293`
+    （行尾与空行空白）；P2 分包期间按"零净增"口径原样保留，不在分包提交里
+    夹带。验收：373 测试全绿 + 在线 OpenAPI 规范化 JSON 逐字节一致（Pydantic
+    v2 下两种泛型写法契约等价）；
   - 推进 OpenAPI → TypeScript 类型生成，消除前端手写类型漂移。
 
 ### 重构一个新业务域的推荐步骤
