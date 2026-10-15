@@ -2,8 +2,8 @@
 Pydantic schemas for API request/response validation.
 
 Schema classes live in domain modules under app/schemas/ (annotation, auth,
-catalog, common, knowledge, org, qa, scene, task, user). This module is a facade
-that re-exports
+catalog, common, efficiency, knowledge, org, qa, scene, task, user). This
+module is a facade that re-exports
 every public name so existing imports keep working unchanged:
     from app.schemas.schemas import TaskCreate, TaskResponse, ...
 """
@@ -127,6 +127,18 @@ from app.schemas.common import (
     TimestampSchema,
     UserRole,
 )
+from app.schemas.efficiency import (
+    AnnotationDailyStats,
+    AnnotatorStats,
+    EfficiencyMetrics,
+    MostTimeConsumingTask,
+    MyDashboardStats,
+    PMDashboardStats,
+    RecentActivity,
+    StageBreakdown,
+    TaskBreakdown,
+    UserDailyStats,
+)
 from app.schemas.knowledge import (
     KnowledgeStatsResponse,
     ReindexResponse,
@@ -247,6 +259,16 @@ __all__ = [
     "SearchRequest",
     "SearchResponse",
     "ReindexResponse",
+    "AnnotatorStats",
+    "TaskBreakdown",
+    "AnnotationDailyStats",
+    "UserDailyStats",
+    "MyDashboardStats",
+    "StageBreakdown",
+    "MostTimeConsumingTask",
+    "RecentActivity",
+    "EfficiencyMetrics",
+    "PMDashboardStats",
     "OrganizationRole",
     "OrganizationBase",
     "OrganizationCreate",
