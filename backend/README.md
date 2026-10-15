@@ -51,9 +51,10 @@ backend/
 │   │   ├── chat_service.py / llm_service.py / knowledge_service.py
 │   │   ├── scene_*_search_service.py  # 结构化 / 语义 / 混合场景检索
 │   │   └── storage_service.py / gcs_service.py / sso_service.py ...
-│   ├── models/                  # ORM 模型包（base/enums 基础设施 + efficiency 域已拆出，见 §12）
+│   ├── models/                  # ORM 模型包（base/enums + efficiency/org/user 已拆出，见 §12）
 │   │   ├── base.py              # Base 重导出 + TimestampMixin/SoftDeleteMixin
-│   │   ├── enums.py             # 效率域枚举（后续按域迁入）
+│   │   ├── enums.py             # 全部枚举 + ROLE_PERMISSIONS（随域迁移）
+│   │   ├── org.py / user.py     # 组织成员 / 用户与 SSO
 │   ├── schemas/schemas.py       # ⚠ 单文件 180+ 个 Pydantic 模型（待分包）
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
@@ -532,9 +533,17 @@ pytest -q
       3627 → 2917 行。跨域引用全部是字符串 relationship/ForeignKey，无运行时
       循环（跨域类型仅 TYPE_CHECKING 导入）；40 张表的 `CreateTable` DDL 与
       拆分前逐字节一致，365 测试全绿，真实 DB 冒烟全 200，新文件 E/F/I/N/W
-      零告警（清掉历史 Geometry 死导入 F401）。**后续切片**：org/user →
-      catalog（含关联表）→ scene → task（含 history/audit）→ annotation →
-      qa → chat/import，每片做一次 DDL 逐字节核对；schema 归位随后进行。
+      零告警（清掉历史 Geometry 死导入 F401）。每片做一次 DDL 逐字节核对。
+      - [x] **P2（2/N）org + user 域 + 全枚举**：`org.py`（Organization /
+      OrganizationMember）、`user.py`（User / UserSSOIdentity）；
+      TaskStatus/TaskStage/AnnotationType/AnnotationSource/
+      TaxonomyAnnotationMode/UserRole/Permission/OrganizationRole 与
+      ROLE_PERMISSIONS 全部迁入 `enums.py`（User.has_permission 等方法的
+      运行时依赖随之导入）；models.py 2917 → 2381 行。40 张表 DDL 仍逐字节
+      一致，365 测试全绿，登录/用户/任务/数据集/效率真实 DB 冒烟 200，新文件
+      E/F/I/N/W 零告警（继承的尾随空白顺手清理）。
+      **后续切片**：catalog（含关联表）→ scene → task（含 history/audit）→
+      annotation → qa → chat/import；schema 归位随后进行。
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；
