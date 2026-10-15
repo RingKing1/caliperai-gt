@@ -97,8 +97,16 @@ class TestCredentialHardening:
 
     @pytest.fixture(autouse=True)
     def compose_texts(self):
-        dev = (PROJECT_ROOT / "docker-compose.yml").read_text()
-        prod = (PROJECT_ROOT / "docker-compose.prod.yml").read_text()
+        # These are static checks against the repo-root compose files.
+        # They only exist on a checkout/CI host, not inside the backend
+        # image (which copies only backend/), so skip instead of erroring
+        # when the files are not present in the current environment.
+        dev_path = PROJECT_ROOT / "docker-compose.yml"
+        prod_path = PROJECT_ROOT / "docker-compose.prod.yml"
+        if not dev_path.is_file() or not prod_path.is_file():
+            pytest.skip("docker-compose files not present in this environment")
+        dev = dev_path.read_text()
+        prod = prod_path.read_text()
         self._dev = dev
         self._prod = prod
 
