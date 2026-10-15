@@ -56,6 +56,7 @@ backend/
 │   │   ├── enums.py             # 全部枚举 + ROLE_PERMISSIONS（随域迁移）
 │   │   ├── org.py / user.py     # 组织成员 / 用户与 SSO
 │   │   ├── catalog.py           # 分类法/活动/数据集 + 关联表
+│   │   ├── scene.py             # 场景与帧
 │   ├── schemas/schemas.py       # ⚠ 单文件 180+ 个 Pydantic 模型（待分包）
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
@@ -549,7 +550,10 @@ pytest -q
       Column/Table 两个仅关联表使用的死导入一并清除。40 张表 DDL 逐字节一致，
       365 测试全绿，datasets/campaigns/taxonomies/scenes 真实 DB 冒烟 200，
       新文件 E/F/I/N/W 零告警。
-      **后续切片**：scene → task（含 history/audit）→ annotation → qa →
+      - [x] **P2（4/N）scene 域**：`scene.py` 承载 Scene / Frame，models.py
+      2017 → 1830 行；40 张表 DDL 逐字节一致，365 测试全绿，scenes 真实
+      DB 冒烟 200，新文件零告警。
+      **后续切片**：task（含 history/audit）→ annotation → qa →
       chat/import；schema 归位随后进行。
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
