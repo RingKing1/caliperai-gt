@@ -24,6 +24,7 @@ Workflow:
     ACCEPTED STAGE:
         accepted (final state)
 """
+import logging
 import uuid
 from datetime import datetime
 from typing import Optional, Tuple, List, Dict, Any
@@ -42,11 +43,9 @@ from app.models.models import (
     ReviewVerdict,
 )
 
-try:
-    from app.services.dataops_service import DataOpsService
-    DATAOPS_AVAILABLE = True
-except ImportError:
-    DATAOPS_AVAILABLE = False
+from app.services.dataops_service import DataOpsService
+
+logger = logging.getLogger(__name__)
 
 
 class WorkflowError(Exception):
@@ -670,9 +669,6 @@ class WorkflowService:
         notes: Optional[str],
     ) -> None:
         """Create a snapshot of annotations when transitioning stages."""
-        if not DATAOPS_AVAILABLE:
-            return
-        
         try:
             dataops = DataOpsService(self.db)
             await dataops.create_stage_snapshot(
@@ -684,9 +680,9 @@ class WorkflowService:
                 triggered_by_id=triggered_by_id,
                 notes=notes,
             )
-        except Exception as e:
-            import logging
-            logging.error(f"Failed to create stage snapshot: {e}")
+        except Exception:
+            # Snapshot failures must never block a stage transition.
+            logger.exception("Failed to create stage snapshot")
     
     async def _clear_assignees_on_stage_change(
         self,

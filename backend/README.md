@@ -732,7 +732,12 @@ pytest -q
     验收：373 测试全绿；后端在线 OpenAPI 231 paths/259 组件逐字节一致；
     微服务 FastAPI app 导入正常，新旧微服务 OpenAPI 归一化结构对比 5/5、
     16/16 组件一致（仅类名/描述差异），TestClient 实测 mask_index 保留。
-  - [ ] 解开 `workflow_service` ↔ `dataops_service` 的懒加载循环依赖；
+  - [x] **解开 `workflow_service` ↔ `dataops_service` 懒加载循环（P3 3/N）**：
+    dataops 侧实际只依赖 models、环早已不存在，移除 workflow 顶部
+    `try/except ImportError` + `DATAOPS_AVAILABLE` 历史防御写法，改为正常
+    顶层导入；`_create_stage_snapshot` 保留运行期 try/except（快照失败
+    不阻塞阶段流转），日志从 `logging.error` 临时导入改模块 logger +
+    `logger.exception` 带堆栈。373 测试全绿、OpenAPI 零差异。
   - [ ] 生产环境收敛为只走 Alembic，停用启动期 `create_all`；
   - [x] **print 清理（P3 1/N）**：data/import_data 端点与 dataset_import 域、
     task_service 残留 `print()` 全部改模块 logger（debug/info/warning/error
