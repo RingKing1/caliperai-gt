@@ -502,7 +502,14 @@ pytest -q
       `alerts.py` 承载团队绩效告警列表（显示名组织脱敏联动）与确认。
       5 条端点改薄路由（353 测试全绿），404/403 经领域异常映射，
       OpenAPI 契约零差异。**剩余**：个人 stats、live/team、team-stats、
-      leaderboard（约 700 行聚合）、challenges（4 路由）、team-member-report。
+      leaderboard（约 700 行聚合）、team-member-report。
+- [x] **P1（5/N）效率域 challenges 子域**：`challenges.py` 承载团队挑战
+      列表（实时五表标注量进度、top5 贡献者、完成态自动翻转）、创建
+      （无组织时回查成员关系，缺失抛 400）、更新/删除（创建者或 admin 授权，
+      403 领域异常）；`compute_challenge_progress` 与自动来源过滤一并迁入，
+      纯规则进度百分比补 2 个单测，4 条端点改薄路由（354 测试全绿，
+      OpenAPI 契约零差异）。端点文件从 2428 行降至约 1100 行；仅剩个人/团队
+      stats、live、leaderboard、team-member-report 五个大聚合路由待拆。
 - [ ] **P2 模型 / schema 分包**：`models/models.py`（3500+ 行 / 60 类）拆为
   `models/` 包按域组织（org、user、catalog、scene、task、annotation、qa、
       efficiency、chat），`__init__.py` 重导出保证 import 零改动；
