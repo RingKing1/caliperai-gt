@@ -339,3 +339,16 @@ class SuggestionSeverity(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
+
+class ChatMessageRole(str, Enum):
+    """Role of the message sender."""
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+class ChatMessageFeedback(str, Enum):
+    """User feedback on assistant responses."""
+    HELPFUL = "helpful"
+    NOT_HELPFUL = "not_helpful"

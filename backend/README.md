@@ -51,7 +51,7 @@ backend/
 │   │   ├── chat_service.py / llm_service.py / knowledge_service.py
 │   │   ├── scene_*_search_service.py  # 结构化 / 语义 / 混合场景检索
 │   │   └── storage_service.py / gcs_service.py / sso_service.py ...
-│   ├── models/                  # ORM 模型包（base/enums + efficiency/org/user 已拆出，见 §12）
+│   ├── models/                  # ORM 模型包（models.py 为纯门面，11 个域模块，见 §12）
 │   │   ├── base.py              # Base 重导出 + TimestampMixin/SoftDeleteMixin
 │   │   ├── enums.py             # 全部枚举 + ROLE_PERMISSIONS（随域迁移）
 │   │   ├── org.py / user.py     # 组织成员 / 用户与 SSO
@@ -60,6 +60,8 @@ backend/
 │   │   ├── task.py              # 任务/分配与阶段历史/阶段快照
 │   │   ├── annotation.py        # 五模态标注/分割 blob/轨迹/变更历史
 │   │   ├── qa.py                # 评审会话/逐条判定/评论/建议
+│   │   ├── chat.py              # AI 会话/消息/RAG 知识块（ImportJob 在 catalog.py）
+│   │   └── models.py            # 纯门面：按域重导出全部公开名（含 Base），import 路径零改动
 │   ├── schemas/schemas.py       # ⚠ 单文件 180+ 个 Pydantic 模型（待分包）
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
@@ -574,8 +576,16 @@ pytest -q
       `ARRAY as PGARRAY` 别名）。models.py 688 → 344 行。40 张表 DDL 逐字节
       一致，365 测试全绿，qa 任务评审列表/active-review 真实 DB 冒烟 200，
       新文件零告警。
-      **后续切片**：chat（ChatSession/ChatMessage/KnowledgeChunk）与
-      ImportJob；随后 models.py 收敛为纯门面。
+      - [x] **P2（8/N）chat 域 + ImportJob，models.py 收敛为纯门面（模型分包完成）**：
+      `chat.py` 承载 ChatSession/ChatMessage/KnowledgeChunk（含 RAG embedding 的
+      PGARRAY 别名），两个聊天枚举并入 `enums.py`；`ImportJob` 归 `catalog.py`
+      （数据集导入）。models.py 从 3627 行单体变为 163 行纯门面（docstring +
+      11 个域模块的分组重导出 + `__all__`，Base 也经门面重导出供 alembic/env.py）。
+      40 张表 DDL 全程逐字节一致，365 测试全绿，datasets/tasks/qa/efficiency/
+      import-jobs 真实 DB 冒烟 200；models 整包 E/F/I/N/W 零告警。已知既有问题：
+      `GET /chat/sessions` 因 `LLM_PROVIDER=none` 非法枚举在 service 构造期 500，
+      与本次拆分无关。**模型分包全部完成；P2 剩余：schemas 归位**（schemas.py 与
+      endpoint 内联 Pydantic 模型分包）。
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；
