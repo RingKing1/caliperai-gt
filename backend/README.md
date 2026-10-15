@@ -59,6 +59,7 @@ backend/
 │   │   ├── scene.py             # 场景与帧
 │   │   ├── task.py              # 任务/分配与阶段历史/阶段快照
 │   │   ├── annotation.py        # 五模态标注/分割 blob/轨迹/变更历史
+│   │   ├── qa.py                # 评审会话/逐条判定/评论/建议
 │   ├── schemas/schemas.py       # ⚠ 单文件 180+ 个 Pydantic 模型（待分包）
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
@@ -567,7 +568,14 @@ pytest -q
       用户行为审计，并入 `user.py`。models.py 1483 → 688 行。40 张表 DDL
       逐字节一致，365 测试全绿，tasks 详情与 annotations 列表真实 DB 冒烟
       200，新文件零告警。
-      **后续切片**：qa → chat/import；schema 归位随后进行。
+      - [x] **P2（7/N）qa 域**：`qa.py` 承载 QAReview / AnnotationReview /
+      AnnotationComment / QASuggestion；QAReviewStatus/QAReviewMode/
+      ReviewVerdict/SuggestionSeverity 四个枚举迁入 `enums.py`（注意保留
+      `ARRAY as PGARRAY` 别名）。models.py 688 → 344 行。40 张表 DDL 逐字节
+      一致，365 测试全绿，qa 任务评审列表/active-review 真实 DB 冒烟 200，
+      新文件零告警。
+      **后续切片**：chat（ChatSession/ChatMessage/KnowledgeChunk）与
+      ImportJob；随后 models.py 收敛为纯门面。
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；

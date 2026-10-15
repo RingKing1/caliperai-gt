@@ -309,3 +309,33 @@ class GoalType(str, Enum):
     DAILY_HOURS = "daily_hours"
     WEEKLY_TASKS = "weekly_tasks"
     ACCEPTANCE_RATE = "acceptance_rate"
+
+
+class QAReviewStatus(str, Enum):
+    """QA review session status."""
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    PAUSED = "paused"
+
+
+class QAReviewMode(str, Enum):
+    """QA review mode."""
+    VIEW_ONLY = "view_only"
+    EDIT = "edit"
+    SUGGEST = "suggest"
+
+
+class ReviewVerdict(str, Enum):
+    """Review verdict for an annotation."""
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    FLAGGED = "flagged"
+    PENDING = "pending"
+
+
+class SuggestionSeverity(str, Enum):
+    """Severity level for QA suggestions."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
