@@ -51,7 +51,16 @@ class LLMService:
     """
     
     def __init__(self):
-        self.provider = LLMProvider(settings.LLM_PROVIDER.lower())
+        raw_provider = (settings.LLM_PROVIDER or "").strip().lower()
+        # "none"/empty means no LLM is configured for this deployment;
+        # fall back to the built-in mock mode instead of crashing.
+        if raw_provider in ("", "none", "disabled", "off"):
+            logger.info(
+                "LLM_PROVIDER=%r is not a live provider; using mock mode",
+                settings.LLM_PROVIDER,
+            )
+            raw_provider = LLMProvider.MOCK.value
+        self.provider = LLMProvider(raw_provider)
         self.model = settings.OLLAMA_MODEL
         self.base_url = settings.OLLAMA_BASE_URL
         self.max_tokens = settings.CHAT_MAX_TOKENS
