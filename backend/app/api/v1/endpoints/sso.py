@@ -14,13 +14,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.endpoints.auth import TokenUser, create_access_token
+from app.api.v1.endpoints.auth import create_access_token
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.redis_cache import get_redis
+from app.schemas.auth import ProviderInfo, SSOTokenResponse, TokenUser
 from app.services.sso_service import (
     SUPPORTED_PROVIDERS,
     build_authorization_url,
@@ -31,25 +31,6 @@ from app.services.sso_service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-
-class ProviderInfo(BaseModel):
-    """Public information about a configured SSO provider."""
-
-    provider: str
-    name: str
-    login_url: str
-
-
-class SSOTokenResponse(BaseModel):
-    """JWT response after a successful SSO callback (mirrors Token schema)."""
-
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    user: TokenUser
-
 
 
 def _provider_display_name(provider: str) -> str:

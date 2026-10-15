@@ -70,8 +70,9 @@ backend/
 │   │   ├── annotation.py        # 五模态数据结构/标注/批量/迁移（含 AnnotationData 别名）
 │   │   ├── task.py              # 任务/工作流/拆包/编辑器上下文/阶段历史
 │   │   ├── qa.py                # 评审会话/逐条判定/评论/建议
+│   │   ├── auth.py              # 登录/JWT 令牌/改密/角色/当前用户 + SSO provider/token
 │   │   ├── chat.py              # AI 会话与 RAG 知识块
-│   │   └── schemas.py           # 纯门面：按域重导出 187 个公开名，import 路径零改动
+│   │   └── schemas.py           # 纯门面：按域重导出 195 个公开名，import 路径零改动
 │   └── core/                    # 基础设施
 │       ├── config.py            # pydantic-settings 配置（强制强 SECRET_KEY）
 │       ├── database.py          # engine / session / get_db / init_db
@@ -245,7 +246,7 @@ async with async_session_factory() as session:
 - ORM：`models/models.py`（`Base(DeclarativeBase)` + `TimestampMixin` /
   `SoftDeleteMixin`）。软删除统一用 `is_deleted`，查询需显式过滤。
 - 请求/响应：`schemas/` 按域分包（common/org/user/catalog/scene/annotation/
-  task/qa/chat），`schemas/schemas.py` 为纯门面重导出，公共基类 `BaseSchema`
+  task/qa/auth/chat），`schemas/schemas.py` 为纯门面重导出，公共基类 `BaseSchema`
   在 `schemas/common.py`。
 - 枚举在 models 与 schemas 中各有定义，赋值前注意取 `.value`（`AnnotationService`
   的 `enum_value` 已封装这一点）。
@@ -540,7 +541,7 @@ pytest -q
       端点 1315 → 481 行（全域 2428 → 481），5 条薄路由，365 测试全绿，
       真实数据冒烟 200/200/200/200/404，OpenAPI 27 个 operation 与组件
       schema 零差异。**P1 五个业务域全部完成**。
-- [~] **P2 模型 / schema 分包（进行中，9/N，仅剩 endpoint 内联模型归位）**：目标是把 `models/models.py`
+- [~] **P2 模型 / schema 分包（进行中，10/N，仅剩 endpoint 内联模型归位）**：目标是把 `models/models.py`
   （3627 行 / 60 类）按域拆入 `models/` 包（org、user、catalog、scene、task、
       annotation、qa、efficiency、chat），`models.py` 保留为门面重导出，保证
       67 处 `from app.models.models import X` 与 alembic/env.py 零改动。
@@ -611,9 +612,20 @@ pytest -q
       373 测试全绿（6 skip 为容器内缺 compose 文件的 minio 静态检查）；新文件
       E/F/I/N/W 零告警，UP 历史告警与基线同分布（仅 typing 导入行随拆文件倍增，
       与 models 分包同口径），并顺手清掉 7 处空白与 1 处 import 排序历史告警。
-      **P2 剩余：9 个 endpoint 中 67 个内联 Pydantic 模型按域归位**
-      （sam2 14 / workflow 10 / analytics 10 / gcs 9 / dataops 7 / auth 6 /
-      knowledge 5 / segmentation 4 / sso 2）。
+      - [x] **P2（10/N）auth + sso 内联模型归位 schemas/auth.py**：
+      新建 `schemas/auth.py` 承载 Token/TokenUser/LoginRequest/
+      PasswordChangeRequest/RoleInfo/CurrentUserResponse（auth 端点 6 个）
+      与 ProviderInfo/SSOTokenResponse（sso 端点 2 个），Token 与
+      SSOTokenResponse 的前向引用改为同模块先定义 TokenUser 自然消解；
+      8 个名经 schemas 门面继续重导出（187 → 195 项 __all__），sso 端点
+      不再从 auth 端点模块导入 TokenUser（解开 endpoint→endpoint 依赖）。
+      在线 OpenAPI 231 paths / 259 组件拆分前后规范化 JSON 逐字节一致；
+      373 测试全绿；真实服务冒烟 login(JSON)/login 缺字段 422/错密 401/
+      me/refresh/roles/sso providers 全部符合预期（临时冒烟用户已删除）；
+      新文件 E/F/I/N/W 零告警，auth 端点较基线少 1 个历史 F401（EmailStr
+      死导入），sso 端点无告警，无新增告警。
+      **P2 剩余：7 个 endpoint 中 59 个内联模型**（sam2 14 / workflow 10 /
+      analytics 10 / gcs 9 / dataops 7 / knowledge 5 / segmentation 4）。
 - [ ] **P3 模块边界与工程化**：
   - `sam2_gpu_service.py` / `clip_gpu_service.py` 是独立部署的 FastAPI 进程，
     应移出 `app/services/`（建议顶层 `microservices/`），让 `services/` 只放领域服务；

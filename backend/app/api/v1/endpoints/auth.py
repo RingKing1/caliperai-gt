@@ -13,11 +13,18 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from jose import jwt
-from pydantic import BaseModel, EmailStr, Field
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.models import User, UserRole, Permission, ROLE_PERMISSIONS
+from app.schemas.auth import (
+    CurrentUserResponse,
+    LoginRequest,
+    PasswordChangeRequest,
+    RoleInfo,
+    Token,
+    TokenUser,
+)
 from app.services.rbac_service import (
     get_current_user,
     get_all_roles,
@@ -26,62 +33,6 @@ from app.services.rbac_service import (
 
 
 router = APIRouter()
-
-
-
-class Token(BaseModel):
-    """JWT token response."""
-    access_token: str
-    refresh_token: str | None = None
-    token_type: str = "bearer"
-    expires_in: int
-    user: "TokenUser"
-
-
-class TokenUser(BaseModel):
-    """User info included in token response."""
-    id: str
-    email: str
-    username: str
-    full_name: str | None
-    role: str
-    is_superuser: bool
-    permissions: list[str]
-    must_change_password: bool = False
-
-
-class LoginRequest(BaseModel):
-    """Login request body."""
-    username: str
-    password: str
-
-
-class PasswordChangeRequest(BaseModel):
-    """Password change request."""
-    current_password: str
-    new_password: str = Field(..., min_length=8)
-
-
-class RoleInfo(BaseModel):
-    """Role information."""
-    name: str
-    value: str
-    description: str
-    permissions: list[str]
-
-
-class CurrentUserResponse(BaseModel):
-    """Current user response with permissions."""
-    id: str
-    email: str
-    username: str
-    full_name: str | None
-    role: str
-    is_active: bool
-    is_superuser: bool
-    permissions: list[str]
-    must_change_password: bool = False
-
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
