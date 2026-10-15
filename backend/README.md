@@ -396,13 +396,18 @@ pytest -q
 
 ### 待完成（按 ROI 排序）
 
-- [ ] **P0 收尾（2b/2c）：剩余语义分叉统一 + 抽 orchestrator**：逐场景循环仍各有一份，
-      特征测试与真包对等验证已就位，剩余待统一口径（涉及前端编辑器消费的字段，需联调确认）：
-      ego pose 解析（upload 从父级 metadata.json 合成 vs zip 支持 list 形态）、
-      标定继承（upload 逐场景重置 vs zip 继承数据集级标定）、
-      平铺文件归类（单相机 vs lidar/default 分桶）、重名检查（zip 对用户改名跳过检查）。
-      `storage_paths` 字段形态与 `/upload` 错误码分叉已在 2a / 错误码对齐中解决。
-      口径统一后再抽 `orchestrator` 合并循环；video 管线结构不同，不并入。
+- [x] **P0 收尾（2b/2c）：抽取共享逐场景 orchestrator**：`/upload` 与 `/upload-zip`
+      的逐场景循环（原各约 250 行）合并为
+      `services/dataset_import/scene_pipeline.py` 的 `import_one_scene`，
+      `import_data.py` 从 1497 行降至 1051 行。历史分叉不再散落在两份循环里，而是显式
+      收敛到 `PipelineSpec`：ego pose（upload 从父级 metadata.json 合成 / zip 支持
+      JSON list）、标定继承（upload 逐场景重置 / zip 继承数据集级标定）、重名检查
+      （zip 对用户改名跳过）、回退布局归类（upload 单合成相机 / zip 的 images、default、
+      lidar 分桶）、场景元数据字段约定。新增 6 个分叉语义单测；真实验证：同一真实 6 相机
+      10 帧 ZIP 分别走 upload 与 zip 两条管线，均产出 10 帧 × 6 相机、6 路标定、130 个
+      3D 标注、MinIO 82 对象且 storage_paths 五键对等（310 测试全绿，容器内 6 个 minio
+      基线 error 为既有项）。**分叉的“语义口径统一”（是否要让两管线行为真的一致）仍
+      待与前端联调后决定**，当前仅完成去重与显式化，行为零变更；video 管线结构不同，未并入。
 - [ ] **P0 收尾（3）：长上传后台 job 化**：把数分钟的上传/解压/导入改为“后台 job +
       进度查询”，消除长事务；需新增进度端点并与前端联调。
 - [ ] **P1 其余业务域补 service 层**：`tasks.py`、`qa.py`、`datasets.py`、

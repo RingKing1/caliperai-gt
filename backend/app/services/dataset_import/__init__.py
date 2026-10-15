@@ -16,6 +16,7 @@ Layout:
 * storage             - MinIO mirroring
 * taxonomy            - class scanning and taxonomy derivation/merging
 * scene_importer      - per-scene label files -> annotation rows
+* scene_pipeline      - shared per-scene orchestration (upload + ZIP routes)
 * annotation_parsers  - COCO/KITTI/CVAT/CaliperGT format parsers
 * annotation_pipeline - ZIP annotation import pipeline
 """
@@ -70,6 +71,12 @@ from app.services.dataset_import.pipeline_layout import (
     is_scene_folder,
 )
 from app.services.dataset_import.scene_importer import import_scene_annotations
+from app.services.dataset_import.scene_pipeline import (
+    UPLOAD_PIPELINE,
+    ZIP_PIPELINE,
+    SceneImportRequest,
+    import_one_scene,
+)
 from app.services.dataset_import.schemas import (
     BrowseFolderResponse,
     DatasetMetadata,
@@ -142,4 +149,7 @@ __all__ = [
     "build_empty_import_results", "build_subzip_for_task_folder",
     "extract_task_id_from_folder_name", "merge_import_results",
     "process_zip_annotations",
+    # per-scene orchestration (upload + ZIP shared loop)
+    "SceneImportRequest", "UPLOAD_PIPELINE", "ZIP_PIPELINE",
+    "import_one_scene",
 ]

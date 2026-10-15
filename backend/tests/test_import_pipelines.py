@@ -132,6 +132,8 @@ def _wait_called(mock, timeout=2.0):
 
 def _patch_pipeline_deps(monkeypatch, tmp_path):
     """Patch every heavy side effect used by the import_data endpoints."""
+    from app.services.dataset_import import scene_pipeline
+
     mirror_mock = MagicMock()
     monkeypatch.setattr(import_storage, "_mirror_scene_to_minio", mirror_mock)
     mocks = {
@@ -146,7 +148,13 @@ def _patch_pipeline_deps(monkeypatch, tmp_path):
     for name, value in mocks.items():
         if name == "_mirror_scene_to_minio":
             continue  # patched on the storage module above
-        monkeypatch.setattr(import_data, name, value, raising=True)
+        monkeypatch.setattr(
+            import_data, name, value, raising=hasattr(import_data, name)
+        )
+        # the per-scene loop now lives in scene_pipeline; patch the same
+        # collaborators there so the shared mocks are the ones awaited
+        if hasattr(scene_pipeline, name):
+            monkeypatch.setattr(scene_pipeline, name, value, raising=True)
     return mocks
 
 

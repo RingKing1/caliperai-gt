@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import attributes, selectinload
+from sqlalchemy.orm import selectinload
 
 from app.api.v1.endpoints.datasets import auto_create_tasks_for_scene
 from app.core.config import settings
@@ -42,25 +42,24 @@ from app.models.models import (
 from app.services.dataset_import import (
     GENERIC_FOLDER_NAMES,
     UPLOAD_DIR,
+    UPLOAD_PIPELINE,
+    ZIP_PIPELINE,
     BrowseFolderResponse,
     FolderItem,
     ImportRequest,
     ImportResponse,
     RenamedScene,
     SceneConflict,
+    SceneImportRequest,
     SceneNameCheckRequest,
     SceneNameCheckResponse,
-    build_import_frame_rows,
-    classify_scene_data_files,
     derive_and_merge_taxonomy,
-    detect_ego_to_lidar_rotation,
     detect_scene_dirs,
     discover_frames,
-    find_data_files,
     generate_smart_scene_name,
     get_or_create_scene_import_task,
     get_storage_paths,
-    import_scene_annotations,
+    import_one_scene,
     load_ego_poses,
     parse_calibration_file,
     scan_annotations_for_classes,
@@ -290,253 +289,27 @@ async def upload_and_import_dataset(
                 errors.append("Taxonomy: No annotation classes found to derive")
         
         for scene_index, scene_dir in enumerate(scene_dirs, start=1):
-            try:
-                raw_folder_name = scene_parent_names.get(scene_dir, scene_dir.name)
-                
-                if preserve_folder_names and raw_folder_name.lower() not in GENERIC_FOLDER_NAMES:
-                    scene_name = raw_folder_name
-                else:
-                    scene_name = generate_smart_scene_name(raw_folder_name, scene_index)
-                
-                scene_meta_path = scene_dir / "scene_metadata.json"
-                scene_meta = {}
-                if scene_meta_path.exists():
-                    with open(scene_meta_path) as f:
-                        scene_meta = json.load(f)
-                
-                data_files, data_source = classify_scene_data_files(scene_dir)
-                frame_count = len(data_files)
-                
-                if frame_count == 0:
-                    errors.append(f"Scene {scene_name}: No frames detected")
-                    continue
-                
-                scene_id = uuid.uuid4()
-                permanent_scene_dir = dataset_upload_dir / str(scene_id)
-                permanent_scene_dir.mkdir(parents=True, exist_ok=True)
-                
-                for item in scene_dir.iterdir():
-                    src = item
-                    dst = permanent_scene_dir / item.name
-                    if item.is_dir():
-                        shutil.copytree(src, dst)
-                    else:
-                        shutil.copy2(src, dst)
-                
-                uuid_rename_map = rename_data_files_to_uuid(permanent_scene_dir, DATA_EXTENSIONS)
-
-                org_id_val = dataset.campaign.organization_id
-                schedule_scene_mirror(
-                    org_id_val, dataset.id, scene_id, permanent_scene_dir,
-                )
-
-                parent_dir = scene_dir.parent
-                if parent_dir != scene_dir:
-                    sibling_annotations = parent_dir / "annotations"
-                    if sibling_annotations.exists() and sibling_annotations.is_dir():
-                        annotations_dst = permanent_scene_dir / "annotations"
-                        if not annotations_dst.exists():
-                            try:
-                                shutil.copytree(sibling_annotations, annotations_dst)
-                            except Exception as e:
-                                errors.append(f"Scene {scene_name}: Failed to copy annotations folder: {str(e)}")
-
-                permanent_lidar_path = permanent_scene_dir / "lidar"
-                permanent_images_path = permanent_scene_dir / "images"
-                permanent_cameras_path = permanent_scene_dir / "cameras"
-                
-                relative_path_base = f"uploads/{dataset.id}/{scene_id}"
-                
-                cameras_storage_paths: Dict[str, str] = {}
-                if permanent_cameras_path.exists():
-                    for cam_dir in permanent_cameras_path.iterdir():
-                        if cam_dir.is_dir():
-                            cameras_storage_paths[cam_dir.name] = f"{relative_path_base}/cameras/{cam_dir.name}"
-
-                permanent_ego_poses_file = permanent_scene_dir / "ego_poses" / "poses.json"
-                if not permanent_ego_poses_file.exists():
-                    permanent_ego_poses_file = permanent_scene_dir / "ego_poses" / "ego_poses.json"
-
-                ego_poses_path = None
-                ego_poses_data: Dict[int, Dict[str, Any]] = {}
-                if permanent_ego_poses_file.exists():
-                    ego_poses_path = f"{relative_path_base}/ego_poses/{permanent_ego_poses_file.name}"
-                    with open(permanent_ego_poses_file, "r") as f:
-                        poses_json = json.load(f)
-                        if "frames" in poses_json:
-                            for pose_entry in poses_json["frames"]:
-                                frame_idx = pose_entry.get("frame_index", -1)
-                                if frame_idx >= 0:
-                                    ego_poses_data[frame_idx] = {
-                                        "position": pose_entry.get("position", [0, 0, 0]),
-                                        "rotation": pose_entry.get("rotation", [1, 0, 0, 0]),
-                                        "velocity": pose_entry.get("velocity"),
-                                        "timestamp": pose_entry.get("timestamp"),
-                                    }
-                else:
-                    parent_metadata_file = scene_dir.parent / "metadata.json"
-                    if parent_metadata_file.exists():
-                        try:
-                            with open(parent_metadata_file, "r") as f:
-                                parent_meta = json.load(f)
-                            for frame_entry in parent_meta.get("frames", []):
-                                ep = frame_entry.get("ego_pose")
-                                if ep and isinstance(ep, dict) and ep.get("position"):
-                                    frame_idx = frame_entry.get("frame_index", -1)
-                                    if frame_idx >= 0:
-                                        ego_poses_data[frame_idx] = {
-                                            "position": ep.get("position", [0, 0, 0]),
-                                            "rotation": ep.get("rotation", [1, 0, 0, 0]),
-                                            "velocity": ep.get("velocity"),
-                                            "timestamp": ep.get("timestamp"),
-                                        }
-                            if ego_poses_data:
-                                ego_poses_dir = permanent_scene_dir / "ego_poses"
-                                ego_poses_dir.mkdir(exist_ok=True)
-                                synth_poses_file = ego_poses_dir / "ego_poses.json"
-                                poses_out = {"frames": [
-                                    {"frame_index": idx, **data}
-                                    for idx, data in sorted(ego_poses_data.items())
-                                ]}
-                                with open(synth_poses_file, "w") as f:
-                                    json.dump(poses_out, f, indent=2)
-                                ego_poses_path = f"{relative_path_base}/ego_poses/ego_poses.json"
-                        except Exception as e:
-                            print(f"[IMPORT] Failed to read ego_poses from metadata.json: {e}")
-
-                permanent_calib_file = permanent_scene_dir / "calibration.json"
-                permanent_calib_dir = permanent_scene_dir / "calibration"
-                calibration_data = None
-                if permanent_calib_file.exists():
-                    calibration_data = parse_calibration_file(permanent_calib_file, ego_poses_data)
-                elif permanent_calib_dir.exists():
-                    calibration_data = parse_calibration_file(permanent_calib_dir, ego_poses_data)
-                elif ego_poses_data:
-                    rotation = detect_ego_to_lidar_rotation(ego_poses_data)
-                    calibration_data = {
-                        "lidar_to_cameras": {},
-                        "ego_to_lidar": {"rotation": rotation, "translation": [0, 0, 0]},
-                    }
-
-                existing_scene_query = select(Scene).where(
-                    Scene.dataset_id == dataset.id,
-                    Scene.name == scene_name,
-                    Scene.is_deleted == False,
-                )
-                existing_result = await db.execute(existing_scene_query)
-                if existing_result.scalar_one_or_none():
-                    original_name = scene_name
-                    scene_name = f"{scene_name}_upload-{datetime.now().strftime('%Y%m%d_%H%M')}"
-                    renamed_scenes.append(RenamedScene(original_name=original_name, new_name=scene_name, scene_id=str(scene_id)))
-
-                scene = Scene(
-                    id=scene_id,
-                    dataset_id=dataset.id,
-                    name=scene_name,
-                    description=scene_meta.get("description", f"Imported scene: {scene_name}"),
-                    frame_count=frame_count,
-                    fps=scene_meta.get("fps", 10.0),
-                    scene_metadata={
-                        "location": scene_meta.get("location"),
-                        "weather": scene_meta.get("weather"),
-                        "time_of_day": scene_meta.get("time_of_day"),
-                        "source": "browser_upload",
-                        "data_source": data_source,
-                    },
-                    calibration=calibration_data,
-                    storage_paths={
-                        "root": str(permanent_scene_dir),
-                        "lidar_base": f"{relative_path_base}/lidar" if permanent_lidar_path.exists() else None,
-                        "images_base": f"{relative_path_base}/images" if permanent_images_path.exists() else None,
-                        "cameras": cameras_storage_paths if cameras_storage_paths else None,
-                        "ego_poses": ego_poses_path,
-                    },
-                )
-                db.add(scene)
-                await db.flush()
-                await auto_create_tasks_for_scene(db, scene)
-                await db.flush()
-
-                permanent_data_files: List[Path] = []
-                lidar_files: List[Path] = []
-                camera_files: Dict[str, List[Path]] = {}
-                
-                if permanent_lidar_path.exists():
-                    lidar_files = sorted([f for f in permanent_lidar_path.iterdir() if f.is_file()], key=lambda x: x.name)
-                    permanent_data_files = lidar_files
-                
-                if permanent_cameras_path.exists():
-                    for cam_dir in permanent_cameras_path.iterdir():
-                        if cam_dir.is_dir():
-                            cam_files = sorted([f for f in cam_dir.iterdir() if f.is_file()], key=lambda x: x.name)
-                            if cam_files:
-                                camera_files[cam_dir.name] = cam_files
-                    if not permanent_data_files and camera_files:
-                        first_cam = next(iter(camera_files.values()))
-                        permanent_data_files = first_cam
-                
-                if not permanent_data_files:
-                    if permanent_images_path.exists():
-                        permanent_data_files = sorted([f for f in permanent_images_path.iterdir() if f.is_file()], key=lambda x: x.name)
-                    else:
-                        permanent_data_files = sorted(find_data_files(permanent_scene_dir), key=lambda x: x.name)
-                
-                if permanent_data_files and not camera_files and not lidar_files:
-                    camera_name = scene_dir.name if scene_dir.name != "default_scene" else scene_name
-                    camera_files = {camera_name: permanent_data_files}
-                    cameras_storage_paths = {camera_name: f"{relative_path_base}"}
-                    scene.storage_paths = {
-                        **scene.storage_paths,
-                        "cameras": cameras_storage_paths
-                    }
-                    attributes.flag_modified(scene, "storage_paths")
-                    print(f"[IMPORT] Treating flat image structure as single camera: {camera_name}, path: {relative_path_base}")
-                
-                for frame in build_import_frame_rows(
-                    scene=scene,
-                    permanent_scene_dir=permanent_scene_dir,
-                    permanent_data_files=permanent_data_files,
-                    lidar_files=lidar_files,
-                    camera_files=camera_files,
-                    uuid_rename_map=uuid_rename_map,
-                    ego_poses_data=ego_poses_data,
-                ):
-                    db.add(frame)
-                
-                await db.flush()
-
-                task = await get_or_create_scene_import_task(
-                    db=db,
-                    scene=scene,
-                    assignee_id=current_user.id,
-                    frame_count=frame_count,
-                    description=f"Auto-created for {scene_name} ({frame_count} frames)",
-                )
-                print(f"[IMPORT] Using task {task.id} for imported annotations")
-                
-                try:
-                    annotations_3d, annotations_2d = await import_scene_annotations(
-                        db=db,
-                        scene=scene,
-                        scene_dir=permanent_scene_dir,
-                        task=task,
-                        overwrite=overwrite_annotations,
-                    )
-                    if annotations_3d > 0 or annotations_2d > 0:
-                        errors.append(f"Scene {scene_name}: Imported {annotations_3d} 3D and {annotations_2d} 2D annotations")
-                except Exception as e:
-                    errors.append(f"Scene {scene_name}: Failed to import annotations: {str(e)}")
-                
+            frame_count = await import_one_scene(
+                db=db,
+                spec=UPLOAD_PIPELINE,
+                request=SceneImportRequest(
+                    dataset=dataset,
+                    user=current_user,
+                    dataset_upload_dir=dataset_upload_dir,
+                    overwrite_annotations=overwrite_annotations,
+                    preserve_folder_names=preserve_folder_names,
+                    dataset_calibration=calibration_data,
+                ),
+                scene_index=scene_index,
+                scene_dir=scene_dir,
+                parent_folder_name=scene_parent_names.get(scene_dir, scene_dir.name),
+                errors=errors,
+                renamed_scenes=renamed_scenes,
+            )
+            if frame_count is not None:
                 scenes_imported += 1
                 frames_imported += frame_count
-                print(f"[IMPORT] Successfully imported scene {scene_name} with {frame_count} frames. Total: {scenes_imported} scenes, {frames_imported} frames")
-                
-            except Exception as e:
-                import traceback
-                print(f"[IMPORT ERROR] Scene {scene_dir.name}: {str(e)}")
-                print(f"[IMPORT ERROR] Traceback: {traceback.format_exc()}")
-                errors.append(f"Scene {scene_dir.name}: {str(e)}")
-        
+
         await db.commit()
         
         return ImportResponse(
@@ -697,248 +470,29 @@ async def upload_zip_and_import_dataset(
                 errors.append("Taxonomy: No annotation classes found to derive")
         
         for scene_index, scene_dir in enumerate(scene_dirs, start=1):
-            try:
-                raw_folder_name = scene_parent_names.get(scene_dir, scene_dir.name)
-
-                if preserve_folder_names and raw_folder_name.lower() not in GENERIC_FOLDER_NAMES:
-                    scene_name = raw_folder_name
-                else:
-                    scene_name = generate_smart_scene_name(raw_folder_name, scene_index)
-
-                original_scene_name = scene_name
-                user_override = name_overrides_dict.get(scene_name)
-                if user_override:
-                    scene_name = user_override
-                user_description = scene_descriptions_dict.get(original_scene_name) or None
-
-                scene_meta_path = scene_dir / "scene_metadata.json"
-                scene_meta = {}
-                if scene_meta_path.exists():
-                    with open(scene_meta_path) as f:
-                        scene_meta = json.load(f)
-                
-                data_files, data_source = classify_scene_data_files(scene_dir)
-                frame_count = len(data_files)
-                
-                if frame_count == 0:
-                    errors.append(f"Scene {scene_name}: No frames detected")
-                    continue
-                
-                scene_id = uuid.uuid4()
-                permanent_scene_dir = dataset_upload_dir / str(scene_id)
-                permanent_scene_dir.mkdir(parents=True, exist_ok=True)
-                
-                for item in scene_dir.iterdir():
-                    src = item
-                    dst = permanent_scene_dir / item.name
-                    if item.is_dir():
-                        shutil.copytree(src, dst)
-                    else:
-                        shutil.copy2(src, dst)
-
-                zip_uuid_rename_map = rename_data_files_to_uuid(
-                    permanent_scene_dir, DATA_EXTENSIONS
-                )
-
-                org_id_val = dataset.campaign.organization_id
-                schedule_scene_mirror(
-                    org_id_val, dataset.id, scene_id, permanent_scene_dir,
-                )
-
-                parent_dir = scene_dir.parent
-                if parent_dir != scene_dir:
-                    sibling_annotations = parent_dir / "annotations"
-                    if sibling_annotations.exists() and sibling_annotations.is_dir():
-                        annotations_dst = permanent_scene_dir / "annotations"
-                        if not annotations_dst.exists():
-                            try:
-                                shutil.copytree(sibling_annotations, annotations_dst)
-                            except Exception as e:
-                                errors.append(f"Scene {scene_name}: Failed to copy annotations folder: {str(e)}")
-                
-                permanent_lidar_path = permanent_scene_dir / "lidar"
-                permanent_images_path = permanent_scene_dir / "images"
-                permanent_cameras_path = permanent_scene_dir / "cameras"
-                
-                relative_path_base = f"uploads/{dataset.id}/{scene_id}"
-                
-                cameras_storage_paths: Dict[str, str] = {}
-                if permanent_cameras_path.exists():
-                    for cam_dir in permanent_cameras_path.iterdir():
-                        if cam_dir.is_dir():
-                            cameras_storage_paths[cam_dir.name] = f"{relative_path_base}/cameras/{cam_dir.name}"
-                elif permanent_images_path.exists():
-                    cameras_storage_paths["images"] = f"{relative_path_base}/images"
-                
-                ego_poses_data: Dict[int, Any] = {}
-                ego_poses_rel_path: Optional[str] = None
-                ego_poses_file = permanent_scene_dir / "ego_poses" / "poses.json"
-                if not ego_poses_file.exists():
-                    ego_poses_file = permanent_scene_dir / "ego_poses" / "ego_poses.json"
-                if ego_poses_file.exists():
-                    ego_poses_rel_path = f"{relative_path_base}/ego_poses/{ego_poses_file.name}"
-                    with open(ego_poses_file) as f:
-                        poses_raw = json.load(f)
-                        if isinstance(poses_raw, dict) and "frames" in poses_raw:
-                            for pose_entry in poses_raw["frames"]:
-                                idx = pose_entry.get("frame_index", -1)
-                                if idx >= 0:
-                                    ego_poses_data[idx] = {
-                                        "position": pose_entry.get("position", [0, 0, 0]),
-                                        "rotation": pose_entry.get("rotation", [1, 0, 0, 0]),
-                                        "velocity": pose_entry.get("velocity"),
-                                        "timestamp": pose_entry.get("timestamp"),
-                                    }
-                        elif isinstance(poses_raw, list):
-                            for idx, pose in enumerate(poses_raw):
-                                ego_poses_data[idx] = pose
-
-                scene_calibration = calibration_data
-                scene_calibration_path = permanent_scene_dir / "calibration.json"
-                scene_calib_dir = permanent_scene_dir / "calibration"
-                if scene_calibration_path.exists():
-                    scene_calibration = parse_calibration_file(scene_calibration_path, ego_poses_data)
-                elif scene_calib_dir.exists():
-                    scene_calibration = parse_calibration_file(scene_calib_dir, ego_poses_data)
-                elif ego_poses_data:
-                    rotation = detect_ego_to_lidar_rotation(ego_poses_data)
-                    scene_calibration = {
-                        "lidar_to_cameras": scene_calibration.get("lidar_to_cameras", {}) if isinstance(scene_calibration, dict) else {},
-                        "ego_to_lidar": {"rotation": rotation, "translation": [0, 0, 0]},
-                    }
-                
-                if not user_override:
-                    existing_scene_query = select(Scene).where(
-                        Scene.dataset_id == dataset.id,
-                        Scene.name == scene_name,
-                        Scene.is_deleted == False,
-                    )
-                    existing_result = await db.execute(existing_scene_query)
-                    if existing_result.scalar_one_or_none():
-                        original_name = scene_name
-                        scene_name = f"{scene_name}_upload-{datetime.now().strftime('%Y%m%d_%H%M')}"
-                        renamed_scenes.append(RenamedScene(original_name=original_name, new_name=scene_name, scene_id=str(scene_id)))
-
-                scene = Scene(
-                    id=scene_id,
-                    dataset_id=dataset.id,
-                    name=scene_name,
-                    description=user_description or scene_meta.get("description"),
-                    scene_metadata={
-                        "location": scene_meta.get("location"),
-                        "weather": scene_meta.get("weather"),
-                        "time_of_day": scene_meta.get("time_of_day"),
-                        "recording_date": scene_meta.get("recording_date"),
-                    },
-                    frame_count=frame_count,
-                    fps=scene_meta.get("fps", 10.0),
-                    calibration=scene_calibration if scene_calibration else {},
-                    storage_paths={
-                        "root": str(permanent_scene_dir),
-                        "lidar_base": f"{relative_path_base}/lidar" if permanent_lidar_path.exists() else None,
-                        "images_base": f"{relative_path_base}/images" if permanent_images_path.exists() else None,
-                        "cameras": cameras_storage_paths,
-                        "ego_poses": ego_poses_rel_path,
-                    },
-                )
-                db.add(scene)
-                await db.flush()
-                await auto_create_tasks_for_scene(db, scene)
-                await db.flush()
-
-                permanent_data_files = []
-                lidar_files = []
-                camera_files: Dict[str, List[Path]] = {}
-                
-                if permanent_lidar_path.exists():
-                    lidar_files = sorted([f for f in permanent_lidar_path.iterdir() if f.suffix.lower() in [".pcd", ".bin", ".ply"]], key=lambda x: x.name)
-                    permanent_data_files = lidar_files
-                
-                if permanent_cameras_path.exists():
-                    for cam_dir in permanent_cameras_path.iterdir():
-                        if cam_dir.is_dir():
-                            cam_images = sorted([f for f in cam_dir.iterdir() if f.suffix.lower() in [".jpg", ".png", ".jpeg"]], key=lambda x: x.name)
-                            camera_files[cam_dir.name] = cam_images
-                            if not permanent_data_files:
-                                permanent_data_files = cam_images
-                elif permanent_images_path.exists():
-                    images = sorted([f for f in permanent_images_path.iterdir() if f.suffix.lower() in [".jpg", ".png", ".jpeg", ".gif", ".bmp", ".tiff", ".tif"]], key=lambda x: x.name)
-                    camera_files["images"] = images
-                    if not permanent_data_files:
-                        permanent_data_files = images
-                
-                if not permanent_data_files:
-                    all_root_files = sorted(find_data_files(permanent_scene_dir), key=lambda x: x.name)
-                    pcd_root_files = [f for f in all_root_files if f.suffix.lower() in {".pcd", ".bin", ".ply"}]
-                    img_root_files = [f for f in all_root_files if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tiff", ".tif"}]
-
-                    if pcd_root_files:
-                        lidar_files = pcd_root_files
-                        permanent_data_files = pcd_root_files
-                        scene.storage_paths = {
-                            **scene.storage_paths,
-                            "lidar_base": relative_path_base,
-                        }
-                        attributes.flag_modified(scene, "storage_paths")
-
-                    if img_root_files:
-                        camera_files["default"] = img_root_files
-                        if not permanent_data_files:
-                            permanent_data_files = img_root_files
-                        scene.storage_paths = {
-                            **scene.storage_paths,
-                            "cameras": {
-                                **(scene.storage_paths.get("cameras") or {}),
-                                "default": relative_path_base,
-                            },
-                        }
-                        attributes.flag_modified(scene, "storage_paths")
-                
-                for frame in build_import_frame_rows(
-                    scene=scene,
-                    permanent_scene_dir=permanent_scene_dir,
-                    permanent_data_files=permanent_data_files,
-                    lidar_files=lidar_files,
-                    camera_files=camera_files,
-                    uuid_rename_map=zip_uuid_rename_map,
-                    ego_poses_data=ego_poses_data,
-                ):
-                    db.add(frame)
-                
-                await db.flush()
-
-                task = await get_or_create_scene_import_task(
-                    db=db,
-                    scene=scene,
-                    assignee_id=current_user.id,
-                    frame_count=frame_count,
-                    description=f"Auto-created for {scene_name} ({frame_count} frames)",
-                )
-                print(f"[ZIP IMPORT] Using task {task.id} for imported annotations")
-                
-                try:
-                    annotations_3d, annotations_2d = await import_scene_annotations(
-                        db=db,
-                        scene=scene,
-                        scene_dir=permanent_scene_dir,
-                        task=task,
-                        overwrite=overwrite_annotations,
-                    )
-                    if annotations_3d > 0 or annotations_2d > 0:
-                        errors.append(f"Scene {scene_name}: Imported {annotations_3d} 3D and {annotations_2d} 2D annotations")
-                except Exception as e:
-                    errors.append(f"Scene {scene_name}: Failed to import annotations: {str(e)}")
-                
+            frame_count = await import_one_scene(
+                db=db,
+                spec=ZIP_PIPELINE,
+                request=SceneImportRequest(
+                    dataset=dataset,
+                    user=current_user,
+                    dataset_upload_dir=dataset_upload_dir,
+                    overwrite_annotations=overwrite_annotations,
+                    preserve_folder_names=preserve_folder_names,
+                    name_overrides=name_overrides_dict,
+                    scene_descriptions=scene_descriptions_dict,
+                    dataset_calibration=calibration_data,
+                ),
+                scene_index=scene_index,
+                scene_dir=scene_dir,
+                parent_folder_name=scene_parent_names.get(scene_dir, scene_dir.name),
+                errors=errors,
+                renamed_scenes=renamed_scenes,
+            )
+            if frame_count is not None:
                 scenes_imported += 1
                 frames_imported += frame_count
-                print(f"[ZIP IMPORT] Successfully imported scene {scene_name} with {frame_count} frames")
-                
-            except Exception as e:
-                import traceback
-                print(f"[ZIP IMPORT ERROR] Scene {scene_dir.name}: {str(e)}")
-                print(f"[ZIP IMPORT ERROR] Traceback: {traceback.format_exc()}")
-                errors.append(f"Scene {scene_dir.name}: {str(e)}")
-        
+
         await db.commit()
         
         return ImportResponse(
