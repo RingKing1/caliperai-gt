@@ -12,7 +12,7 @@ import asyncio
 import logging
 import shutil
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -25,6 +25,7 @@ from app.models.models import Dataset, ImportJob, User
 from app.services.dataset_import.constants import UPLOAD_DIR
 from app.services.dataset_import.import_runner import execute_directory_import
 from app.services.dataset_import.scene_pipeline import UPLOAD_PIPELINE, ZIP_PIPELINE
+from app.services.dataset_import.video_pipeline import execute_video_import
 
 log = logging.getLogger(__name__)
 
@@ -120,14 +121,14 @@ async def _run_import_job(job_id: UUID) -> None:
             await _set_job_fields(
                 job_id, status="failed", phase="failed",
                 error="Dataset no longer exists",
-                finished_at=datetime.now(timezone.utc),
+                finished_at=datetime.now(UTC),
             )
             return
         if user_id is None or not await _entity_exists(User, user_id):
             await _set_job_fields(
                 job_id, status="failed", phase="failed",
                 error="Initiating user no longer exists",
-                finished_at=datetime.now(timezone.utc),
+                finished_at=datetime.now(UTC),
             )
             return
 
@@ -135,8 +136,8 @@ async def _run_import_job(job_id: UUID) -> None:
             job_id,
             status="running",
             phase="preparing",
-            started_at=datetime.now(timezone.utc),
-            heartbeat_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
+            heartbeat_at=datetime.now(UTC),
         )
 
         if job_type == "zip":
@@ -151,11 +152,14 @@ async def _run_import_job(job_id: UUID) -> None:
                 await _set_job_fields(
                     job_id, status="failed", phase="failed",
                     error=f"Invalid or corrupted ZIP file: {exc}",
-                    finished_at=datetime.now(timezone.utc),
+                    finished_at=datetime.now(UTC),
                 )
                 return
             bundle_root = extract_dir
             spec = ZIP_PIPELINE
+        elif job_type == "video":
+            bundle_root = staged_path
+            spec = None
         else:
             bundle_root = staged_path
             spec = UPLOAD_PIPELINE
@@ -169,7 +173,7 @@ async def _run_import_job(job_id: UUID) -> None:
                 phase=phase,
                 progress=max(0, min(100, percent)),
                 message=message[:2000] if message else None,
-                heartbeat_at=datetime.now(timezone.utc),
+                heartbeat_at=datetime.now(UTC),
             )
 
         async with async_session_factory() as import_db:
@@ -184,24 +188,45 @@ async def _run_import_job(job_id: UUID) -> None:
                 await import_db.execute(select(User).where(User.id == user_id))
             ).scalar_one()
 
-            response = await execute_directory_import(
-                import_db,
-                root_path=bundle_root,
-                dataset=dataset,
-                user=user,
-                spec=spec,
-                dataset_upload_dir=dataset_upload_dir,
-                overwrite_annotations=bool(
-                    options.get("overwrite_annotations", False)
-                ),
-                preserve_folder_names=bool(
-                    options.get("preserve_folder_names", True)
-                ),
-                derive_taxonomy=bool(options.get("derive_taxonomy", False)),
-                name_overrides=options.get("name_overrides") or {},
-                scene_descriptions=options.get("scene_descriptions") or {},
-                progress=progress,
-            )
+            if job_type == "video":
+                video_files = [f for f in staged_path.iterdir() if f.is_file()]
+                if not video_files:
+                    raise FileNotFoundError(f"No video file found in {staged_path}")
+                video_file = video_files[0]
+                response = await execute_video_import(
+                    import_db,
+                    dataset=dataset,
+                    user=user,
+                    video_path=video_file,
+                    original_filename=job.source_filename or video_file.name,
+                    dataset_upload_dir=dataset_upload_dir,
+                    extraction_fps=options.get("extraction_fps"),
+                    max_frames=options.get("max_frames"),
+                    image_format=options.get("image_format", "jpg"),
+                    preserve_folder_names=bool(
+                        options.get("preserve_folder_names", True)
+                    ),
+                    progress=progress,
+                )
+            else:
+                response = await execute_directory_import(
+                    import_db,
+                    root_path=bundle_root,
+                    dataset=dataset,
+                    user=user,
+                    spec=spec,
+                    dataset_upload_dir=dataset_upload_dir,
+                    overwrite_annotations=bool(
+                        options.get("overwrite_annotations", False)
+                    ),
+                    preserve_folder_names=bool(
+                        options.get("preserve_folder_names", True)
+                    ),
+                    derive_taxonomy=bool(options.get("derive_taxonomy", False)),
+                    name_overrides=options.get("name_overrides") or {},
+                    scene_descriptions=options.get("scene_descriptions") or {},
+                    progress=progress,
+                )
 
         await _set_job_fields(
             job_id,
@@ -214,17 +239,20 @@ async def _run_import_job(job_id: UUID) -> None:
             total_scenes=response.scenes_imported,
             processed_scenes=response.scenes_imported,
             result=response.model_dump(mode="json"),
-            finished_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(UTC),
         )
         log.info("[IMPORT JOB] %s completed: %s", job_id, response.message)
     except Exception as exc:  # noqa: BLE001 - job must record any failure
         log.exception("[IMPORT JOB] %s failed", job_id)
+        from fastapi import HTTPException
+
+        err_msg = exc.detail if isinstance(exc, HTTPException) else str(exc)
         await _set_job_fields(
             job_id,
             status="failed",
             phase="failed",
-            error=str(exc)[:4000],
-            finished_at=datetime.now(timezone.utc),
+            error=str(err_msg)[:4000],
+            finished_at=datetime.now(UTC),
         )
     finally:
         if staged_path is not None:

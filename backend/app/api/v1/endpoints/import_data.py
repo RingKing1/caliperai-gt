@@ -27,7 +27,6 @@ from fastapi import (
     status,
 )
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -35,7 +34,6 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.file_security import (
     DATA_EXTENSIONS,
-    rename_data_files_to_uuid,
     safe_zip_extract,
     validate_magic_bytes,
     validate_upload_path,
@@ -49,7 +47,6 @@ from app.models.models import (
     User,
 )
 from app.services.dataset_import import (
-    GENERIC_FOLDER_NAMES,
     UPLOAD_DIR,
     UPLOAD_PIPELINE,
     ZIP_PIPELINE,
@@ -64,14 +61,13 @@ from app.services.dataset_import import (
     create_import_job,
     discover_frames,
     execute_directory_import,
+    execute_video_import,
     generate_smart_scene_name,
-    get_or_create_scene_import_task,
     get_storage_paths,
     list_import_jobs,
     load_ego_poses,
     parse_calibration_file,
     schedule_import_job,
-    schedule_scene_mirror,
 )
 from app.services.dataset_import.schemas import ImportJobResponse
 from app.services.dataset_service import auto_create_tasks_for_scene
@@ -192,7 +188,7 @@ async def check_scene_names(
             select(Scene).where(
                 Scene.dataset_id == request.dataset_id,
                 Scene.name == scene_name,
-                Scene.is_deleted == False,
+                Scene.is_deleted.is_(False),
             )
         )
         if result.scalar_one_or_none():
@@ -538,6 +534,75 @@ async def start_zip_import_job(
     return job
 
 
+@router.post("/jobs/video", response_model=ImportJobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def start_video_import_job(
+    current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_IMPORT))],
+    dataset_id: str = Form(...),
+    file: UploadFile = File(..., description="Video file (MP4, AVI, MOV, MKV, WebM)"),
+    extraction_fps: float | None = Form(None, description="FPS to extract frames at (default: auto-detect)"),
+    max_frames: int | None = Form(None, description="Maximum number of frames to extract"),
+    image_format: str = Form("jpg", description="Output image format (jpg, png, webp)"),
+    preserve_folder_names: bool = Form(True),
+    db: AsyncSession = Depends(get_db),
+) -> ImportJob:
+    """Stage a video upload and process frame extraction in a background job (202).
+
+    Avoids holding open the HTTP connection while ffmpeg extracts frames.
+    Poll ``GET /import/jobs/{id}`` for progress and results.
+    """
+    from app.core.file_security import VIDEO_EXTENSIONS as ALLOWED_VIDEO_EXT
+    from app.services.video_service import is_ffmpeg_available
+
+    if not is_ffmpeg_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Video processing is not available. Please install ffmpeg on the server.",
+        )
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Filename is required",
+        )
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in ALLOWED_VIDEO_EXT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid video format. Supported formats: {', '.join(ALLOWED_VIDEO_EXT)}",
+        )
+    validate_upload_path(file.filename)
+    await _get_import_dataset(db, dataset_id)
+
+    staged_dir = Path(tempfile.mkdtemp(prefix="import_job_video_"))
+    video_path = staged_dir / f"video{file_ext}"
+    try:
+        with open(video_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024 * 10)
+                if not chunk:
+                    break
+                f.write(chunk)
+    except Exception:
+        shutil.rmtree(staged_dir, ignore_errors=True)
+        raise
+
+    job = await create_import_job(
+        db,
+        dataset_id=dataset_id,
+        user_id=current_user.id,
+        job_type="video",
+        source_filename=file.filename,
+        staged_path=str(staged_dir),
+        options={
+            "extraction_fps": extraction_fps,
+            "max_frames": max_frames,
+            "image_format": image_format,
+            "preserve_folder_names": preserve_folder_names,
+        },
+    )
+    schedule_import_job(job.id)
+    return job
+
+
 @router.get("/jobs", response_model=list[ImportJobResponse])
 async def list_dataset_import_jobs(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_READ))],
@@ -607,10 +672,7 @@ async def upload_video_and_import_dataset(
     """
     from app.core.file_security import VIDEO_EXTENSIONS as ALLOWED_VIDEO_EXT
     from app.services.video_service import (
-        extract_frames_async,
-        get_video_metadata,
         is_ffmpeg_available,
-        validate_video_magic_bytes,
     )
 
     if not is_ffmpeg_available():
@@ -633,222 +695,34 @@ async def upload_video_and_import_dataset(
         )
 
     validate_upload_path(file.filename)
-
-    query = select(Dataset).options(selectinload(Dataset.campaign)).where(Dataset.id == UUID(dataset_id))
-    result = await db.execute(query)
-    dataset = result.scalar_one_or_none()
-
-    if not dataset:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Dataset not found: {dataset_id}"
-        )
-
-    dataset_upload_dir = UPLOAD_DIR / dataset_id
-    dataset_upload_dir.mkdir(parents=True, exist_ok=True)
+    dataset = await _get_import_dataset(db, dataset_id)
 
     temp_dir = tempfile.mkdtemp(prefix="video_upload_")
     video_path = Path(temp_dir) / f"video{file_ext}"
-    permanent_scene_dir = None
 
     try:
         log.info(f"[VIDEO IMPORT] Receiving video file: {file.filename}")
-        file_size = 0
         chunk_size = 1024 * 1024 * 10
-
         with open(video_path, "wb") as f:
             while True:
                 chunk = await file.read(chunk_size)
                 if not chunk:
                     break
                 f.write(chunk)
-                file_size += len(chunk)
 
-        log.info(f"[VIDEO IMPORT] Video file size: {file_size / (1024*1024):.1f} MB")
-
-        with open(video_path, "rb") as f:
-            header = f.read(16)
-
-        if not validate_video_magic_bytes(header, file_ext):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File content does not match expected {file_ext.upper()[1:]} format"
-            )
-
-        metadata = get_video_metadata(video_path)
-        if not metadata or metadata.get("duration", 0) <= 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not read video metadata. The file may be corrupted."
-            )
-
-        log.info(f"[VIDEO IMPORT] Video metadata: {metadata}")
-
-        video_name = Path(file.filename).stem
-        if preserve_folder_names and video_name.lower() not in GENERIC_FOLDER_NAMES:
-            scene_name = video_name
-        else:
-            scene_name = generate_smart_scene_name(video_name, 1)
-
-        existing_scene_query = select(Scene).where(
-            Scene.dataset_id == dataset.id,
-            Scene.name == scene_name,
-            Scene.is_deleted == False,
-        )
-        existing_result = await db.execute(existing_scene_query)
-        if existing_result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"A scene with the name '{scene_name}' already exists in this dataset",
-            )
-
-        scene_id = uuid.uuid4()
-        permanent_scene_dir = dataset_upload_dir / str(scene_id)
-        frames_dir = permanent_scene_dir / "cameras" / "video"
-        frames_dir.mkdir(parents=True, exist_ok=True)
-
-        log.info(f"[VIDEO IMPORT] Extracting frames at {extraction_fps or 'native'} FPS...")
-        frame_paths, extraction_metadata = await extract_frames_async(
+        return await execute_video_import(
+            db,
+            dataset=dataset,
+            user=current_user,
             video_path=video_path,
-            output_dir=frames_dir,
-            fps=extraction_fps,
+            original_filename=file.filename,
+            extraction_fps=extraction_fps,
             max_frames=max_frames,
             image_format=image_format,
-        )
-
-        frame_count = len(frame_paths)
-        log.info(f"[VIDEO IMPORT] Extracted {frame_count} frames")
-
-        if frame_count == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No frames could be extracted from the video"
-            )
-
-        uuid_rename_map = rename_data_files_to_uuid(permanent_scene_dir, DATA_EXTENSIONS)
-
-        org_id_val = dataset.campaign.organization_id
-        schedule_scene_mirror(
-            org_id_val, dataset.id, scene_id, permanent_scene_dir,
-        )
-
-        relative_path_base = f"uploads/{dataset.id}/{scene_id}"
-        cameras_storage_paths = {"video": f"{relative_path_base}/cameras/video"}
-
-        video_scene_metadata = {
-            "source": "video_upload",
-            "original_filename": file.filename,
-            "video_duration": extraction_metadata.get("duration"),
-            "video_fps": extraction_metadata.get("fps"),
-            "video_resolution": [extraction_metadata.get("width"), extraction_metadata.get("height")],
-            "video_codec": extraction_metadata.get("codec"),
-            "extraction_fps": extraction_metadata.get("extraction_fps"),
-            "frames_extracted": frame_count,
-        }
-
-        scene = Scene(
-            id=scene_id,
-            dataset_id=dataset.id,
-            name=scene_name,
-            description=f"Extracted from video: {file.filename}",
-            frame_count=frame_count,
-            fps=extraction_metadata.get("extraction_fps") or extraction_metadata.get("fps") or 30.0,
-            scene_metadata=video_scene_metadata,
-            calibration={},
-            storage_paths={
-                "root": str(permanent_scene_dir),
-                "cameras": cameras_storage_paths,
-            },
-        )
-        db.add(scene)
-        await db.flush()
-        await auto_create_tasks_for_scene(db, scene)
-        await db.flush()
-
-        permanent_frame_files = sorted(frames_dir.glob(f"*.{image_format}"), key=lambda x: x.name)
-        timestamps = extraction_metadata.get("timestamps", [])
-
-        for frame_idx, frame_file in enumerate(permanent_frame_files):
-            frame_file_paths = {
-                "cameras": {"video": frame_file.name},
-                "_meta": {
-                    "absolute_path": str(frame_file),
-                    "relative_path": str(frame_file.relative_to(permanent_scene_dir)),
-                    "original_filename": uuid_rename_map.get(
-                        str(frame_file.relative_to(permanent_scene_dir)), {}
-                    ).get("original_name") or frame_file.name,
-                },
-            }
-
-            frame_timestamp = timestamps[frame_idx] if frame_idx < len(timestamps) else frame_idx / scene.fps
-
-            frame = Frame(
-                scene_id=scene.id,
-                frame_index=frame_idx,
-                timestamp=frame_timestamp,
-                file_paths=frame_file_paths,
-                ego_pose=None,
-            )
-            db.add(frame)
-
-        await db.flush()
-
-        task = await get_or_create_scene_import_task(
-            db=db,
-            scene=scene,
-            assignee_id=current_user.id,
-            frame_count=frame_count,
-            description=f"Auto-created for video {file.filename} ({frame_count} frames)",
-        )
-        log.info(f"[VIDEO IMPORT] Using task: {task.name}")
-
-        await db.commit()
-
-        return ImportResponse(
-            success=True,
-            message=f"Imported video as scene '{scene_name}' with {frame_count} frames",
-            scenes_imported=1,
-            frames_imported=frame_count,
-            errors=[
-                f"Video: {extraction_metadata.get('width')}x{extraction_metadata.get('height')} @ {extraction_metadata.get('fps'):.1f} fps",
-                f"Extracted {frame_count} frames at {extraction_metadata.get('extraction_fps'):.1f} fps",
-            ],
-        )
-
-    except HTTPException:
-        raise
-    except IntegrityError:
-        await db.rollback()
-        if permanent_scene_dir is not None:
-            try:
-                shutil.rmtree(permanent_scene_dir)
-            except Exception:
-                pass
-        log.warning(
-            f"[VIDEO IMPORT] Scene name '{scene_name}' already exists in dataset "
-            f"{dataset_id} (duplicate or concurrent upload)"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"A scene named '{scene_name}' already exists in this dataset. "
-                "It may have just been created by this same upload — refresh the "
-                "dataset to check. To re-import, delete the existing scene or rename the file."
-            ),
-        )
-    except Exception as e:
-        await db.rollback()
-        import traceback
-        log.error(f"[VIDEO IMPORT ERROR] {str(e)}\n{traceback.format_exc()}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Video upload failed: {str(e)}"
+            preserve_folder_names=preserve_folder_names,
         )
     finally:
-        try:
-            shutil.rmtree(temp_dir)
-        except Exception:
-            pass
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @router.post("/import", response_model=ImportResponse)
@@ -892,7 +766,7 @@ async def import_dataset(
 
     dataset_query = select(Dataset).where(
         Dataset.id == request.dataset_id,
-        Dataset.is_deleted == False,
+        Dataset.is_deleted.is_(False),
     )
     result = await db.execute(dataset_query)
     dataset = result.scalar_one_or_none()
@@ -911,7 +785,7 @@ async def import_dataset(
     metadata_file = root_path / "metadata.json"
     sensor_config = {}
     if metadata_file.exists():
-        with open(metadata_file, 'r') as f:
+        with open(metadata_file) as f:
             metadata = json.load(f)
             sensor_config = metadata.get("sensors", {})
 
@@ -934,7 +808,7 @@ async def import_dataset(
         try:
             scene_metadata_file = scene_dir / "scene_metadata.json"
             if scene_metadata_file.exists():
-                with open(scene_metadata_file, 'r') as f:
+                with open(scene_metadata_file) as f:
                     scene_meta = json.load(f)
             else:
                 lidar_path = scene_dir / "lidar"
@@ -962,7 +836,7 @@ async def import_dataset(
             existing_scene_query = select(Scene).where(
                 Scene.dataset_id == request.dataset_id,
                 Scene.name == scene_name,
-                Scene.is_deleted == False,
+                Scene.is_deleted.is_(False),
             )
             existing_result = await db.execute(existing_scene_query)
             if existing_result.scalar_one_or_none():
@@ -1052,7 +926,7 @@ async def validate_dataset_structure(
     metadata_file = path / "metadata.json"
     if metadata_file.exists():
         result["metadata_found"] = True
-        with open(metadata_file, 'r') as f:
+        with open(metadata_file) as f:
             metadata = json.load(f)
             sensors = metadata.get("sensors", {})
             if "lidar" in sensors:

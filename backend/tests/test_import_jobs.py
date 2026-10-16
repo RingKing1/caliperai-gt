@@ -245,3 +245,77 @@ async def test_runner_marks_failed_on_exception(tmp_path, monkeypatch):
     assert "disk on fire" in job.error
     assert job.finished_at is not None
     assert not (tmp_path / "staged2").exists()
+
+
+@pytest.mark.asyncio
+async def test_video_job_endpoint_returns_202_and_persists_pending(tmp_path, monkeypatch):
+    _patch_pipeline_deps(monkeypatch, tmp_path)
+    scheduled = _patch_schedule(monkeypatch)
+    _stage_under_tmp(monkeypatch, tmp_path)
+    db = FakeSession(dataset=_mock_dataset())
+    monkeypatch.setattr(db, "refresh", AsyncMock(), raising=False)
+    from tests.test_import_pipelines import _patch_video_service
+    _patch_video_service(monkeypatch)
+
+    res = await import_data.start_video_import_job(
+        current_user=_mock_user(),
+        dataset_id=str(uuid.uuid4()),
+        file=FakeUploadFile("test.mp4", b"dummy video bytes"),
+        extraction_fps=10.0,
+        max_frames=100,
+        image_format="jpg",
+        preserve_folder_names=True,
+        db=db,
+    )
+
+    assert isinstance(res, ImportJob)
+    assert res.job_type == "video"
+    assert res.status == "pending"
+    assert res.source_filename == "test.mp4"
+    assert res.options["extraction_fps"] == 10.0
+    assert res.options["max_frames"] == 100
+    assert scheduled == [res.id]
+
+
+@pytest.mark.asyncio
+async def test_runner_runs_video_import_job(tmp_path, monkeypatch):
+    staged = tmp_path / "staged_video"
+    staged.mkdir()
+    (staged / "clip.mp4").write_bytes(b"dummy video")
+
+    job = ImportJob(
+        id=uuid.uuid4(),
+        dataset_id=uuid.uuid4(),
+        created_by=uuid.uuid4(),
+        job_type="video",
+        status="pending",
+        source_filename="clip.mp4",
+        staged_path=str(staged),
+        options={"extraction_fps": 15.0},
+    )
+    monkeypatch.setattr(
+        "app.core.database.async_session_factory", _JobStore(job), raising=False
+    )
+    monkeypatch.setattr(
+        import_jobs, "_entity_exists", AsyncMock(return_value=True)
+    )
+
+    fake_resp = ImportResponse(
+        success=True,
+        message="Imported video as scene 'clip' with 5 frames",
+        scenes_imported=1,
+        frames_imported=5,
+    )
+    mock_execute = AsyncMock(return_value=fake_resp)
+    monkeypatch.setattr(import_jobs, "execute_video_import", mock_execute)
+
+    await import_jobs._run_import_job(job.id)
+
+    assert job.status == "completed"
+    assert job.phase == "completed"
+    assert job.progress == 100
+    assert job.scenes_imported == 1
+    assert job.frames_imported == 5
+    assert job.result["success"] is True
+    assert mock_execute.awaited
+    assert not staged.exists()

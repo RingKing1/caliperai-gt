@@ -118,6 +118,7 @@ from app.services.dataset_import.taxonomy import (
     map_source_class_to_taxonomy,
     scan_annotations_for_classes,
 )
+from app.services.dataset_import.video_pipeline import execute_video_import
 
 __all__ = [
     # constants
@@ -160,5 +161,5 @@ __all__ = [
     "import_one_scene",
     # background import jobs
     "create_import_job", "list_import_jobs", "schedule_import_job",
-    "execute_directory_import",
+    "execute_directory_import", "execute_video_import",
 ]
