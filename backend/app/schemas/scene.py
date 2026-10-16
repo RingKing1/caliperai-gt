@@ -1,6 +1,6 @@
 """Scene and frame API schemas including calibration and storage metadata."""
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from pydantic import Field, field_validator
@@ -45,6 +45,11 @@ class IntrinsicCalibration(BaseSchema):
     cx: float = Field(..., gt=0)
     cy: float = Field(..., gt=0)
     distortion: list[float] | None = None
+    # Sensor resolution [width, height]; used by the frontend to size camera
+    # projection canvases (falls back to cx*2/cy*2 when absent).
+    resolution: tuple[int, int] | None = None
+    # None = let the frontend's fisheye auto-detection decide.
+    camera_model: Literal["pinhole", "kannala_brandt"] | None = None
 
 
 class CameraCalibration(BaseSchema):

@@ -218,7 +218,6 @@ npm run check:api    # 漂移门禁：重新生成并与已提交文件逐字节
   `fetch:api` → `gen:api` → 提交两个文件（`check:api` 会拦截漏提交）。
 
 - 已确认的契约分叉，暂保留手写类型（不是漏替换）：
-  - `IntrinsicCalibration`：前端多 `resolution` / `camera_model`（LidarCanvas 依赖）；
   - `AnnotationType` / `AnnotationSource`：前端并集是后端枚举超集（fusion_box2d、
     qa_correction 等）；`Annotation.data` 后端为 dict，前端为判别联合；
   - `TaskStage` / `QAReviewMode` / `SuggestionSeverity` / `Permission`：后端无组件，

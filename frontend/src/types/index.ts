@@ -61,19 +61,13 @@ export interface Rotation3D {
 }
 
 
-export type CameraModel = 'pinhole' | 'kannala_brandt';
-
 export type ExtrinsicCalibration = Schema<'ExtrinsicCalibration'>;
 
-export interface IntrinsicCalibration {
-  fx: number;
-  fy: number;
-  cx: number;
-  cy: number;
-  distortion?: number[];
-  resolution?: [number, number];
-  camera_model?: CameraModel;
-}
+// Backend IntrinsicCalibration now carries resolution/camera_model (the old
+// frontend-only drift is closed); nullables follow the undefined convention.
+export type IntrinsicCalibration = NullToUndefined<Schema<'IntrinsicCalibration'>>;
+
+export type CameraModel = NonNullable<IntrinsicCalibration['camera_model']>;
 
 export interface CameraCalibration {
   extrinsic: ExtrinsicCalibration;

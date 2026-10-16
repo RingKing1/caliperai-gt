@@ -5942,6 +5942,21 @@
       "IntrinsicCalibration": {
         "description": "Intrinsic camera calibration.",
         "properties": {
+          "camera_model": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pinhole",
+                  "kannala_brandt"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camera Model"
+          },
           "cx": {
             "exclusiveMinimum": 0.0,
             "title": "Cx",
@@ -5975,6 +5990,27 @@
             "exclusiveMinimum": 0.0,
             "title": "Fy",
             "type": "number"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
           }
         },
         "required": [

@@ -8123,6 +8123,8 @@ export interface components {
          * @description Intrinsic camera calibration.
          */
         IntrinsicCalibration: {
+            /** Camera Model */
+            camera_model?: ("pinhole" | "kannala_brandt") | null;
             /** Cx */
             cx: number;
             /** Cy */
@@ -8133,6 +8135,11 @@ export interface components {
             fx: number;
             /** Fy */
             fy: number;
+            /** Resolution */
+            resolution?: [
+                number,
+                number
+            ] | null;
         };
         /**
          * KeypointDefinition
