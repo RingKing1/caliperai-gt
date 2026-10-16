@@ -208,5 +208,28 @@ npm run check:api    # 漂移门禁：重新生成并与已提交文件逐字节
   如 `type Task = Schema<'TaskResponse'>` 或 `components['schemas']['SceneListResponse']`；
   需要按路径取请求/响应类型时用 `paths['/api/v1/tasks/{task_id}']['get']`；
 - 手写类型（`types/index.ts` 等）按域逐步替换为生成类型的别名，不做一次性大爆炸迁移；
-  首批已接入 `LoginRequest` / `ChangePasswordRequest`。后端改 schema 后流程：
+  已接入：`LoginRequest` / `ChangePasswordRequest` / `UserRole` / `AuthUser`(基于
+  `CurrentUserResponse`，收窄 role/permissions) / `LoginResponse`(基于 `Token`)、
+  枚举（`TaskStatus`、`TaxonomyAnnotationMode`、`ReviewVerdict` 等）、`BBox2D`、
+  `ExtrinsicCalibration`、标注统计全家桶、QA 评审/建议、`ChatMessage`、
+  `User`、`Campaign`/`CampaignCreateRequest`/`CampaignUpdateRequest`、`Dataset`、
+  `DatasetStats`、`DatasetDetailResponse`、`Frame`、`Task`/`TaskConfig`、`ImportJob`、
+  `SharedAttributeDefinition`。后端改 schema 后流程：
   `fetch:api` → `gen:api` → 提交两个文件（`check:api` 会拦截漏提交）。
+
+- 已确认的契约分叉，暂保留手写类型（不是漏替换）：
+  - `IntrinsicCalibration`：前端多 `resolution` / `camera_model`（LidarCanvas 依赖）；
+  - `AnnotationType` / `AnnotationSource`：前端并集是后端枚举超集（fusion_box2d、
+    qa_correction 等）；`Annotation.data` 后端为 dict，前端为判别联合；
+  - `TaskStage` / `QAReviewMode` / `SuggestionSeverity` / `Permission`：后端无组件，
+    以自由字符串下发；
+  - `Scene` / `SceneCalibration` 链：后端 calibration/storage_paths 为泛化 dict，
+    且字段名为 `scene_metadata`，前端依赖强类型结构；
+  - `Taxonomy` / `TaxonomyConfig` / `ClassDefinition` 等分类学嵌套：后端嵌套字段
+    `null` 与前端 `undefined` 约定不同，边界统一走
+    `utils/taxonomyUtils.ts` 的 `normalizeTaxonomyConfig` /
+    `normalizeSharedAttributes` 归一化后再入 store；
+  - Chat SSE 事件、编辑器内部类型（ViewState/store 类型、标注 payload）不属 API 契约。
+
+- CI：`.github/workflows/frontend-ci.yml` 在 push/PR 上执行
+  `npm ci` → `npm run check:api` → `tsc --noEmit` → `npm test`。

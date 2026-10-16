@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BRAND } from '@/config/branding';
 import { campaignApi, taskApi, organizationApi } from '@/api/client';
-import type { Campaign, Task } from '@/types';
+import type { Campaign, CampaignCreateRequest, Task } from '@/types';
 import { AdminOnly } from '@/components/auth/ProtectedRoute';
 import { useAuthStore } from '@/store/authStore';
 import { useCurrentOrganizationId } from '@/store/organizationStore';
@@ -78,7 +78,7 @@ const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ isOpen, onClo
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; description?: string; config?: Record<string, unknown>; custom_metadata?: Record<string, unknown>; deadline?: string; organization_id: string }) =>
+    mutationFn: (data: CampaignCreateRequest) =>
       campaignApi.create(data),
     onSuccess: (createdCampaign) => {
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });

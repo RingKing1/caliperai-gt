@@ -18,6 +18,7 @@ import { useImageCacheStore } from '@/store/imageCacheStore';
 import { useAnnotation4DStore } from '@/store/annotation4DStore';
 import { useAnnotation2DStore } from '@/store/annotation2DStore';
 import type { PointCloudData } from '@/types';
+import { normalizeSharedAttributes, normalizeTaxonomyConfig } from '@/utils/taxonomyUtils';
 import type { ViewMode, AnnotationModeTab } from '@/components/editor/types';
 
 export interface UseTaskDataLoaderOptions {
@@ -367,11 +368,11 @@ export const useTaskDataLoader = ({
     }
 
     if (dataset?.taxonomy?.classes && dataset.taxonomy.classes.length > 0) {
-      const embeddedShared = dataset.taxonomy.shared_attributes ?? [];
-      const linkedShared = linkedTaxonomies?.[0]?.shared_attributes ?? [];
+      const embeddedShared = normalizeSharedAttributes(dataset.taxonomy.shared_attributes);
+      const linkedShared = normalizeSharedAttributes(linkedTaxonomies?.[0]?.shared_attributes);
       const effectiveShared = embeddedShared.length > 0 ? embeddedShared : linkedShared;
       setTaxonomy({
-        ...dataset.taxonomy,
+        ...normalizeTaxonomyConfig(dataset.taxonomy),
         shared_attributes: effectiveShared,
       });
       return;

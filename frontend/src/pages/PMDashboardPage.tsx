@@ -314,13 +314,13 @@ interface EfficiencyPanelProps {
 }
 
 const EfficiencyPanel: React.FC<EfficiencyPanelProps> = ({ efficiency }) => {
-  const trendIcon = {
+  const trendIcon: Record<string, string> = {
     increasing: '📈',
     decreasing: '📉',
     stable: '➡️',
   };
 
-  const trendColor = {
+  const trendColor: Record<string, string> = {
     increasing: 'text-green-400',
     decreasing: 'text-red-400',
     stable: 'text-gray-400',

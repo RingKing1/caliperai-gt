@@ -1,11 +1,6 @@
-import type { Schema } from './generated';
+import type { NullToUndefined, Schema } from './generated';
 
-export type UserRole =
-  | 'admin'
-  | 'project_manager'
-  | 'annotator'
-  | 'qa_reviewer'
-  | 'customer_qa';
+export type UserRole = Schema<'UserRole'>;
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Administrator',
@@ -93,29 +88,23 @@ export const PERMISSION_GROUPS = {
 };
 
 
-export interface AuthUser {
-  id: string;
-  email: string;
-  username: string;
-  full_name?: string;
+// Backend issues role/permissions as plain strings on CurrentUserResponse;
+// the frontend keeps the narrowed literal unions for type-safe RBAC checks.
+export type AuthUser = NullToUndefined<
+  Omit<Schema<'CurrentUserResponse'>, 'role' | 'permissions'>
+> & {
   role: UserRole;
   permissions: Permission[];
-  is_active: boolean;
-  is_superuser?: boolean;
-  must_change_password?: boolean;
   created_at?: string;
   updated_at?: string;
-}
+};
 
 
 // Canonical shape comes from the generated OpenAPI types (drift-free).
 export type LoginRequest = Schema<'LoginRequest'>;
 
-export interface LoginResponse {
-  access_token: string;
-  refresh_token?: string | null;
-  token_type: string;
-  expires_in: number;
+// Token.user is the generic TokenUser; narrow to AuthUser for RBAC in the UI.
+export interface LoginResponse extends Omit<NullToUndefined<Schema<'Token'>>, 'user'> {
   user: AuthUser;
 }
 

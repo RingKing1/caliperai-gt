@@ -18,3 +18,12 @@ import type { components as GeneratedComponents } from "./api";
 /** Shorthand for a named component schema, e.g. Schema<"TaskResponse">. */
 export type Schema<K extends keyof GeneratedComponents["schemas"]> =
   GeneratedComponents["schemas"][K];
+
+
+/**
+ * Backend nullable fields serialise to `T | null`; the frontend convention is
+ * optional (`T | undefined`). This normalises one generated component.
+ */
+export type NullToUndefined<T> = {
+  [K in keyof T]: null extends T[K] ? Exclude<T[K], null> | undefined : T[K];
+};

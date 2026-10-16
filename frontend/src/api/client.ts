@@ -13,6 +13,8 @@ import type {
   User,
   PaginatedResponse,
   PredictionInjectionResponse,
+  CampaignCreateRequest,
+  CampaignUpdateRequest,
 } from '@/types';
 import { useAuthStore } from '@/store/authStore';
 import { refreshAccessToken } from '@/api/auth';
@@ -147,12 +149,12 @@ export const campaignApi = {
     return data;
   },
 
-  create: async (campaign: Partial<Campaign>) => {
+  create: async (campaign: CampaignCreateRequest) => {
     const { data } = await api.post<Campaign>('/campaigns', campaign);
     return data;
   },
 
-  update: async (id: string, campaign: Partial<Campaign>) => {
+  update: async (id: string, campaign: CampaignUpdateRequest) => {
     const { data } = await api.patch<Campaign>(`/campaigns/${id}`, campaign);
     return data;
   },

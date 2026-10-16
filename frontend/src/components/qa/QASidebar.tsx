@@ -56,7 +56,7 @@ const getCategoryForType = (type: string): string => {
   return 'Other';
 };
 
-const SEVERITY_PRIORITY: Record<SuggestionSeverity, number> = {
+const SEVERITY_PRIORITY: Record<string, number> = {
   critical: 0,
   high: 1,
   medium: 2,
@@ -102,11 +102,11 @@ interface GroupHeaderProps {
   count: number;
   expanded: boolean;
   onToggle: () => void;
-  severity: SuggestionSeverity;
+  severity: string;
 }
 
 const GroupHeader: React.FC<GroupHeaderProps> = ({ category, count, expanded, onToggle, severity }) => {
-  const severityColors = {
+  const severityColors: Record<string, string> = {
     critical: 'text-red-400 bg-red-500/10 border-red-500/30',
     high: 'text-orange-400 bg-orange-500/10 border-orange-500/30',
     medium: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
@@ -182,7 +182,7 @@ export const QASidebar: React.FC<QASidebarProps> = ({ onJumpToAnnotation }) => {
 
   // Group by category
   const groupedSuggestions = useMemo(() => {
-    const groups: Record<string, { suggestions: QASuggestion[]; maxSeverity: SuggestionSeverity }> = {};
+    const groups: Record<string, { suggestions: QASuggestion[]; maxSeverity: string }> = {};
 
     suggestions.forEach(s => {
       const category = getCategoryForType(s.suggestion_type);

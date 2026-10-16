@@ -1,18 +1,12 @@
 
+import type { NullToUndefined, Schema } from './generated';
+
 export * from './auth';
 
 export * from './chat';
 
-import type { UserRole } from './auth';
 
-
-export type TaskStatus =
-  | 'pending'
-  | 'assigned'
-  | 'in_progress'
-  | 'submitted'
-  | 'accepted'
-  | 'rejected';
+export type TaskStatus = Schema<'TaskStatus'>;
 
 export type TaskStage =
   | 'annotation'
@@ -52,12 +46,7 @@ export interface Point3D {
   z: number;
 }
 
-export interface BBox2D {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type BBox2D = Schema<'BBox2D'>;
 
 export interface Dimensions3D {
   length: number;
@@ -74,10 +63,7 @@ export interface Rotation3D {
 
 export type CameraModel = 'pinhole' | 'kannala_brandt';
 
-export interface ExtrinsicCalibration {
-  rotation: number[][];
-  translation: number[];
-}
+export type ExtrinsicCalibration = Schema<'ExtrinsicCalibration'>;
 
 export interface IntrinsicCalibration {
   fx: number;
@@ -176,16 +162,13 @@ export interface AttributeDefinition {
   mutable?: boolean;
 }
 
-export interface SharedAttributeDefinition {
-  name: string;
-  type: 'boolean' | 'string' | 'number' | 'enum';
-  default?: unknown;
-  options?: string[];
-  required?: boolean;
-  description?: string;
-  mutable?: boolean;
+// Backend always serializes applies_to (default_factory=list); nullables
+// (options/description/default) follow the frontend's undefined convention.
+export type SharedAttributeDefinition = NullToUndefined<
+  Omit<Schema<'SharedAttributeDefinition'>, 'applies_to'>
+> & {
   applies_to: string[];
-}
+};
 
 export interface KeypointDefinition {
   id: string;
@@ -223,7 +206,7 @@ export interface TaxonomyConfig {
   shared_attributes?: SharedAttributeDefinition[];
 }
 
-export type TaxonomyAnnotationMode = 'fusion_3d' | '2d_only' | 'segmentation_3d';
+export type TaxonomyAnnotationMode = Schema<'TaxonomyAnnotationMode'>;
 
 export interface Taxonomy {
   id: string;
@@ -251,49 +234,20 @@ export interface DatasetTaxonomiesByMode {
 }
 
 
-export interface Campaign {
-  id: string;
-  name: string;
-  description?: string;
-  config: Record<string, unknown>;
-  custom_metadata: Record<string, unknown>;
-  stats: {
-    total_datasets: number;
-    total_scenes: number;
-    total_tasks: number;
-    completed_tasks: number;
-    total_annotations: number;
-    annotator_hours: number;
-  };
-  deadline?: string;
-  created_at: string;
-  updated_at: string;
-}
+// stats carries default_factory=CampaignStats on the response model, so it is
+// present on every payload even though OpenAPI marks it optional.
+export type Campaign = Omit<NullToUndefined<Schema<'CampaignResponse'>>, 'stats'> & {
+  stats: Schema<'CampaignStats'>;
+};
 
-export interface Dataset {
-  id: string;
-  campaign_id: string;
-  name: string;
-  description?: string;
-  taxonomy: TaxonomyConfig;
-  sensor_config: {
-    lidar?: Record<string, unknown>;
-    cameras: Record<string, unknown>[];
-  };
-  custom_metadata: Record<string, unknown>;
-  deadline?: string;
-  created_at: string;
-  updated_at: string;
-}
+export type CampaignCreateRequest = Schema<'CampaignCreate'>;
 
-export interface DatasetStats {
-  scene_count: number;
-  total_frames: number;
-  total_tasks: number;
-  pending_tasks: number;
-  in_progress_tasks: number;
-  completed_tasks: number;
-}
+export type CampaignUpdateRequest = Schema<'CampaignUpdate'>;
+
+export type Dataset = NullToUndefined<Schema<'DatasetResponse'>>;
+
+// Backend marks these optional in the schema, but it always sends all six.
+export type DatasetStats = Required<Schema<'DatasetStats'>>;
 
 export interface DatasetDetailResponse extends Dataset {
   taxonomies: Taxonomy[];
@@ -335,40 +289,27 @@ export interface ImportJobResult {
   }>;
 }
 
-export interface ImportJob {
-  id: string;
-  dataset_id: string;
+// Backend types job_type/status as free strings and result as a generic dict;
+// keep the frontend's narrowed literals and structured ImportJobResult.
+export type ImportJob = Omit<
+  NullToUndefined<Schema<'ImportJobResponse'>>,
+  'job_type' | 'status' | 'result'
+> & {
   job_type: 'zip' | 'upload';
-  source_filename?: string | null;
   status: 'pending' | 'running' | 'completed' | 'failed';
-  phase?: string | null;
-  progress: number;
-  total_scenes: number;
-  processed_scenes: number;
-  scenes_imported: number;
-  frames_imported: number;
-  message?: string | null;
   result?: ImportJobResult | null;
-  error?: string | null;
-}
+};
 
-export interface Frame {
-  id: string;
-  scene_id: string;
-  frame_index: number;
-  timestamp: number;
-  ego_pose?: {
-    position: number[];
-    rotation: number[];
-    velocity?: number[];
-  };
-  file_paths: {
-    lidar?: string;
+// file_paths.cameras is required in practice (every frame carries the camera
+// map, possibly empty); keep the historical frontend contract.
+export type Frame = Omit<NullToUndefined<Schema<'FrameResponse'>>, 'file_paths'> & {
+  file_paths: Omit<Schema<'FrameFilePaths'>, 'cameras'> & {
     cameras: Record<string, string>;
   };
+  // UI-only markers used by context-frame rendering.
   is_context?: boolean;
   is_readonly?: boolean;
-}
+};
 
 export interface TaskTaxonomyStatus {
   taxonomy_id: string;
@@ -384,57 +325,23 @@ export interface TaskTaxonomyStatus {
   customer_reviewer_id?: string;
 }
 
-export interface Task {
-  id: string;
-  scene_id: string;
-  name: string;
-  description?: string;
-  status: TaskStatus;
-  stage: TaskStage;
-  frame_range: {
-    start: number;
-    end: number;
-  };
-  context_buffer_before: number;
-  context_buffer_after: number;
-  priority: number;
-  deadline?: string;
-  config: {
-    required_annotation_types: AnnotationType[];
-    required_classes: string[];
-    auto_annotation_enabled: boolean;
-    quality_checks: string[];
-  };
-  assignee_id?: string;
-  assigned_at?: string;
-  reviewer_id?: string;
-  reviewed_at?: string;
-  review_notes?: string;
-  customer_reviewer_id?: string;
-  customer_reviewed_at?: string;
-  customer_review_notes?: string;
-  skip_customer_qa: boolean;
-  revision_count: number;
-  started_at?: string;
-  submitted_at?: string;
-  total_time_seconds: number;
-  taxonomy_id?: string;
-  taxonomy_name?: string;
-  taxonomy_annotation_mode?: string;
-  created_at: string;
-  updated_at: string;
+// TaskConfig arrays are always present in task payloads consumed by the editor.
+export interface TaskConfig {
+  required_annotation_types: AnnotationType[];
+  required_classes: string[];
+  auto_annotation_enabled: boolean;
+  quality_checks: string[];
 }
 
-export interface User {
-  id: string;
-  email: string;
-  username: string;
-  full_name?: string;
-  role: UserRole;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
+export type Task = Omit<
+  NullToUndefined<Schema<'TaskResponse'>>,
+  'stage' | 'config'
+> & {
+  stage: TaskStage;
+  config: TaskConfig;
+};
+
+export type User = NullToUndefined<Schema<'UserResponse'>>;
 
 export interface Annotation {
   id: string;
@@ -594,126 +501,47 @@ export interface PredictionInjectionResponse {
 
 
 export type QAReviewMode = 'view_only' | 'edit' | 'suggest';
-export type QAReviewStatus = 'in_progress' | 'completed' | 'paused';
-export type ReviewVerdict = 'approved' | 'rejected' | 'flagged' | 'pending';
+export type QAReviewStatus = Schema<'QAReviewStatus'>;
+export type ReviewVerdict = Schema<'ReviewVerdict'>;
 export type SuggestionSeverity = 'low' | 'medium' | 'high' | 'critical';
-export type SuggestionType =
-  | 'size_anomaly'
-  | 'position_jump'
-  | 'orientation_flip'
-  | 'track_discontinuity'
-  | 'low_confidence'
-  | 'class_mismatch'
-  | 'missing_attributes'
-  | 'auto_interpolated'
-  | 'imported_unchecked'
-  | 'occlusion_issue'
-  | 'ground_plane_misalignment'
-  | 'track_dimension_inconsistency'
-  | 'velocity_outlier'
-  | 'heading_motion_mismatch'
-  | 'overlapping_cuboids'
-  | 'short_track'
-  | 'aspect_ratio_anomaly'
-  | 'stationary_with_motion_class'
-  | 'track_gap'
-  | 'track_boundary_issue'
-  | 'false_negative';
+export type SuggestionType = Schema<'SuggestionType'>;
 
-export interface QAReviewSummary {
-  approved: number;
-  rejected: number;
-  flagged: number;
-  pending: number;
-  total_annotations: number;
+export type QAReviewSummary = Omit<
+  Schema<'QAReviewSummary'>,
+  'suggestions_addressed' | 'suggestions_dismissed'
+> & {
   suggestions_addressed?: number;
   suggestions_dismissed?: number;
   outcome?: 'accepted' | 'rejected' | 'no_change';
   next_stage?: 'annotation' | 'qa' | 'customer_qa' | 'accepted';
-}
+};
 
-export interface QAReview {
-  id: string;
-  task_id: string;
-  reviewer_id?: string;
-  reviewer_name?: string;
-  status: QAReviewStatus;
-  mode: QAReviewMode;
-  review_stage?: string;
-  started_at: string;
-  completed_at?: string;
+export type QAReview = Omit<
+  NullToUndefined<Schema<'QAReviewResponse'>>,
+  'summary'
+> & {
   summary?: QAReviewSummary;
-  created_at: string;
-  updated_at: string;
-}
+};
 
-export interface AnnotationReview {
-  id: string;
-  qa_review_id: string;
-  annotation_id: string;
-  annotation_table: string;
+// verdict is a free string in the OpenAPI schema; keep the UI's narrow union.
+export type AnnotationReview = Omit<
+  NullToUndefined<Schema<'AnnotationReviewResponse'>>,
+  'verdict'
+> & {
   verdict?: ReviewVerdict;
-  issue_types?: string[];
-  notes?: string;
-  reviewed_at?: string;
-  created_at: string;
-  updated_at: string;
-  frame_id?: string;
-  class_id?: string;
-  location_x?: number;
-  location_y?: number;
-  location_z?: number;
-  annotator_resolved?: boolean;
-}
+};
 
-export interface AnnotationComment {
-  id: string;
-  annotation_id: string;
-  annotation_table: string;
-  user_id?: string;
-  user_name?: string;
-  parent_id?: string;
-  content: string;
-  is_resolved: boolean;
-  resolved_by?: string;
-  resolved_at?: string;
+export interface AnnotationComment
+  extends Omit<
+    NullToUndefined<Schema<'AnnotationCommentResponse'>>,
+    'replies'
+  > {
   replies: AnnotationComment[];
-  created_at: string;
-  updated_at: string;
 }
 
-export interface QASuggestion {
-  id: string;
-  task_id: string;
-  annotation_id?: string;
-  annotation_table?: string;
-  frame_id?: string;
-  suggestion_type: SuggestionType;
-  severity: SuggestionSeverity;
-  message: string;
-  details?: Record<string, unknown>;
-  is_dismissed: boolean;
-  dismissed_by?: string;
-  dismissed_at?: string;
-  created_at: string;
-}
+export type QASuggestion = NullToUndefined<Schema<'QASuggestionResponse'>>;
 
-export interface QATaskStats {
-  task_id: string;
-  total_annotations: number;
-  reviewed_count: number;
-  pending_count: number;
-  approved_count: number;
-  rejected_count: number;
-  flagged_count: number;
-  suggestions_count: number;
-  suggestions_dismissed: number;
-  comment_count: number;
-  unresolved_comments: number;
-  review_progress_percent: number;
-  has_active_review: boolean;
-  active_review_id?: string;
-}
+export type QATaskStats = Schema<'QATaskStats'>;
 
 export interface GenerateSuggestionsResponse {
   task_id: string;
@@ -723,73 +551,16 @@ export interface GenerateSuggestionsResponse {
 }
 
 
-export interface AnnotatorStats {
-  id: string;
-  alias: string;
-  tasks_completed: number;
-  tasks_in_progress: number;
-  tasks_assigned: number;
-  total_time_seconds: number;
-  avg_time_per_task_seconds: number;
-  revision_rate: number;
-  frames_annotated: number;
-}
+export type AnnotatorStats = Schema<'AnnotatorStats'>;
 
-export interface TaskBreakdown {
-  pending: number;
-  assigned: number;
-  in_progress: number;
-  submitted: number;
-  accepted: number;
-  rejected: number;
-  total: number;
-}
+export type TaskBreakdown = Schema<'TaskBreakdown'>;
 
-export interface StageBreakdown {
-  annotation: number;
-  qa: number;
-  customer_qa: number;
-  accepted: number;
-}
+export type StageBreakdown = Schema<'StageBreakdown'>;
 
-export interface MostTimeConsumingTask {
-  task_id: string;
-  task_name: string;
-  scene_name: string;
-  dataset_name: string;
-  total_time_seconds: number;
-  total_time_formatted: string;
-  frame_count: number;
-  annotator_alias?: string;
-}
+export type MostTimeConsumingTask = Schema<'MostTimeConsumingTask'>;
 
-export interface RecentActivity {
-  task_id: string;
-  task_name: string;
-  action: string;
-  annotator_alias?: string;
-  timestamp: string;
-}
+export type RecentActivity = Schema<'RecentActivity'>;
 
-export interface EfficiencyMetrics {
-  avg_time_per_task_seconds: number;
-  avg_time_per_frame_seconds: number;
-  avg_revisions_per_task: number;
-  first_time_accept_rate: number;
-  tasks_completed_last_7_days: number;
-  tasks_completed_last_30_days: number;
-  velocity_trend: 'increasing' | 'decreasing' | 'stable';
-}
+export type EfficiencyMetrics = Schema<'EfficiencyMetrics'>;
 
-export interface PMDashboardStats {
-  task_breakdown: TaskBreakdown;
-  stage_breakdown: StageBreakdown;
-  completion_rate: number;
-  efficiency: EfficiencyMetrics;
-  top_annotators: AnnotatorStats[];
-  most_time_consuming_task?: MostTimeConsumingTask;
-  recent_activity: RecentActivity[];
-  overdue_tasks: number;
-  tasks_due_this_week: number;
-  generated_at: string;
-}
+export type PMDashboardStats = Schema<'PMDashboardStats'>;

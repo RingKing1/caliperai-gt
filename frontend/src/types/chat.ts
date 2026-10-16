@@ -1,17 +1,20 @@
 
 
-export type ChatMessageRole = 'user' | 'assistant' | 'system';
-export type ChatMessageFeedback = 'helpful' | 'not_helpful' | null;
+import type { NullToUndefined, Schema } from './generated';
+
+export type ChatMessageRole = Schema<'ChatMessageRole'>;
+export type ChatMessageFeedback = Schema<'ChatFeedback'> | null;
 
 
-export interface ChatMessage {
-  id: string;
-  role: ChatMessageRole;
-  content: string;
+// Backend MessageResponse + the UI-only streaming flag; context/model_used
+// from the generated contract come along for free.
+export type ChatMessage = Omit<
+  NullToUndefined<Schema<'MessageResponse'>>,
+  'feedback'
+> & {
   feedback?: ChatMessageFeedback;
-  created_at: string;
   is_streaming?: boolean;
-}
+};
 
 export interface ChatSession {
   id: string;
