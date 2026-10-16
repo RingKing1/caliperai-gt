@@ -297,7 +297,10 @@ export function useTrackTimeline() {
     if (keyframeSamplingEnabled) {
       const interval = Math.max(1, keyframeInterval);
       // Keyframe scope: from current keyframe to the frame before next keyframe [current_kf, next_kf)
-      const startIdx = currentFrameIndex;
+      const offset = (currentFrameIndex - keyframeStartFrame) % interval;
+      const startIdx = offset >= 0 && offset < interval
+        ? currentFrameIndex - offset
+        : currentFrameIndex;
       const endIdx = Math.min(frames.length, startIdx + interval);
       const indices: number[] = [];
       for (let i = startIdx; i < endIdx; i++) {
@@ -307,22 +310,21 @@ export function useTrackTimeline() {
     }
     // Regular frame mode: strictly current single frame
     return [currentFrameIndex];
-  }, [keyframeSamplingEnabled, keyframeInterval, currentFrameIndex, frames.length]);
+  }, [keyframeSamplingEnabled, keyframeInterval, keyframeStartFrame, currentFrameIndex, frames.length]);
 
   // Next keyframe display number helper for tooltips/toast
   const nextKeyframeDisplayNumber = useMemo(() => {
     if (!keyframeSamplingEnabled) return currentFrameDisplayNumber;
     const interval = Math.max(1, keyframeInterval);
-    const endIdx = Math.min(frames.length - 1, currentFrameIndex + interval - 1);
+    const offset = (currentFrameIndex - keyframeStartFrame) % interval;
+    const startIdx = offset >= 0 && offset < interval ? currentFrameIndex - offset : currentFrameIndex;
+    const endIdx = Math.min(frames.length - 1, startIdx + interval - 1);
     return (frames[endIdx]?.frame_index ?? endIdx) + 1;
-  }, [keyframeSamplingEnabled, keyframeInterval, currentFrameIndex, frames, currentFrameDisplayNumber]);
+  }, [keyframeSamplingEnabled, keyframeInterval, keyframeStartFrame, currentFrameIndex, frames, currentFrameDisplayNumber]);
 
-  // Check if current frame / keyframe scope is already tracked on active track (Yellow vs Gray interval)
-  const isCurrentScopeTracked = useMemo(() => {
-    const scopeIndices = getTargetScopeFrameIndices();
-    const scopeFrameIdSet = new Set(scopeIndices.map((idx) => frames[idx]?.id).filter(Boolean));
-    return trackAnnotations.some((ann) => scopeFrameIdSet.has(ann.frame_id));
-  }, [getTargetScopeFrameIndices, frames, trackAnnotations]);
+  // Track status of the active frame/keyframe (Yellow TRACK vs Gray MISS)
+  // Strictly matches the visual node color (isTracked) of the current frame on the timeline
+  const isCurrentScopeTracked = isCurrentFrameTracked;
 
   // 7. Add / Overwrite candidate annotation (and its scope) into this track
   const addToTrack = useCallback(
