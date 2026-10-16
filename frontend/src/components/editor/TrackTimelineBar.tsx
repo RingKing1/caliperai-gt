@@ -14,7 +14,9 @@ export const TrackTimelineBar: React.FC = () => {
     trackedCount,
     totalNodesCount,
     currentFrameDisplayNumber,
+    nextKeyframeDisplayNumber,
     isCurrentFrameTracked,
+    isCurrentScopeTracked,
     keyframeSamplingEnabled,
     keyframeInterval,
     candidateToLink,
@@ -47,7 +49,6 @@ export const TrackTimelineBar: React.FC = () => {
 
   // Modals & Action states
   const [showSyncModal, setShowSyncModal] = useState(false);
-  const [showDetachModal, setShowDetachModal] = useState(false);
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLinking, setIsLinking] = useState(false);
@@ -160,42 +161,46 @@ export const TrackTimelineBar: React.FC = () => {
     }
   };
 
-  // Handle add candidate to track
+  // Handle add / overwrite candidate to track (Silent, scope-aware, assigns new UUID to overwritten boxes)
   const handleAddToTrack = async () => {
     if (!candidateToLink) return;
     setIsLinking(true);
     const res = await addToTrack(candidateToLink.id);
     setIsLinking(false);
     if (res.success) {
-      if (res.warning) {
-        showToast(`已加入 Track #${shortTrackId}（${res.warning}）`);
+      const scopeLabel = keyframeSamplingEnabled
+        ? `关键帧区间 (帧 #${currentFrameDisplayNumber} ~ #${nextKeyframeDisplayNumber})`
+        : `当前帧 #${currentFrameDisplayNumber}`;
+      if (res.isOverwrite) {
+        const shortNew = res.newTrackId ? res.newTrackId.replace(/-/g, '').slice(0, 6).toUpperCase() : 'NEW';
+        showToast(`已成功覆盖 ${scopeLabel}！原目标已安全拆分为新独立轨迹 (Track #${shortNew})`);
+      } else if (res.warning) {
+        showToast(`已将 ${scopeLabel} 目标加入 Track #${shortTrackId}（${res.warning}）`);
       } else {
-        showToast(`已成功将当前帧目标加入 Track #${shortTrackId}！`);
+        showToast(`已成功将 ${scopeLabel} 目标加入 Track #${shortTrackId}！`);
       }
     } else {
       showToast(res.error || '加入轨迹失败，请重试');
     }
   };
 
-  // Handle detach / split execution
-  const handleConfirmDetach = async (mode: 'untrack' | 'split') => {
+  // Handle direct detach / split execution (Silent, no prompt modal, scope-aware, assigns new UUID)
+  const handleDirectDetach = async () => {
     setIsDetaching(true);
-    const res = await detachFromTrack(undefined, mode);
+    const res = await detachFromTrack();
     setIsDetaching(false);
-    setShowDetachModal(false);
     if (res.success) {
-      if (mode === 'untrack') {
-        showToast(`已将当前帧从 Track #${shortTrackId} 移出 (设为未跟踪)`);
-      } else {
-        const shortNew = res.newTrackId ? res.newTrackId.replace(/-/g, '').slice(0, 6).toUpperCase() : 'NEW';
-        showToast(`已将当前帧目标拆分为新独立轨迹 (Track #${shortNew})`);
-      }
+      const shortNew = res.newTrackId ? res.newTrackId.replace(/-/g, '').slice(0, 6).toUpperCase() : 'NEW';
+      const scopeLabel = keyframeSamplingEnabled
+        ? `关键帧区间 (帧 #${currentFrameDisplayNumber} ~ #${nextKeyframeDisplayNumber})`
+        : `当前帧 #${currentFrameDisplayNumber}`;
+      showToast(`已将 ${scopeLabel} 移出主轨迹，并赋予独立新轨迹 (Track #${shortNew})`);
     } else {
-      showToast('操作失败，请重试');
+      showToast(res.error || '移出失败，请重试');
     }
   };
 
-  // Handle merge tracks execution
+  // Handle merge tracks execution (Silent, no modal, strictly merges candidate track within scope)
   const handleConfirmMerge = async () => {
     if (!selectedOtherTrackId) return;
     setIsMerging(true);
@@ -203,15 +208,12 @@ export const TrackTimelineBar: React.FC = () => {
     const res = await mergeWithTrack(selectedOtherTrackId);
     setIsMerging(false);
     if (res.success) {
-      if (res.conflictCount && res.conflictCount > 0) {
-        showToast(
-          `已成功缝合！并入 ${res.mergedCount} 帧 (检测到 ${res.conflictCount} 帧重叠冲突，已以主轨迹为准保留，次轨迹重叠框已保留原 ID)`
-        );
-      } else {
-        showToast(
-          `已成功将 Track #${shortOther} 的 ${res.mergedCount} 个标注全部缝合合并入当前 Track #${shortTrackId}！`
-        );
-      }
+      const scopeLabel = keyframeSamplingEnabled
+        ? `关键帧区间 (帧 #${currentFrameDisplayNumber} ~ #${nextKeyframeDisplayNumber})`
+        : `当前帧 #${currentFrameDisplayNumber}`;
+      showToast(
+        `已成功将 Track #${shortOther} 在 ${scopeLabel} 内的目标合并入当前 Track #${shortTrackId}！`
+      );
     } else {
       showToast(res.error || '轨迹合并失败，请检查网络或后端日志');
     }
@@ -385,17 +387,26 @@ export const TrackTimelineBar: React.FC = () => {
                 轨迹终点 ▶
               </button>
 
-              {/* Detach / Fix Button for Tracked Frame */}
+              {/* Detach / Evict Button for Tracked Frame or Keyframe Interval */}
               {isCurrentFrameTracked && (
                 <button
-                  onClick={() => setShowDetachModal(true)}
-                  className="px-2.5 py-1 text-[10px] font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/35 rounded-lg transition-all flex items-center gap-1"
-                  title="当前帧若发生误跟或错标，点击从此轨迹中移出或拆分"
+                  onClick={handleDirectDetach}
+                  disabled={isDetaching}
+                  className="px-2.5 py-1 text-[10px] font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/35 rounded-lg transition-all flex items-center gap-1 disabled:opacity-50"
+                  title={
+                    keyframeSamplingEnabled
+                      ? `将当前关键帧区间 [帧 #${currentFrameDisplayNumber} ~ #${nextKeyframeDisplayNumber}] 内的目标移出该轨迹并生成新UUID`
+                      : `将当前帧目标移出该轨迹并生成新UUID`
+                  }
                 >
                   <svg className="w-3 h-3 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
-                  修改/移出此帧
+                  {isDetaching
+                    ? '移出中...'
+                    : keyframeSamplingEnabled
+                    ? '移出关键帧区间'
+                    : '移出此帧'}
                 </button>
               )}
 
@@ -520,7 +531,7 @@ export const TrackTimelineBar: React.FC = () => {
 
           {/* ── Contextual Action Bar ── */}
 
-          {/* CASE A: Selected object belongs to ANOTHER track -> Merge / Link / Switch */}
+          {/* CASE A: Selected object belongs to ANOTHER track -> Merge / Overwrite / Switch */}
           {selectedOtherTrackId && candidateToLink ? (
             <div className="flex items-center justify-between px-3.5 py-2 bg-gradient-to-r from-purple-950/80 via-indigo-950/80 to-blue-950/80 border border-purple-400/40 rounded-xl text-xs text-purple-200 animate-fadeIn shadow-lg shadow-purple-950/40">
               <div className="flex items-center gap-2">
@@ -532,42 +543,80 @@ export const TrackTimelineBar: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Stitch & Merge Tracks (Direct 1-click execution) */}
+                {/* 1. Merge button (Active only in gray interval) */}
                 <button
-                  onClick={handleConfirmMerge}
-                  disabled={isMerging}
-                  className="px-3.5 py-1 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md shadow-purple-500/30 active:scale-95 disabled:opacity-50"
-                  title="一键将次轨迹全线所有帧合并入当前主轨迹 (以主轨迹为准，保留重叠框)"
+                  onClick={!isCurrentScopeTracked ? handleConfirmMerge : undefined}
+                  disabled={isCurrentScopeTracked || isMerging}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all ${
+                    !isCurrentScopeTracked
+                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-indigo-950/40 border border-indigo-400/30 active:scale-95 disabled:opacity-50 cursor-pointer'
+                      : 'bg-white/5 text-gray-500 border border-white/5 opacity-50 cursor-not-allowed select-none'
+                  }`}
+                  title={
+                    isCurrentScopeTracked
+                      ? '当前区间已有主轨迹目标 (黄色)，无法直接合并；若要替换错误目标请使用【覆盖】，或跳转至灰色区间'
+                      : `将次轨迹在当前${keyframeSamplingEnabled ? '关键帧区间' : '帧'}内的目标合并入主轨迹`
+                  }
                 >
                   {isMerging ? (
                     <>
-                      <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      正在缝合并入...
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      合并中...
                     </>
                   ) : (
                     <>
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2.2}
+                          d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                        />
                       </svg>
-                      🔗 一键缝合并入 (Merge)
+                      {keyframeSamplingEnabled ? '合并关键帧区间' : '合并此帧'}
                     </>
                   )}
                 </button>
 
-                {/* Only Reassign this single frame */}
+                {/* 2. Overwrite button (Active only in yellow interval) */}
                 <button
-                  onClick={handleAddToTrack}
-                  disabled={isLinking}
-                  className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-gray-200 rounded-lg transition-colors text-[11px]"
-                  title="仅将当前这一帧的物体改绑至当前 Track"
+                  onClick={isCurrentScopeTracked ? handleAddToTrack : undefined}
+                  disabled={!isCurrentScopeTracked || isLinking}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all ${
+                    isCurrentScopeTracked
+                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-indigo-950/40 border border-indigo-400/30 active:scale-95 disabled:opacity-50 cursor-pointer'
+                      : 'bg-white/5 text-gray-500 border border-white/5 opacity-50 cursor-not-allowed select-none'
+                  }`}
+                  title={
+                    !isCurrentScopeTracked
+                      ? '当前为灰色空缺区间，主轨迹无旧目标需要覆盖；如需引入请使用【合并】'
+                      : `以所选目标覆盖当前${keyframeSamplingEnabled ? '关键帧区间' : '帧'}现有目标，原目标安全转为新UUID`
+                  }
                 >
-                  仅改绑此帧
+                  {isLinking ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      覆盖中...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2.2}
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      {keyframeSamplingEnabled ? '覆盖关键帧区间' : '覆盖此帧'}
+                    </>
+                  )}
                 </button>
 
-                {/* Switch view to other track */}
+                {/* 3. Switch view to other track */}
                 <button
                   onClick={() => switchTrack(selectedOtherTrackId)}
-                  className="px-2 py-1 bg-white/5 hover:bg-white/15 text-gray-400 hover:text-white rounded-lg transition-colors text-[11px]"
+                  className="px-2.5 py-1.5 bg-white/5 hover:bg-white/15 text-gray-400 hover:text-white rounded-lg transition-colors text-xs border border-white/10 flex items-center gap-1"
                   title="切换查看该物体的轨迹时间线"
                 >
                   查看该轨迹 ↗
@@ -575,8 +624,8 @@ export const TrackTimelineBar: React.FC = () => {
               </div>
             </div>
           ) : candidateToLink ? (
-            /* CASE B: Selected object has NO track yet -> Add to track */
-            <div className="flex items-center justify-between px-3.5 py-1.5 bg-gradient-to-r from-cyan-950/70 to-blue-950/70 border border-cyan-400/40 rounded-xl text-xs text-cyan-200 animate-fadeIn shadow-lg shadow-cyan-950/40">
+            /* CASE B: Selected object has NO track yet -> Add / Overwrite */
+            <div className="flex items-center justify-between px-3.5 py-2 bg-gradient-to-r from-cyan-950/70 to-blue-950/70 border border-cyan-400/40 rounded-xl text-xs text-cyan-200 animate-fadeIn shadow-lg shadow-cyan-950/40">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
                 <span>
@@ -586,19 +635,36 @@ export const TrackTimelineBar: React.FC = () => {
               <button
                 onClick={handleAddToTrack}
                 disabled={isLinking}
-                className="px-3.5 py-1 bg-cyan-400 hover:bg-cyan-300 text-gray-950 font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md shadow-cyan-400/30 active:scale-95 disabled:opacity-50"
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-indigo-950/40 border border-indigo-400/30 flex items-center gap-1.5 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                title={
+                  isCurrentScopeTracked
+                    ? `以该目标覆盖当前${keyframeSamplingEnabled ? '关键帧区间' : '帧'}原有目标，原目标安全转为新UUID`
+                    : `将该物体加入当前${keyframeSamplingEnabled ? '关键帧区间' : '帧'}`
+                }
               >
                 {isLinking ? (
                   <>
-                    <span className="w-3 h-3 border-2 border-gray-950 border-t-transparent rounded-full animate-spin" />
-                    正在加入...
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    处理中...
+                  </>
+                ) : isCurrentScopeTracked ? (
+                  <>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2.2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    {keyframeSamplingEnabled ? '覆盖关键帧区间' : '覆盖此帧'}
                   </>
                 ) : (
                   <>
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 4v16m8-8H4" />
                     </svg>
-                    将该物体加入此 Track (绑定)
+                    {keyframeSamplingEnabled ? '加入关键帧区间' : '加入此帧'}
                   </>
                 )}
               </button>
@@ -625,76 +691,7 @@ export const TrackTimelineBar: React.FC = () => {
         </div>
       </div>
 
-      {/* ── 1. Detach / Fix Confirmation Modal ── */}
-      {showDetachModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm animate-fadeIn">
-          <div className="w-[460px] bg-gray-950 border border-rose-500/40 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 text-white">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <h3 className="font-bold text-base text-rose-300 flex items-center gap-2">
-                <svg className="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                轨迹纠偏：修改 / 移出当前帧
-              </h3>
-              <button
-                onClick={() => setShowDetachModal(false)}
-                className="text-gray-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
 
-            <p className="text-xs text-gray-300 leading-relaxed">
-              您当前位于 <strong className="text-amber-300">帧 #{currentFrameDisplayNumber}</strong>。如果发现该帧目标属于<strong>误跟、目标漂移或错标</strong>，请选择处理方式：
-            </p>
-
-            <div className="flex flex-col gap-2.5">
-              {/* Option 1: Untrack */}
-              <div className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl flex items-center justify-between gap-3 transition-colors">
-                <div>
-                  <div className="font-bold text-sm text-gray-200">从当前轨迹移出 (设为未跟踪)</div>
-                  <div className="text-[11px] text-gray-400 mt-0.5">
-                    清除 track_id，当前帧立即变灰 (MISS)。目标仍保留在点云中。
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleConfirmDetach('untrack')}
-                  disabled={isDetaching}
-                  className="px-3.5 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-lg transition-colors shrink-0"
-                >
-                  确认移出
-                </button>
-              </div>
-
-              {/* Option 2: Split to new track */}
-              <div className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl flex items-center justify-between gap-3 transition-colors">
-                <div>
-                  <div className="font-bold text-sm text-amber-300">拆分为全新独立轨迹 (新建 Track)</div>
-                  <div className="text-[11px] text-gray-400 mt-0.5">
-                    为该目标生成新的 Track ID，自成一条独立轨迹，避免与原车混淆。
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleConfirmDetach('split')}
-                  disabled={isDetaching}
-                  className="px-3.5 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-gray-950 rounded-lg transition-colors shrink-0"
-                >
-                  拆分为新Track
-                </button>
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2 border-t border-white/10">
-              <button
-                onClick={() => setShowDetachModal(false)}
-                className="px-4 py-1.5 text-xs text-gray-400 hover:text-white"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
 
 

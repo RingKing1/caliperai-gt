@@ -3,7 +3,7 @@ import { useEditorStore } from '@/store/editorStore';
 import { useTrackStore } from '@/store/trackStore';
 import { annotation3DApi } from '@/api/client';
 import type { CuboidData, Dimensions3D } from '@/types';
-import { validateTrackBinding, validateTrackMerge } from '@/utils/trackValidation';
+import { validateTrackBinding } from '@/utils/trackValidation';
 
 export interface TrackTimelineNode {
   frameIndex: number;
@@ -292,9 +292,48 @@ export function useTrackTimeline() {
     }
   }, [trackedFrameIndices, jumpToFrame]);
 
-  // 7. Add current or specified candidate annotation into this track
+  // 6. Compute action frame scope based on keyframe sampling vs regular frame mode
+  const getTargetScopeFrameIndices = useCallback((): number[] => {
+    if (keyframeSamplingEnabled) {
+      const interval = Math.max(1, keyframeInterval);
+      // Keyframe scope: from current keyframe to the frame before next keyframe [current_kf, next_kf)
+      const startIdx = currentFrameIndex;
+      const endIdx = Math.min(frames.length, startIdx + interval);
+      const indices: number[] = [];
+      for (let i = startIdx; i < endIdx; i++) {
+        indices.push(i);
+      }
+      return indices;
+    }
+    // Regular frame mode: strictly current single frame
+    return [currentFrameIndex];
+  }, [keyframeSamplingEnabled, keyframeInterval, currentFrameIndex, frames.length]);
+
+  // Next keyframe display number helper for tooltips/toast
+  const nextKeyframeDisplayNumber = useMemo(() => {
+    if (!keyframeSamplingEnabled) return currentFrameDisplayNumber;
+    const interval = Math.max(1, keyframeInterval);
+    const endIdx = Math.min(frames.length - 1, currentFrameIndex + interval - 1);
+    return (frames[endIdx]?.frame_index ?? endIdx) + 1;
+  }, [keyframeSamplingEnabled, keyframeInterval, currentFrameIndex, frames, currentFrameDisplayNumber]);
+
+  // Check if current frame / keyframe scope is already tracked on active track (Yellow vs Gray interval)
+  const isCurrentScopeTracked = useMemo(() => {
+    const scopeIndices = getTargetScopeFrameIndices();
+    const scopeFrameIdSet = new Set(scopeIndices.map((idx) => frames[idx]?.id).filter(Boolean));
+    return trackAnnotations.some((ann) => scopeFrameIdSet.has(ann.frame_id));
+  }, [getTargetScopeFrameIndices, frames, trackAnnotations]);
+
+  // 7. Add / Overwrite candidate annotation (and its scope) into this track
   const addToTrack = useCallback(
-    async (targetAnnId?: string): Promise<{ success: boolean; error?: string; warning?: string }> => {
+    async (targetAnnId?: string): Promise<{
+      success: boolean;
+      error?: string;
+      warning?: string;
+      isOverwrite?: boolean;
+      overwrittenCount?: number;
+      newTrackId?: string;
+    }> => {
       const annId = targetAnnId || candidateToLink?.id;
       if (!annId || !activeTrackId) {
         return { success: false, error: '未找到待关联物体或当前未选定主轨迹' };
@@ -305,7 +344,7 @@ export function useTrackTimeline() {
         return { success: false, error: '未找到待关联物体数据' };
       }
 
-      // Industrial-grade validation
+      // Industrial-grade validation with allowOverwrite=true
       const validation = validateTrackBinding({
         targetTrackId: activeTrackId,
         candidateAnnotation: candidateAnn,
@@ -313,100 +352,182 @@ export function useTrackTimeline() {
         trackAnnotations,
         frames,
         lockedAnnotationIds: useEditorStore.getState().lockedAnnotationIds,
+        allowOverwrite: true,
       });
 
       if (!validation.valid) {
         return { success: false, error: validation.error };
       }
 
+      setIsLoading(true);
       try {
-        await annotation3DApi.update(annId, { track_id: activeTrackId });
-        updateAnnotation(annId, { track_id: activeTrackId });
-        // Refresh track annotations
-        await fetchTrackAnnotations(activeTrackId);
-        return { success: true, warning: validation.warning };
-      } catch (err) {
-        console.error('[useTrackTimeline] Failed to add annotation to track:', err);
-        return { success: false, error: '加入轨迹失败，请检查网络或后端日志' };
-      }
-    },
-    [candidateToLink, activeTrackId, annotations, trackAnnotations, frames, updateAnnotation, fetchTrackAnnotations]
-  );
+        const scopeIndices = getTargetScopeFrameIndices();
+        const scopeFrameIdSet = new Set<string>(
+          scopeIndices.map((idx) => frames[idx]?.id).filter(Boolean)
+        );
 
-  // 8. Detach / split annotation from current track (Error correction)
-  const detachFromTrack = useCallback(
-    async (targetAnnId?: string, mode: 'untrack' | 'split' = 'untrack') => {
-      const annId =
-        targetAnnId ||
-        (selectedAnnotation?.track_id === activeTrackId
-          ? selectedAnnotation.id
-          : frameIndexToAnn.get(currentFrameIndex)?.id);
+        // Find existing annotations belonging to activeTrackId in this scope
+        const oldAnnsInScope = trackAnnotations.filter((a) => a.id !== candidateAnn.id && scopeFrameIdSet.has(a.frame_id));
 
-      if (!annId || !activeTrackId) return { success: false };
+        const bulkPayload: Array<{ id: string; track_id: string | null }> = [];
+        let newTrackId: string | undefined;
 
-      try {
-        let newTrackId: string | null = null;
-        if (mode === 'split') {
+        if (oldAnnsInScope.length > 0) {
+          // Overwrite mode: assign fresh non-repeating UUID to old evicted annotations
           newTrackId =
             typeof crypto !== 'undefined' && crypto.randomUUID
               ? crypto.randomUUID()
-              : `trk-${Date.now().toString(36)}`;
+              : `trk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+          oldAnnsInScope.forEach((old) => {
+            bulkPayload.push({ id: old.id, track_id: newTrackId! });
+          });
         }
 
-        await annotation3DApi.update(annId, { track_id: newTrackId });
-        updateAnnotation(annId, { track_id: newTrackId ?? undefined });
+        // Bind candidate annotation to activeTrackId
+        bulkPayload.push({ id: candidateAnn.id, track_id: activeTrackId });
 
-        // Refresh track annotations
+        // If in keyframe mode and candidate belongs to a source track,
+        // bring along other annotations of that source track inside this keyframe scope
+        if (keyframeSamplingEnabled && candidateAnn.track_id && candidateAnn.track_id !== activeTrackId) {
+          const srcTrackId = candidateAnn.track_id;
+          const annList = Array.from(annotations.values());
+          annList.forEach((srcAnn) => {
+            if (
+              srcAnn.track_id === srcTrackId &&
+              srcAnn.id !== candidateAnn.id &&
+              scopeFrameIdSet.has(srcAnn.frame_id)
+            ) {
+              if (!bulkPayload.some((b) => b.id === srcAnn.id)) {
+                bulkPayload.push({ id: srcAnn.id, track_id: activeTrackId });
+              }
+            }
+          });
+        }
+
+        await annotation3DApi.updateBulk(bulkPayload);
+
+        bulkPayload.forEach((item) => {
+          updateAnnotation(item.id, { track_id: item.track_id ?? undefined });
+        });
+
         await fetchTrackAnnotations(activeTrackId);
-        return { success: true, mode, newTrackId: newTrackId || undefined };
+
+        return {
+          success: true,
+          warning: validation.warning,
+          isOverwrite: oldAnnsInScope.length > 0,
+          overwrittenCount: oldAnnsInScope.length,
+          newTrackId,
+        };
       } catch (err) {
-        console.error('[useTrackTimeline] Failed to detach annotation from track:', err);
-        return { success: false };
+        console.error('[useTrackTimeline] Failed to add/overwrite annotation to track:', err);
+        return { success: false, error: '加入/覆盖轨迹失败，请检查网络或后端日志' };
+      } finally {
+        setIsLoading(false);
       }
     },
     [
-      selectedAnnotation,
+      candidateToLink,
       activeTrackId,
-      frameIndexToAnn,
-      currentFrameIndex,
+      annotations,
+      trackAnnotations,
+      frames,
+      keyframeSamplingEnabled,
+      getTargetScopeFrameIndices,
       updateAnnotation,
       fetchTrackAnnotations,
     ]
   );
 
-  // 9. Merge another track (sourceTrackId) into current activeTrackId (Target Precedence)
-  const mergeWithTrack = useCallback(
-    async (sourceTrackId: string): Promise<{ success: boolean; error?: string; warning?: string; mergedCount: number; conflictCount: number; sourceTrackId?: string }> => {
-      if (!activeTrackId || !sourceTrackId || activeTrackId === sourceTrackId || !task?.id) {
-        return { success: false, error: '无效的合并轨迹目标', mergedCount: 0, conflictCount: 0 };
+  // 8. Detach / split annotation from current track (Silent, no prompt, assigns new UUID)
+  const detachFromTrack = useCallback(
+    async (): Promise<{ success: boolean; count?: number; newTrackId?: string; error?: string }> => {
+      if (!activeTrackId) return { success: false, error: '未选定主轨迹' };
+
+      const scopeIndices = getTargetScopeFrameIndices();
+      const scopeFrameIdSet = new Set<string>(
+        scopeIndices.map((idx) => frames[idx]?.id).filter(Boolean)
+      );
+
+      // Find all annotations belonging to activeTrackId within the scope
+      const annsToDetach = trackAnnotations.filter((a) => scopeFrameIdSet.has(a.frame_id));
+
+      if (annsToDetach.length === 0) {
+        return { success: false, error: '当前帧/区间未发现属于该轨迹的标注' };
       }
 
-      // Pre-validation (checks self-merge & local class consistency)
-      const mergeValidation = validateTrackMerge({
-        sourceTrackId,
-        targetTrackId: activeTrackId,
-        allAnnotations: annotations,
-        targetAnnotations: trackAnnotations,
-      });
+      setIsLoading(true);
+      try {
+        const newTrackId =
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `trk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
-      if (!mergeValidation.valid) {
-        return { success: false, error: mergeValidation.error, mergedCount: 0, conflictCount: 0 };
+        const bulkPayload = annsToDetach.map((ann) => ({
+          id: ann.id,
+          track_id: newTrackId,
+        }));
+
+        await annotation3DApi.updateBulk(bulkPayload);
+
+        bulkPayload.forEach((item) => {
+          updateAnnotation(item.id, { track_id: item.track_id });
+        });
+
+        await fetchTrackAnnotations(activeTrackId);
+        return { success: true, count: bulkPayload.length, newTrackId };
+      } catch (err) {
+        console.error('[useTrackTimeline] Failed to detach annotation(s) from track:', err);
+        return { success: false, error: '移出失败，请重试' };
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      activeTrackId,
+      frames,
+      getTargetScopeFrameIndices,
+      trackAnnotations,
+      updateAnnotation,
+      fetchTrackAnnotations,
+    ]
+  );
+
+  // 9. Merge another track (sourceTrackId) into current activeTrackId (Silent, Overwrites active scope, Fills gaps elsewhere)
+  const mergeWithTrack = useCallback(
+    async (sourceTrackId: string): Promise<{
+      success: boolean;
+      error?: string;
+      warning?: string;
+      mergedCount: number;
+      conflictCount: number;
+      overwrittenCount: number;
+      sourceTrackId?: string;
+      newTrackId?: string;
+    }> => {
+      if (!activeTrackId || !sourceTrackId || activeTrackId === sourceTrackId || !task?.id) {
+        return { success: false, error: '无效的合并轨迹目标', mergedCount: 0, conflictCount: 0, overwrittenCount: 0 };
       }
 
       setIsLoading(true);
       try {
         // Fetch all annotations for sourceTrackId
         const sourceList = await annotation3DApi.list(task.id, undefined, sourceTrackId);
+        if (!sourceList || sourceList.length === 0) {
+          return { success: false, error: '未找到次轨迹的标注数据', mergedCount: 0, conflictCount: 0, overwrittenCount: 0 };
+        }
 
-        // Verify class consistency with server-fetched annotations
+        // Verify class consistency
         const targetClass = trackAnnotations[0]?.class_id || selectedAnnotation?.class_id;
-        const invalidClassAnn = sourceList?.find((a: any) => targetClass && a.class_id && a.class_id !== targetClass);
+        const invalidClassAnn = sourceList.find((a: any) => targetClass && a.class_id && a.class_id !== targetClass);
         if (invalidClassAnn) {
           return {
             success: false,
             error: `类别不匹配：源轨迹包含类别 [${invalidClassAnn.class_id}]，而主轨迹类别为 [${targetClass}]，禁止合并！`,
             mergedCount: 0,
             conflictCount: 0,
+            overwrittenCount: 0,
           };
         }
 
@@ -418,18 +539,37 @@ export function useTrackTimeline() {
           }
         });
 
+        // Determine current scope frame IDs (single frame or keyframe interval)
+        const scopeIndices = getTargetScopeFrameIndices();
+        const scopeFrameIdSet = new Set<string>(
+          scopeIndices.map((idx) => frames[idx]?.id).filter(Boolean)
+        );
+
         const bulkPayload: Array<{ id: string; track_id: string | null }> = [];
         let mergedCount = 0;
         let conflictCount = 0;
+        let overwrittenCount = 0;
+        let newTrackId: string | undefined;
 
-        (sourceList || []).forEach((ann) => {
-          if (activeFrameIdSet.has(ann.frame_id)) {
-            // Collision: Main track already has an annotation on this frame.
-            // Main track takes precedence:
-            // Do NOT change this box! Keep its original track_id intact so it can be merged with other tracks later.
-            conflictCount++;
-          } else {
-            // No conflict: merge seamlessly into activeTrack
+        // Check if main track currently has annotations in scope that should be overwritten
+        const oldAnnsInScope = trackAnnotations.filter((a) => scopeFrameIdSet.has(a.frame_id));
+        const sourceAnnsInScope = sourceList.filter((a: any) => scopeFrameIdSet.has(a.frame_id));
+
+        if (oldAnnsInScope.length > 0 && sourceAnnsInScope.length > 0) {
+          newTrackId =
+            typeof crypto !== 'undefined' && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `trk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+          oldAnnsInScope.forEach((old) => {
+            bulkPayload.push({ id: old.id, track_id: newTrackId! });
+            overwrittenCount++;
+          });
+        }
+
+        // Option A: Strictly merge annotations of sourceTrackId that fall within current scope [current_kf, next_kf) or single frame
+        (sourceList || []).forEach((ann: any) => {
+          if (scopeFrameIdSet.has(ann.frame_id)) {
             mergedCount++;
             bulkPayload.push({
               id: ann.id,
@@ -438,21 +578,17 @@ export function useTrackTimeline() {
           }
         });
 
-        // Handle candidate annotation in current frame if also part of sourceTrack
+        // Handle candidate annotation in current frame if not already included
         if (
           candidateToLink &&
           candidateToLink.track_id === sourceTrackId &&
           !bulkPayload.some((b) => b.id === candidateToLink.id)
         ) {
-          if (activeFrameIdSet.has(candidateToLink.frame_id)) {
-            conflictCount++;
-          } else {
-            mergedCount++;
-            bulkPayload.push({
-              id: candidateToLink.id,
-              track_id: activeTrackId,
-            });
-          }
+          mergedCount++;
+          bulkPayload.push({
+            id: candidateToLink.id,
+            track_id: activeTrackId,
+          });
         }
 
         if (bulkPayload.length > 0) {
@@ -471,17 +607,28 @@ export function useTrackTimeline() {
           success: true,
           mergedCount,
           conflictCount,
+          overwrittenCount,
           sourceTrackId,
-          warning: mergeValidation.warning,
+          newTrackId,
         };
       } catch (err) {
         console.error('[useTrackTimeline] Failed to merge tracks:', err);
-        return { success: false, error: '轨迹合并网络请求异常，请检查后端服务', mergedCount: 0, conflictCount: 0 };
+        return { success: false, error: '轨迹合并网络请求异常，请检查后端服务', mergedCount: 0, conflictCount: 0, overwrittenCount: 0 };
       } finally {
         setIsLoading(false);
       }
     },
-    [activeTrackId, task?.id, trackAnnotations, candidateToLink, selectedAnnotation, annotations, updateAnnotation, fetchTrackAnnotations]
+    [
+      activeTrackId,
+      task?.id,
+      trackAnnotations,
+      selectedAnnotation,
+      frames,
+      getTargetScopeFrameIndices,
+      candidateToLink,
+      updateAnnotation,
+      fetchTrackAnnotations,
+    ]
   );
 
   // 10. One-click sync dimensions across all track objects
@@ -572,7 +719,9 @@ export function useTrackTimeline() {
     trackedCount: trackedFrameIndices.length,
     totalNodesCount: timelineNodes.length,
     currentFrameDisplayNumber,
+    nextKeyframeDisplayNumber,
     isCurrentFrameTracked,
+    isCurrentScopeTracked,
     keyframeSamplingEnabled,
     keyframeInterval,
     candidateToLink,

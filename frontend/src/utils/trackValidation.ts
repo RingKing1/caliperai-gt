@@ -26,6 +26,8 @@ export interface TrackBindingValidationParams {
   frames?: Frame[];
   /** Optional QA locked annotation IDs */
   lockedAnnotationIds?: Set<string>;
+  /** When true, same-frame collision will not trigger hard error; allows overwriting */
+  allowOverwrite?: boolean;
 }
 
 export interface TrackBindingValidationResult {
@@ -111,12 +113,14 @@ export function validateTrackBinding(params: TrackBindingValidationParams): Trac
       }
     }
     const shortTrack = targetTrackId.replace(/-/g, '').slice(0, 6).toUpperCase();
-    return {
-      valid: false,
-      error: `轨迹冲突：目标轨迹 #${shortTrack} 在 ${frameLabel} 已存在标注物体 [${conflictingAnn.class_id || 'Object'}]。同一时刻一条轨迹有且仅能绑定一个物体！`,
-      conflictingAnnotationId: conflictingAnn.id,
-      frameDisplayNumber: frameLabel,
-    };
+    if (!params.allowOverwrite) {
+      return {
+        valid: false,
+        error: `轨迹冲突：目标轨迹 #${shortTrack} 在 ${frameLabel} 已存在标注物体 [${conflictingAnn.class_id || 'Object'}]。同一时刻一条轨迹有且仅能绑定一个物体！`,
+        conflictingAnnotationId: conflictingAnn.id,
+        frameDisplayNumber: frameLabel,
+      };
+    }
   }
 
   // 2. Hard Constraint: Class Invariance (Category Consistency across Track)

@@ -314,10 +314,10 @@ def update_scene_with_tracks(
         if cp_proc.returncode != 0:
             print(f"[!] Warning: docker cp failed: {cp_proc.stderr}")
         else:
-            # Fix file ownership
+            # Fix file permissions
             subprocess.run([
                 "docker", "exec", "-u", "root", "anno-backend",
-                "chown", "-R", "appuser:appuser", dest_container_path
+                "chmod", "-R", "777", dest_container_path
             ], check=False)
             print("[*] Disk label files synced and permission fixed.")
 
