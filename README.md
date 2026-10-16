@@ -93,6 +93,12 @@ data. Label **LiDAR point clouds** and **camera images** together with real-time
    Optional:  sam2 (AI segmentation)   ·   ollama (in-app assistant)
 ```
 
+The backend is layered as thin routers → domain services → models, with
+per-domain Pydantic schemas (`schemas/`) and the dataset import pipeline
+isolated under `services/dataset_import/`. The frontend consumes the backend
+through **OpenAPI-generated TypeScript types** — there is no hand-maintained
+duplicate of the API contract (see [Frontend ↔ Backend Contract](#frontend--backend-contract)).
+
 ---
 
 ## Prerequisites
@@ -339,6 +345,29 @@ provide just those: `docker compose up -d postgres redis minio`).
 
 ---
 
+## Frontend ↔ Backend Contract
+
+The frontend's API types are generated from the backend's OpenAPI document, so
+schema drift is caught mechanically instead of via runtime bugs:
+
+```bash
+cd frontend
+npm run fetch:api   # pull openapi.json from a running backend (:8000, dev only)
+npm run gen:api     # regenerate src/types/generated/api.ts from openapi/spec.json
+npm run check:api   # drift gate: regenerates and byte-compares (CI uses this)
+```
+
+- `frontend/openapi/spec.json` and `frontend/src/types/generated/api.ts` are
+  committed; regeneration is fully offline/reproducible.
+- Hand-written types in `frontend/src/types/` are progressively replaced by
+  aliases over the generated types, domain by domain — never a big-bang rewrite.
+  Confirmed contract divergences stay hand-written on purpose (see
+  `frontend/README.md` §6.4).
+- CI (`.github/workflows/frontend-ci.yml`) runs on every push/PR touching
+  `frontend/`: `npm ci` → `check:api` → `tsc --noEmit` → `npm test`.
+
+---
+
 ## Feature Toggles & Branding
 
 Optional UI features can be hidden per deployment without a rebuild:
@@ -401,18 +430,23 @@ Branding works the same way via `BRAND_*` env → `10-brand.sh` → `window.__BR
 caliperai-gt/
 ├── backend/
 │   ├── app/
-│   │   ├── api/v1/endpoints/   # REST API
-│   │   ├── models/ schemas/    # SQLAlchemy models · Pydantic schemas
-│   │   └── services/           # Business logic (QA workflow, SAM2, GCS, ...)
+│   │   ├── api/v1/endpoints/   # Thin REST routers (auth, tasks, scenes, ...)
+│   │   ├── models/             # SQLAlchemy models
+│   │   ├── schemas/            # Per-domain Pydantic schemas (task, scene, qa, ...)
+│   │   └── services/           # Business logic; dataset_import/ is an isolated
+│   │                           #   pipeline package (discovery, calibration, ...)
 │   ├── alembic/                # DB migrations
 │   ├── knowledge_base/         # RAG content for the in-app assistant
 │   └── scripts/                # create_admin.py, download_sam2_models.py, ...
 ├── frontend/
+│   ├── openapi/spec.json       # Checked-in OpenAPI snapshot (contract source)
 │   └── src/
 │       ├── components/canvas/  # LidarCanvas, OrthographicViews, 2D view
 │       ├── pages/              # FusionEditorV2, dashboards, taxonomy, ...
+│       ├── types/generated/    # OpenAPI-generated TS types (do not edit)
 │       ├── config/             # branding.ts, features.ts
 │       └── store/              # Zustand stores
+├── .github/workflows/          # Frontend CI: contract gate, tsc, unit tests
 ├── deploy/features/            # committed feature-toggle profiles
 ├── docker-compose.yml          # dev stack
 ├── docker-compose.prod.yml     # production stack
