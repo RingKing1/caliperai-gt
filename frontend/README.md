@@ -119,6 +119,8 @@ frontend/src/
 │   ├── lidarCacheStore.ts # 点云预取缓存（LRU/内存池）
 │   └── imageCacheStore.ts # 相机高分辨率图片异步预解码缓存
 ├── types/                 # 全局业务领域类型 (PointCloudData, CuboidData, BBox2D, Task 等)
+│   ├── generated/         # ★ 后端 OpenAPI 自动生成的契约类型（勿手改，见 §6.4）
+│   ├── auth.ts / chat.ts / index.ts  # 手写类型，逐步改为 generated 别名
 └── utils/                 # 工具函数
     ├── projection.ts      # 3D-2D 针孔相机与 KB4 鱼眼模型透视投影核心数学库
     ├── interpolation.ts   # 3D 目标追踪连续帧平滑插值算法
@@ -191,3 +193,20 @@ curl -I http://localhost:3000
 
 ### 6.3 严格静态检查规范
 前端开启了最严格的 TypeScript 编译选项（`noUnusedLocals: true`, `noUnusedParameters: true`, `strict: true`）。在提交或合并前，必须确保 0 警告、0 错误。
+
+### 6.4 OpenAPI → TypeScript 契约类型
+后端契约的 canonical 类型由 [openapi-typescript](https://github.com/drwpow/openapi-typescript) 从 OpenAPI 文档生成，消除前后端手写类型漂移：
+
+```bash
+npm run fetch:api    # 从运行中的后端（默认 http://localhost:8000）拉取最新 openapi.json
+npm run gen:api      # 由 openapi/spec.json 重新生成 src/types/generated/api.ts
+npm run check:api    # 漂移门禁：重新生成并与已提交文件逐字节对比（CI 用）
+```
+
+- `openapi/spec.json` 与 `src/types/generated/api.ts` 均提交入库，生成过程离线可复现；
+- 消费方式：`import type { components, Schema } from '@/types/generated'`，
+  如 `type Task = Schema<'TaskResponse'>` 或 `components['schemas']['SceneListResponse']`；
+  需要按路径取请求/响应类型时用 `paths['/api/v1/tasks/{task_id}']['get']`；
+- 手写类型（`types/index.ts` 等）按域逐步替换为生成类型的别名，不做一次性大爆炸迁移；
+  首批已接入 `LoginRequest` / `ChangePasswordRequest`。后端改 schema 后流程：
+  `fetch:api` → `gen:api` → 提交两个文件（`check:api` 会拦截漏提交）。

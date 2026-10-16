@@ -724,7 +724,7 @@ pytest -q
       缺图 400 均符合原行为（临时冒烟用户已删除）；373 测试全绿；ruff 与
       端点基线逐规则零净增（13 个 E501 为项目全局 ignore 的长 Field 描述，
       原样保留）。**P2 模型/schema 分包全部完成。**
-- [ ] **P3 模块边界与工程化**：
+- [x] **P3 模块边界与工程化（全部完成）**：
   - [x] **GPU 微服务迁出 `services/` 并共享线模型（P3 2/N）**：
     `sam2_gpu_service.py` → `microservices/sam2/service.py`、
     `clip_gpu_service.py` → `microservices/clip/service.py`（`git mv` 保留历史），
@@ -768,7 +768,15 @@ pytest -q
     76→47、F821 6 个历史 Redis/EmbeddingService 不动）；后端 OpenAPI
     结构逐字段一致，仅 4 处 description 行尾空白被剥离；两个微服务 OpenAPI
     逐字节一致。
-  - [ ] 推进 OpenAPI → TypeScript 类型生成，消除前端手写类型漂移。
+  - [x] **OpenAPI → TypeScript 类型生成落地（P3 6/N，P3 收官）**：
+    前端引入 `openapi-typescript`（devDependency），后端 OpenAPI 快照入库
+    `frontend/openapi/spec.json`，生成 `frontend/src/types/generated/api.ts`
+    （paths/components/operations，~2 万行，勿手改）+ barrel（`Schema<K>`
+    快捷别名）；新增 npm 脚本 `fetch:api`（从运行后端拉快照）、`gen:api`
+    （离线再生成）、`check:api`（逐字节漂移门禁，可挂 CI）；首批手写类型
+    `LoginRequest`/`ChangePasswordRequest` 改为生成类型别名，其余手写类型
+    按域增量替换（见 frontend/README §6.4）。验收：`tsc --noEmit` 0 错误、
+    54 前端单测全过、`check:api` 通过。**P3 六项全部完成。**
 
 ### 重构一个新业务域的推荐步骤
 

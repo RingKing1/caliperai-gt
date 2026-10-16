@@ -1,4 +1,4 @@
-
+import type { Schema } from './generated';
 
 export type UserRole =
   | 'admin'
@@ -108,10 +108,8 @@ export interface AuthUser {
 }
 
 
-export interface LoginRequest {
-  username: string;
-  password: string;
-}
+// Canonical shape comes from the generated OpenAPI types (drift-free).
+export type LoginRequest = Schema<'LoginRequest'>;
 
 export interface LoginResponse {
   access_token: string;
@@ -127,10 +125,7 @@ export interface TokenRefreshResponse {
   expires_in: number;
 }
 
-export interface ChangePasswordRequest {
-  current_password: string;
-  new_password: string;
-}
+export type ChangePasswordRequest = Schema<'PasswordChangeRequest'>;
 
 
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
