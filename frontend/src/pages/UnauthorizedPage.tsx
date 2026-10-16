@@ -12,7 +12,7 @@ export function UnauthorizedPage() {
       <div className="max-w-md w-full text-center">
         {/* Logo */}
         <div className="flex items-center justify-center gap-3 mb-6">
-          {BRAND.showLogo && <img src="/logo.svg?v=2" alt={BRAND.name} className="h-12 w-auto" />}
+          {BRAND.showLogo && <img src="/logo.svg?v=3" alt={BRAND.name} className="h-12 w-auto" />}
           <span className="text-2xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-500 bg-clip-text text-transparent">
             {BRAND.name}
           </span>

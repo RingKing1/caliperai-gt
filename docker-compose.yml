@@ -100,6 +100,7 @@ services:
     depends_on:
       - backend
     volumes:
+      - ./frontend/nginx.proxy.conf:/etc/nginx/nginx.conf:ro
       - ./frontend/public/logo.svg:/usr/share/nginx/html/logo.svg:ro
     networks:
       - anno-network

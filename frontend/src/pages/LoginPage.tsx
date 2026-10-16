@@ -36,7 +36,7 @@ function Header() {
       <div className="absolute left-6 sm:left-8 top-5 sm:top-6 flex items-center gap-2">
         {BRAND.showLogo ? (
           <img
-            src="/logo.svg?v=2"
+            src="/logo.svg?v=3"
             alt={BRAND.name}
             className="h-10 sm:h-12"
           />

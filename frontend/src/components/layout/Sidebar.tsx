@@ -250,7 +250,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggleCollapse,
       <div className="h-14 flex items-center justify-between px-4 border-b border-slate-700/50 bg-slate-900/50">
         <Link to="/" className="group">
           {BRAND.showLogo ? (
-            <img src="/logo.svg?v=2" alt={BRAND.name} className="h-7 w-auto group-hover:scale-105 transition-transform" />
+            <img src="/logo.svg?v=3" alt={BRAND.name} className="h-7 w-auto group-hover:scale-105 transition-transform" />
           ) : (
             <span className="text-sm font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-500 bg-clip-text text-transparent group-hover:scale-105 transition-transform">
               {BRAND.name}

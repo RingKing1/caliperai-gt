@@ -797,7 +797,7 @@ const Header: React.FC<HeaderProps> = ({
           {/* Logo */}
           <Link to="/" className="flex items-center">
             {BRAND.showLogo ? (
-              <img src="/logo.svg?v=2" alt={BRAND.name} className="h-7 w-auto" />
+              <img src="/logo.svg?v=3" alt={BRAND.name} className="h-7 w-auto" />
             ) : (
               <span className="text-sm font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-500 bg-clip-text text-transparent whitespace-nowrap">
                 {BRAND.name}
