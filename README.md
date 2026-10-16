@@ -1,530 +1,354 @@
-# Sensor Fusion Annotation Platform
+<p align="center">
+  <img src="frontend/public/logo.svg" alt="CheryGT Logo" width="320">
+</p>
 
-An open-source, production-grade annotation platform for autonomous-driving sensor
-data. Label **LiDAR point clouds** and **camera images** together with real-time
-3D-to-2D projection, multi-object tracking, and a full human review workflow.
+<h1 align="center">CheryGT · 自动驾驶多传感器融合数据标注与闭环平台</h1>
 
-📺 **[Feature walkthroughs & how-to videos](https://www.youtube.com/@CaliperAI-f7u)**
+<p align="center">
+  <b>Production-Grade Sensor Fusion Annotation & Data Closed-Loop Platform for Autonomous Driving</b>
+</p>
 
-- **Backend:** FastAPI (Python 3.11), PostgreSQL + pgvector, Redis, MinIO
-- **Frontend:** React 18 + TypeScript, Three.js, Zustand
-- **AI-assist:** SAM2 segmentation (bring your own downloadable model)
-- **Optional:** Ollama-powered in-app assistant/chatbot
-
----
-
-## Table of Contents
-
-1. [Features](#features)
-2. [Architecture](#architecture)
-3. [Prerequisites](#prerequisites)
-4. [Quick Start (Docker)](#quick-start-docker)
-5. [Configuration](#configuration)
-6. [Verify It Works](#verify-it-works)
-7. [Importing Your Data](#importing-your-data)
-8. [AI-Assisted Segmentation (SAM2)](#ai-assisted-segmentation-sam2)
-9. [Production Deployment](#production-deployment)
-10. [Local Development (without Docker)](#local-development-without-docker)
-11. [Feature Toggles & Branding](#feature-toggles--branding)
-12. [Keyboard Shortcuts](#keyboard-shortcuts)
-13. [Project Structure](#project-structure)
-14. [Enterprise](#enterprise)
-15. [Contributing](#contributing)
-16. [License](#license)
+<p align="center">
+  <img src="https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/React-18.x-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React">
+  <img src="https://img.shields.io/badge/Three.js-0.160+-000000?style=flat-square&logo=three.js&logoColor=white" alt="Three.js">
+  <img src="https://img.shields.io/badge/PostgreSQL-16_+_pgvector-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/Redis-7.x-DC382D?style=flat-square&logo=redis&logoColor=white" alt="Redis">
+  <img src="https://img.shields.io/badge/MinIO-S3_Compatible-C72C48?style=flat-square&logo=minio&logoColor=white" alt="MinIO">
+  <img src="https://img.shields.io/badge/SAM2-AI_Assisted-0052CC?style=flat-square" alt="SAM2">
+  <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11">
+  <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Docker-Compose_Ready-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square" alt="License">
+</p>
 
 ---
 
-## Features
+## 📖 项目简介 (Overview)
 
-**Annotation**
-- **3D cuboids** — full-rotation bounding boxes (yaw / pitch / roll) on LiDAR
-- **2D boxes, polylines, polygons, keypoints** on camera images
-- **3D semantic segmentation** — per-point LiDAR labeling
-- **AI-assisted segmentation (SAM2)** — click-to-segment in 2D images and a
-  Segment-to-3D workflow; runs against a downloadable SAM2 model
-- **Manual lane / polyline editing** — Bézier + smoothing helpers
-- **View-aware & box-local arrow key nudging** — `←`/`→`/`↑`/`↓` fine-tuning
-  aligned to the object's local heading yaw in Top/BEV view (`→` forward, `←` backward,
-  `↑` left, `↓` right) and orthographic planes in Side/Front views
+**CheryGT** 是一套专为自动驾驶研发打造的开源、工业级多传感器融合感知数据标注与数据闭环工作台。平台原生支持 **LiDAR 激光雷达点云** 与 **多路环视相机（Camera）图像** 的联合标注，具备实时 3D ↔ 2D 几何投影、时序多目标跟踪（MOT）、AI 辅助半自动标注（SAM2 / CLIP）、细粒度多级人机协同审核流（QA Workflow）与全流程数据闭环流转能力。
 
-**Sensor fusion**
-- Real-time 3D→2D projection via calibration matrices
-- Multi-camera synchronized views; orthographic BEV / Side / Front editing
-
-**Multi-object tracking**
-- Track management across frames with keyframe interpolation
-- Track merging and 4D temporal stacking
-- **Keyframe-only sampling mode & interval stepping** — sample every N frames
-  (e.g. every 10 frames) from a chosen start frame with automatic step jumping
-
-
-**Workflow & review**
-- Campaigns → Datasets → Scenes → Tasks lifecycle
-- Human **QA review** workflow (Annotation → QA → Customer QA → Accepted) with
-  manual issue flagging and false-negative marking
-- **RBAC** (admin, project_manager, annotator, qa_reviewer, customer_qa) and
-  optional **SSO/OIDC** (Google, Azure AD, Okta, Keycloak)
-
-**Data**
-- Import/export (KITTI-style and platform-native formats)
-- Optional Google Cloud Storage sync
-- Taxonomies with class + attribute configuration
-- PM analytics dashboard
-- Optional in-app AI assistant (RAG over a bundled knowledge base, via Ollama)
+### 为什么选择 CheryGT？
+- **4D 多传感器融合**：支持 LiDAR 点云与多路环视相机在毫米级标定矩阵下的实时几何投影，实现 3D 框在 2D 视角中的高保真回显与正交多视角（BEV / Side / Front）精准微调。
+- **智能化标注飞轮**：集成 Meta SAM2 图像/视频时序分割大模型与 Chinese-CLIP 跨模态场景检索，大幅降低手动标注门槛。
+- **工业级可靠架构**：后端采用领域驱动设计（DDD），实现千万级点云分块加载、低内存流式 Zip 导出与大容量异步后台导入任务调度；前端采用 React 18 + Three.js + Zustand 打造高性能画布，毫秒级响应。
+- **完备数据闭环**：贯穿 **活动 (Campaign) → 数据集 (Dataset) → 场景 (Scene) → 任务 (Task) → 质检审核 (QA) → 多格式导出 (Export)**，提供完备的 RBAC 角色体系与生产运维看板。
 
 ---
 
-## Architecture
+## 📑 目录 (Table of Contents)
 
+1. [核心功能特性](#-核心功能特性-features)
+2. [系统整体架构](#-系统整体架构-architecture)
+3. [快速上手（Docker）](#-快速上手-quick-start)
+4. [数据导入与导出管线](#-数据导入与导出管线-data-pipelines)
+5. [AI 智能辅助微服务（SAM2 / CLIP）](#-ai-智能辅助微服务-ai-assist)
+6. [快捷键指南](#-快捷键指南-keyboard-shortcuts)
+7. [环境变量与配置说明](#-环境变量与配置说明-configuration)
+8. [代码组织与工程目录](#-代码组织与工程目录-project-structure)
+9. [本地开发与测试门禁](#-本地开发与测试门禁-development--testing)
+10. [开源协议与致谢](#-开源协议与致谢-license)
+
+---
+
+## 🌟 核心功能特性 (Features)
+
+### 1. 多模态标注工具集 (Multi-Modal Annotation)
+* **3D Cuboid 目标检测**：
+  * 支持 6 自由度（XYZ 空间位姿 + Yaw / Pitch / Roll 航向倾角）精准编辑；
+  * 提供自车航向对齐（Heading Yaw Locked）的局部坐标轴微调，支持键盘 `←`/`→`/`↑`/`↓` 步进（步长 0.05m / 精细 0.01m）。
+* **2D 图像感知标注**：
+  * 支持 2D 矩形包围盒、多段线（Polyline）、贝塞尔平滑车道线（Lane）、多边形（Polygon）与关键点（Keypoints）。
+* **3D 点云语义分割 (Semantic Segmentation)**：
+  * 支持百万级点云逐点语义打标，提供笔刷与立体框选工具；
+  * 专有 SemanticKITTI 格式 `.label` 文件实时解析与增量保存。
+* **AI 交互式分割 (SAM2 Integration)**：
+  * 图像点击即分割（Click-to-Segment）与框选分割（Box Prompt）；
+  * 跨帧时序视频传播（Video Propagation）与 2D-to-3D 空间反投影联动。
+
+### 2. 多传感器空间与时序对齐 (Sensor Fusion & 4D Tracking)
+* **实时几何投影**：基于精确内参及 LiDAR-to-Camera 外参，3D 立体框自动透视投影至所有对应相机画面中。
+* **多重视角协同联动**：支持 3D 主视角与 Top (BEV)、Side、Front 三路正交切片视图协同交互。
+* **4D 时序多目标追踪 (MOT)**：
+  * 跨帧轨迹管理与关键帧自动插值平滑（Keyframe Interpolation）；
+  * 关键帧采样模式（Keyframe-Only Mode）与步长跳帧标注（如每 10 帧采样）；
+  * 4D 点云时序叠加渲染与多轨迹合并去重。
+
+### 3. 数据闭环与审核治理 (Workflow, QA & Governance)
+* **四阶审核流转**：标注员提交 (Annotation) → 内部质检 (QA) → 客户质检 (Customer QA) → 最终归档 (Accepted)。
+* **问题标注与质检标记**：支持逐帧标注质疑、驳回重标、假阴性（漏标）反馈与历史快照回溯。
+* **企业级权限管理**：内置 5 种角色体系（Admin、PM、Annotator、QA、Customer QA），支持 OIDC/SSO（Google, Keycloak, Okta, Azure AD）。
+* **生产效率看板**：内置标注效率统计、人效产出趋势与每日产能分析看板。
+
+---
+
+## 🏗 系统整体架构 (Architecture)
+
+CheryGT 采用分层解耦的云原生微服务架构，核心业务栈与计算密集型 AI 模型物理隔离：
+
+```mermaid
+flowchart TD
+    subgraph Client ["前端交互层 (Client)"]
+        Browser["Web 浏览器 (React 18 + Three.js + Zustand)"]
+        Nginx["Nginx 静态服务与反向代理 (:3000)"]
+    end
+
+    subgraph Gateway ["网关与核心应用层 (Core Application)"]
+        Backend["FastAPI 异步核心服务 (:8000)<br/>• 薄控制器路由 (api/v1/endpoints)<br/>• 导入服务包 (services/dataset_import)<br/>• 导出服务包 (services/export)<br/>• 统一标注领域层 (services/annotation_service)"]
+    end
+
+    subgraph DataInfra ["数据基础设施层 (Data Infrastructure)"]
+        Postgres[("PostgreSQL 16 + pgvector<br/>(业务表 / 时序帧范围 / 语义向量)")]
+        Redis[("Redis 7<br/>(缓存 / 状态同步 / 异步队列)")]
+        MinIO[("MinIO 分布式对象存储<br/>(点云 / 高清图 / 组织分桶加密镜像)")]
+    end
+
+    subgraph AIMicroservices ["AI 智能微服务 (AI Engine - 可选 GPU)"]
+        SAM2["SAM2 交互式分割服务 (:8001)<br/>(Hiera 视觉模型 / 视频传播)"]
+        CLIP["Chinese-CLIP 场景检索服务 (:8002)<br/>(文本-点云图像跨模态语义检索)"]
+        Ollama["Ollama 本地大模型助手<br/>(RAG 知识库问答)"]
+    end
+
+    Browser -->|HTTP / WebSocket| Nginx
+    Nginx -->|/api/v1 反向代理| Backend
+    Backend --> Postgres
+    Backend --> Redis
+    Backend --> MinIO
+    Backend -.->|HTTP RPC| SAM2
+    Backend -.->|HTTP RPC| CLIP
+    Backend -.->|HTTP| Ollama
 ```
-                         ┌──────────────┐
-   Browser ── :3000 ───► │   frontend   │  React + nginx (serves SPA, proxies /api)
-                         └──────┬───────┘
-                                │ /api/v1
-                         ┌──────▼───────┐
-                         │   backend    │  FastAPI (:8000)
-                         └──┬───┬───┬───┘
-              ┌─────────────┘   │   └─────────────┐
-        ┌─────▼─────┐    ┌──────▼─────┐    ┌──────▼──────┐
-        │ postgres  │    │   redis    │    │    minio    │
-        │ +pgvector │    │  (cache)   │    │  (objects)  │
-        └───────────┘    └────────────┘    └─────────────┘
 
-   Optional:  sam2 (AI segmentation)   ·   ollama (in-app assistant)
-```
-
-The backend is layered as thin routers → domain services → models, with
-per-domain Pydantic schemas (`schemas/`) and the dataset import pipeline
-isolated under `services/dataset_import/`. The frontend consumes the backend
-through **OpenAPI-generated TypeScript types** — there is no hand-maintained
-duplicate of the API contract (see [Frontend ↔ Backend Contract](#frontend--backend-contract)).
+### 核心设计原则
+1. **领域驱动与薄控制器**：HTTP 控制器仅负责参数校验与响应封装，复杂序列化与底层打包下沉至领域服务包（例如 `services/export/` 与 `services/dataset_import/`）。
+2. **前后端类型契约自动同步**：前端基于 OpenAPI Spec 自动生成完整的 TypeScript 接口与类型定义（`npm run check:api` 门禁保证零类型漂移）。
+3. **单向数据流与高性能渲染**：前端 Three.js 点云画布与 React 状态解耦，双级异步预取缓存（LidarCache / ImageCache）保证毫秒级切帧。
 
 ---
 
-## Prerequisites
+## 🚀 快速上手 (Quick Start)
 
-- **Docker** 24+ and **Docker Compose** v2
-- ~4 GB free RAM for the core stack
-- (Optional) an NVIDIA GPU + `nvidia-container-toolkit` for SAM2 GPU inference
-- (Optional) Node 20+ and Python 3.11 for running services outside Docker
+### 1. 环境准备
+* **Docker** 24.0+ 与 **Docker Compose** v2
+* 基础运行内存：建议 ≥ 4 GB 可用内存
+* （可选）NVIDIA GPU 与 `nvidia-container-toolkit`（用于启用本地 SAM2 / CLIP GPU 推理）
 
----
-
-## Quick Start (Docker)
+### 2. 一键启动核心服务
 
 ```bash
-# 1. Clone
-git clone https://github.com/caliperai-ai/caliperai-gt.git && cd caliperai-gt
+# 1. 克隆代码仓库
+git clone git@github.com:RingKing1/caliperai-gt.git
+cd caliperai-gt
 
-# 2. Configure — copy the template and set at least SECRET_KEY (>= 32 chars)
+# 2. 配置环境变量（复制模板并生成安全密钥）
 cp .env.example .env
-#   edit .env:  SECRET_KEY, POSTGRES_PASSWORD, MinIO credentials
+# 请编辑 .env 修改 SECRET_KEY（需 ≥ 32 字符）以及数据库和 MinIO 密码
 
-# 3. Start the core stack (postgres, redis, minio, backend, frontend)
+# 3. 启动核心服务群（Postgres, Redis, MinIO, Backend, Frontend）
 docker compose up -d postgres redis minio backend frontend
 
-# 4. Create an admin user (tables auto-create on first backend start)
+# 4. 创建系统初始管理员账号
 docker compose exec backend python scripts/create_admin.py \
-  --email admin@example.com --username admin --password 'change-me-123'
+  --email admin@chery.com \
+  --username admin \
+  --password 'CheryGT@2026'
 
-# 5. Open the app
-#    Frontend  -> http://localhost:3000
-#    API docs  -> http://localhost:8000/docs   (dev only)
+# 5. 验证服务运行状态
+docker compose ps
+curl -s http://localhost:8000/health
 ```
 
-Log in with the credentials from step 4.
+### 3. 访问应用
+* **前端工作台**：打开浏览器访问 [http://localhost:3000](http://localhost:3000)，使用上述管理员账号登录。
+* **交互式 API 文档**：开发环境下访问 [http://localhost:8000/api/docs](http://localhost:8000/api/docs)。
 
-> **Locked out / forgot the password?** The admin script refuses to overwrite an
-> existing user, so re-running it prints "already exists". To reset an existing
-> user's password (and re-promote it to an active admin), add `--reset-password`:
->
+> [!TIP]
+> **忘记管理员密码？**
+> 可再次执行管理员脚本并追加 `--reset-password` 参数进行安全重置：
 > ```bash
 > docker compose exec backend python scripts/create_admin.py \
->   --username admin --password 'new-password-123' --reset-password
+>   --username admin --password '新密码' --reset-password
 > ```
 
-> The `ollama` and any GPU services are optional and omitted above — the core
-> stack runs without them. Add `ollama` to the `up` list to enable the in-app assistant.
+---
+
+## 📦 数据导入与导出管线 (Data Pipelines)
+
+CheryGT 提供灵活多样的数据流入与产出管线，满足自动驾驶数据工厂各种工况需求。
+
+### 1. 场景包导入（Scene ZIP Bundle）
+标准的场景数据以 `.zip` 文件打包，支持包含点云、多路相机图片、几何标定与自车位姿轨迹：
+
+```text
+scene_bundle.zip
+├── lidar/            # frame_000000.pcd (或 .bin), frame_000001.pcd ...
+├── cameras/          # front/, left_front/, right_front/ ... (JPG/PNG)
+├── calibration.json  # LiDAR ↔ 相机内外参矩阵及相机畸变参数 (可选)
+└── ego_poses/        # 包含每帧自车位姿轨迹信息的 JSON (可选)
+```
+
+### 2. 纯视频轻量化导入（Video Ingestion）
+对于仅需 2D 感知或测试验证的场景，支持直接上传常见的视频格式（`MP4`、`AVI`、`MOV`、`MKV`、`WebM`）：
+* **同步抽取导入**：`POST /api/v1/import/upload-video` 适合短小测试片段；
+* **异步后台 Job 导入（推荐）**：`POST /api/v1/import/jobs/video` 适合大容量长视频。上传后立即返回 `202 Accepted` 与 `job_id`，后台工作线程切帧解算并实时推送进度，通过 `GET /api/v1/import/jobs/{id}` 轮询，杜绝 HTTP 阻塞超时。
+
+### 3. 多标准格式高速流式导出（Multi-Format Export）
+平台内置高内聚的导出领域服务（`app/services/export`），采用 `io.BytesIO` 与流式 Zip 压缩，极大优化内存占用：
+* **COCO Per-Sensor 格式**：为 LiDAR 3D 目标及各路环视相机独立生成标准 COCO 格式 JSON（支持相机截锥过滤与 2D/3D 关联）；
+* **SemanticKITTI 分割格式**：点云逐点语义分割文件以 `.label` 二进制流打包导出，严格兼容 KITTI 规范；
+* **平台全量标注 JSON**：包含 3D 框、2D 框、车道线、4D 时序轨迹及质量审核状态的完整元数据。
 
 ---
 
-## Configuration
+## 🤖 AI 智能辅助微服务 (AI Assist)
 
-Copy `.env.example` → `.env`. In Docker, service hostnames (postgres, redis, minio)
-are wired automatically; you mainly set secrets and ports.
-
-| Variable | Purpose | Notes |
-|---|---|---|
-| `SECRET_KEY` | JWT signing secret | **Required, ≥ 32 chars** |
-| `POSTGRES_PASSWORD` | Postgres password | Set before first start |
-| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` | MinIO root credentials | Set `OBJECT_STORAGE_ACCESS_KEY`/`OBJECT_STORAGE_SECRET_KEY` to the same values (see `.env.example`) |
-| `CORS_ORIGINS` | Allowed browser origins | e.g. `http://localhost:3000` |
-| `*_PORT` | Host port mappings | Defaults: FE 3000, API 8000, PG 5432, Redis 6379, MinIO 9000/9001 |
-| `BUILD_TARGET` | `development` or `production` | Dev = hot reload |
-| `LLM_PROVIDER` / `OLLAMA_*` | In-app assistant | Optional |
-| `SSO_*` | OIDC providers | Optional; leave blank to disable |
-
-Feature-gating (`FEATURE_*`) and branding (`BRAND_*`) are described under
-[Feature Toggles & Branding](#feature-toggles--branding).
-
----
-
-## Verify It Works
+平台支持通过微服务引入基础感知大模型加速标注：
 
 ```bash
-# All core containers healthy?
-docker compose ps
-
-# Backend health
-curl -s http://localhost:8000/health
-
-# Log in via the API (default user: admin / admin123)
-curl -s -X POST http://localhost:8000/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}'
-```
-
-Then open http://localhost:3000, sign in, create a Campaign → Dataset, upload a
-scene, and open a task to annotate.
-
----
-
-## Importing Your Data
-
-Annotation work starts from an imported **scene** — a `.zip` bundling LiDAR
-point clouds, camera images, and sensor calibration. The minimum viable bundle
-is just a `lidar/` folder of point clouds:
-
-```
-my_scene/
-├── lidar/            frame_000000.pcd, frame_000001.pcd, …   (.pcd or .bin)
-├── cameras/          front/frame_000000.jpg, left/…          (optional)
-├── calibration.json  LiDAR↔camera extrinsics + intrinsics    (optional)
-└── ego_poses/poses.json   per-frame ego trajectory           (optional)
-```
-
-Create a Campaign → Dataset in the UI, then **Import** the zip into the dataset.
-
-👉 **Docs:**
-- [`docs/DATA_FORMAT.md`](docs/DATA_FORMAT.md) — the scene bundle: point-cloud/image
-  formats, `calibration.json` and ego-pose shapes, coordinate conventions, and the
-  `/api/v1/import/upload-zip` endpoint.
-- [`docs/ANNOTATION_FORMATS.md`](docs/ANNOTATION_FORMATS.md) — annotation
-  **import/export** formats and JSON schemas (platform-native, KITTI, COCO,
-  SemanticKITTI) and the export endpoints.
-- [`docs/ANNOTATION_GUIDE.md`](docs/ANNOTATION_GUIDE.md) — how to **use** the
-  annotation tools (3D cuboids, segmentation, 2D, tracking, QA).
-
-> **Tip:** frames are matched by sorted filename position, so zero-pad names
-> identically across `lidar/` and every `cameras/<cam>/` folder
-> (`frame_000000`, `frame_000001`, …).
-
-**Just have a video?** You can also upload a **video file** (MP4/AVI/MOV/MKV/WebM)
-and the platform extracts its frames into a camera-only scene for 2D annotation —
-no bundle needed (requires `ffmpeg` on the backend). See the *Video input* section
-of [`docs/DATA_FORMAT.md`](docs/DATA_FORMAT.md#video-input-extract-frames-from-a-video).
-
-### Try it with demo data
-
-No data of your own yet? Grab a ready-made scene from our **public** demo bucket —
-**no GCS account or credentials needed** (the objects are anonymously readable).
-Each scene is a `.zip`; download it and import via **Dataset → Import**.
-
-```bash
-# 3D semantic segmentation
-curl -L -O "https://storage.googleapis.com/customer-demo-datasets/caliper-gt-demo/3D/3D%20segmentation/Segmentation.zip"
-
-# 3D + camera sensor fusion
-curl -L -O "https://storage.googleapis.com/customer-demo-datasets/caliper-gt-demo/3D/Sensor%20fusion/Sensor_fusion.zip"
-
-# 2D object detection
-curl -L -O "https://storage.googleapis.com/customer-demo-datasets/caliper-gt-demo/2D/Object_detection.zip"
-
-# …or browse every demo scene (public bucket, no auth):
-gsutil ls "gs://customer-demo-datasets/caliper-gt-demo/**/*.zip"
-```
-
-Then create a Campaign → Dataset and **Import** the downloaded `.zip`.
-(`%20` in the URLs just encodes the spaces in the folder names.)
-
----
-
-## AI-Assisted Segmentation (SAM2)
-
-SAM2 powers the interactive **AI Segment** (2D), **Segment-to-3D**, and cross-frame **Video Propagation** tools. You can run SAM2 locally with GPU acceleration (recommended) or on CPU:
-
-```bash
-# 1. Download SAM2 model weights (large, base, small, or tiny)
+# 1. 下载 SAM2 权重文件（支持 large / base / small / tiny）
 python backend/scripts/download_sam2_models.py --size large --output-dir ./models/sam2
 
-# 2. Create compatibility symlink for model loader
-cd models/sam2 && ln -sf sam2_hiera_large.pt sam2.1_hiera_large.pt && cd ../..
-
-# 3. Configure .env
-# Set SAM2_MODE=api and SAM2_API_URL=http://sam2:8001 (or keep SAM2_MODE=mock for dummy testing)
-
-# 4. Start SAM2 service with GPU acceleration (requires NVIDIA GPU + Container Toolkit):
+# 2. 启动 GPU 加速服务
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d sam2 backend
 
-# Or run CPU-only SAM2 service:
+# 或在无独立 GPU 环境下启动 CPU 备用服务：
 docker compose -f docker-compose.yml -f docker-compose.sam2.yml up -d sam2 backend
 ```
 
-Once started, the backend automatically routes interactive prompts and video propagation requests to the SAM2 inference microservice (`:8001`). Check health via `curl http://localhost:8001/health`.
+* **SAM2 接口健康检查**：`curl http://localhost:8001/health`
+* **中文 CLIP 跨模态微服务**：`docker compose -f docker-compose.yml -f docker-compose.clip.yml up -d clip`，健康检查：`curl http://localhost:8002/health`。
 
 ---
 
-## Production Deployment
+## ⌨️ 快捷键指南 (Keyboard Shortcuts)
 
-The stack is domain-agnostic — **you supply your own hostname and TLS**; nothing
-is hardcoded. Configure everything through `.env`.
+在标注编辑器（`FusionEditorV2`）中熟练使用快捷键可大幅提升作业人效：
 
-```bash
-# 1. Create your production env and set YOUR values
-cp .env.production.example .env
-#    In .env, set at minimum:
-#      SECRET_KEY, POSTGRES_PASSWORD, MinIO creds     — strong, unique secrets
-#      DOMAIN=annotate.example.com                    — your public hostname
-#      CORS_ORIGINS=https://annotate.example.com      — your public URL(s)
+### 1. 核心工具与标绘
+| 快捷键 | 功能操作 | 快捷键 | 功能操作 |
+|:---|:---|:---|:---|
+| `V` | 选择与漫游工具 | `C` | 3D Cuboid 标绘工具 |
+| `B` | 2D 矩形框工具 | `L` | 车道线 / 多段线工具 |
+| `P` | 多边形工具 | `W` | AI 智能分割（SAM2） |
+| `T` | 轨迹关联工具 | `Space` | 播放 / 暂停时序回放 |
+| `Ctrl+S` / `Cmd+S` | 保存当前标注数据 | `Delete` / `Backspace` | 删除选中标注 |
 
-# 2. Start the stack
-docker compose -f docker-compose.prod.yml up -d
-#    + GPU/SAM2:
-docker compose -f docker-compose.prod.yml -f docker-compose.prod.gpu.yml up -d
+### 2. 3D 立体框姿态精细微调（选中状态）
+| 快捷键 | 视图模式 | 调整维度与方向 |
+|:---|:---|:---|
+| `Q` / `E` | 全局视图 | 航向角 Yaw 旋转（±5°；按住 `Shift` 为 ±1°） |
+| `W` / `S` | 全局视图 | 沿物体长轴缩放 Length（±0.1m） |
+| `A` / `D` | 全局视图 | 沿物体宽轴缩放 Width（±0.1m） |
+| `Z` / `X` | 全局视图 | 沿物体高轴缩放 Height（±0.1m） |
+| `R` | 全局视图 | 重置俯仰与翻滚角（Reset Pitch/Roll） |
+| **`→` / `←`** | **俯视 (BEV) 视图** | **沿物体局部朝向 前进 / 后退 (±0.05m；`Shift` 为 ±0.01m)** |
+| **`↑` / `↓`** | **俯视 (BEV) 视图** | **沿物体局部朝向 向左 / 向右 平移 (±0.05m；`Shift` 为 ±0.01m)** |
+| `↑` / `↓` | 侧视 / 前视视图 | 沿空间绝对高度轴 Z 平移 (±0.05m) |
 
-# 3. The backend auto-creates the schema on first start. On a FRESH database,
-#    stamp that state so future migrations apply cleanly:
-docker compose -f docker-compose.prod.yml exec backend alembic stamp head
-#    (Upgrading an EXISTING deployment instead? Run: alembic upgrade head)
-
-# 4. Create the first admin
-docker compose -f docker-compose.prod.yml exec backend python scripts/create_admin.py
-```
-
-**Using your own domain.** The frontend calls the API at a relative `/api` path,
-so it works on any hostname; the backend's allowed origins come from
-`CORS_ORIGINS`; and the bundled nginx accepts any host (`server_name _`). To go
-live: point your DNS at the host, terminate TLS at your edge/reverse proxy (or
-mount certs via `SSL_CERT_PATH`/`SSL_KEY_PATH`), and set `CORS_ORIGINS` to your
-public URL. The bundled frontend nginx proxies `/api` to the backend — see
-`frontend/nginx.proxy.conf`.
-
----
-
-## Local Development (without Docker)
-
-> **Optional.** Running the platform needs **Docker only** (see
-> [Quick Start](#quick-start-docker)) — you never have to install Node or Python
-> locally. This section is just for contributors who want to iterate on the
-> frontend/backend outside containers (e.g. Vite hot-reload). The Docker image
-> builds the frontend with `npm` internally.
-
-**Backend**
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -e .            # or: pip install -r requirements
-uvicorn app.main:app --reload --port 8000
-```
-
-**Frontend**
-> For detailed architecture, modular component design, and data flows, see [frontend/README.md](frontend/README.md).
-
-**Backend**
-> For the FastAPI layering conventions, services, data model, deployment, and the refactor roadmap, see [backend/README.md](backend/README.md).
-
-```bash
-cd frontend
-npm install
-npm run dev                 # Vite dev server on :5173
-npm run build               # type-check + production bundle
-```
-
-You still need Postgres, Redis, and MinIO running (the quick-start compose can
-provide just those: `docker compose up -d postgres redis minio`).
+### 3. 时序导航与 QA 审核
+| 快捷键 | 适用场景 | 说明 |
+|:---|:---|:---|
+| `←` / `→` | 未选定标注时 | 切换到上一帧 / 下一帧（自动适配抽帧步长） |
+| `1` | QA 审核模式 | 批准通过当前标注 (Approve) |
+| `2` | QA 审核模式 | 驳回重标 (Reject) |
+| `3` | QA 审核模式 | 标记存疑问题 (Flag Issue) |
+| `F` | QA 审核模式 | 标记漏标物体 (Flag Missing Object) |
 
 ---
 
-## Frontend ↔ Backend Contract
+## ⚙️ 环境变量与配置说明 (Configuration)
 
-The frontend's API types are generated from the backend's OpenAPI document, so
-schema drift is caught mechanically instead of via runtime bugs:
+核心变量维护在根目录 `.env` 中，主要配置项如下：
 
-```bash
-cd frontend
-npm run fetch:api   # pull openapi.json from a running backend (:8000, dev only)
-npm run gen:api     # regenerate src/types/generated/api.ts from openapi/spec.json
-npm run check:api   # drift gate: regenerates and byte-compares (CI uses this)
-```
-
-- `frontend/openapi/spec.json` and `frontend/src/types/generated/api.ts` are
-  committed; regeneration is fully offline/reproducible.
-- Hand-written types in `frontend/src/types/` are progressively replaced by
-  aliases over the generated types, domain by domain — never a big-bang rewrite.
-  Confirmed contract divergences stay hand-written on purpose (see
-  `frontend/README.md` §6.4).
-- CI (`.github/workflows/frontend-ci.yml`) runs on every push/PR touching
-  `frontend/`: `npm ci` → `check:api` → `tsc --noEmit` → `npm test`.
+| 配置变量 | 作用说明 | 生产推荐值 / 示例 |
+|:---|:---|:---|
+| `SECRET_KEY` | JWT 鉴权加盐密钥 | **必须替换为强随机字符串（≥ 32 字符）** |
+| `POSTGRES_PASSWORD` | PostgreSQL 访问密码 | 自定义强密码 |
+| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` | MinIO 对象存储根密钥 | 自定义凭证 |
+| `OBJECT_STORAGE_ACCESS_KEY` / `SECRET_KEY` | 后端连接 MinIO 的 Access Key | 与 MinIO ROOT 凭证保持一致 |
+| `CORS_ORIGINS` | 跨域允许来源白名单 | 生产设为真实域名（如 `https://gt.chery.com`） |
+| `BUILD_TARGET` | 构建模式 | 开发填 `development`，生产填 `production` |
+| `FEATURE_*` | 功能特性开关门禁 | 可在 `deploy/features/` 中按环境批量定义 |
+| `BRAND_*` | 品牌客制化配置 | 控制前端显示品牌文字与样式 |
 
 ---
 
-## Feature Toggles & Branding
+## 📂 代码组织与工程目录 (Project Structure)
 
-Optional UI features can be hidden per deployment without a rebuild:
-
-- Flags live in a committed file, e.g. `deploy/features/caliper.env`
-  (`FEATURE_PM_DASHBOARD=`, `FEATURE_CHAT=`; blank = on, `off` = hidden).
-- The frontend loads them via `env_file:` → `docker-entrypoint.d/20-features.sh`
-  regenerates `window.__FEATURES__` on container start.
-- Register a new flag in `frontend/src/config/features.ts`, wrap its UI in
-  `<FeatureGate feature="...">`, then add a `FEATURE_*` line.
-
-Branding works the same way via `BRAND_*` env → `10-brand.sh` → `window.__BRAND__`
-(`frontend/src/config/branding.ts`), so a single image can be re-skinned at runtime.
-
----
-
-## Keyboard Shortcuts
-
-### General & 3D Cuboid Editing
-
-| Key | Action | | Key | Action |
-|---|---|---|---|---|
-| `V` | Select tool | | `Q` / `E` | Rotate yaw ±5° (cuboid) |
-| `C` | 3D Cuboid tool | | `Shift+Q` / `Shift+E` | Rotate yaw ±1° |
-| `B` | 2D Bounding Box | | `R` | Reset rotation |
-| `L` | Polyline / Lane tool | | `W` / `S` | Resize length (±0.1 m) |
-| `P` | Polygon (manual) | | `A` / `D` | Resize width (±0.1 m) |
-| `W` | AI Segment (SAM2) | | `Z` / `X` | Resize height (±0.1 m) |
-| `T` | Track tool | | `Delete` / `Backspace` | Delete selected |
-| `Ctrl+S` / `Cmd+S` | Save annotations | | `Space` | Play / Pause playback |
-
-### Directional Arrow Keys (`←` / `→` / `↑` / `↓`)
-
-- **When a 3D cuboid is selected (Fine Nudging, ±0.05 m; `Shift` for ±0.01 m):**
-  - **Top (BEV) View**: Coordinate system is locked to the cuboid's local heading yaw:
-    - `→`: Move forward along heading direction (+X local, towards screen right)
-    - `←`: Move backward along heading direction (-X local)
-    - `↑`: Move lateral left (+Y local)
-    - `↓`: Move lateral right (-Y local)
-  - **Side View**: `←` / `→` along horizontal axis, `↑` / `↓` along vertical Z (height).
-  - **Front View**: `←` / `→` along horizontal axis, `↑` / `↓` along vertical Z (height).
-- **When no cuboid is selected (Timeline Navigation):**
-  - `←` / `→`: Navigate to previous / next frame (automatically respects keyframe interval step when keyframe sampling is enabled).
-
-### Keyframe Sampling & Stepping
-
-- Enable **Keyframes Only** mode on the timeline to restrict labeling to sampled frames.
-- Configure **Keyframe Interval / Step** (e.g., sample every 10 frames) and **Start Frame** offset.
-- Navigation buttons (`Prev` / `Next`) and arrow keys automatically step across keyframes according to the interval.
-
-### QA Review
-
-`1` approve · `2` reject · `3` flag · `F` flag missing object.
-
----
-
-## Project Structure
-
-```
+```text
 caliperai-gt/
-├── backend/
+├── backend/                            # 后端服务根目录
 │   ├── app/
-│   │   ├── api/v1/endpoints/   # Thin REST routers (auth, tasks, scenes, ...)
-│   │   ├── models/             # SQLAlchemy models
-│   │   ├── schemas/            # Per-domain Pydantic schemas (task, scene, qa, ...)
-│   │   └── services/           # Business logic; dataset_import/ is an isolated
-│   │                           #   pipeline package (discovery, calibration, ...)
-│   ├── alembic/                # DB migrations
-│   ├── knowledge_base/         # RAG content for the in-app assistant
-│   └── scripts/                # create_admin.py, download_sam2_models.py, ...
-├── frontend/
-│   ├── openapi/spec.json       # Checked-in OpenAPI snapshot (contract source)
-│   └── src/
-│       ├── components/canvas/  # LidarCanvas, OrthographicViews, 2D view
-│       ├── pages/              # FusionEditorV2, dashboards, taxonomy, ...
-│       ├── types/generated/    # OpenAPI-generated TS types (do not edit)
-│       ├── config/             # branding.ts, features.ts
-│       └── store/              # Zustand stores
-├── .github/workflows/          # Frontend CI: contract gate, tsc, unit tests
-├── deploy/features/            # committed feature-toggle profiles
-├── docker-compose.yml          # dev stack
-├── docker-compose.prod.yml     # production stack
-└── docker-compose.sam2.yml / .gpu.yml  # optional SAM2 / GPU overrides
+│   │   ├── api/v1/                     # API 控制器层
+│   │   │   ├── router.py               # 集中路由注册表
+│   │   │   └── endpoints/              # 薄路由模块 (export.py, import_data.py, tasks.py ...)
+│   │   ├── services/                   # 核心业务领域服务
+│   │   │   ├── export/                 # ★ 导出领域包 (merge, archive, coco, segmentation)
+│   │   │   ├── dataset_import/         # ★ 导入领域包 (video_pipeline, runner, jobs, parser)
+│   │   │   ├── annotation_service.py   # 统一标注写入业务门面
+│   │   │   ├── efficiency/             # PM 看板及产工人效分析服务包
+│   │   │   └── sam2_service.py         # SAM2 通信客户端
+│   │   ├── models/                     # SQLAlchemy 2.0 异步模型层
+│   │   ├── schemas/                    # Pydantic v2 请求/响应数据校验层
+│   │   └── core/                       # 基础配置、数据库/Redis 连接池、文件安全审计
+│   ├── alembic/                        # 数据库迁移脚本
+│   ├── tests/                          # 自动化测试用例集 (pytest)
+│   └── scripts/                        # 管理员创建与系统初始化运维脚本
+├── frontend/                           # 前端工程根目录
+│   ├── openapi/                        # OpenAPI 契约快照 (spec.json)
+│   ├── src/
+│   │   ├── components/canvas/          # 3D 点云画布、三重视角切片及 2D 绘图组件
+│   │   ├── pages/                      # 核心页面 (FusionEditorV2, 数据看板, 分类法等)
+│   │   ├── types/generated/            # 由 OpenAPI 自动生成的 TypeScript 类型 (勿手改)
+│   │   ├── store/                      # Zustand 客户端状态仓库
+│   │   └── hooks/                      # 标定投影、时序播放与快捷键等业务 Hook
+│   └── public/                         # 静态资源与 CheryGT 品牌矢量图标
+├── microservices/                      # 独立 GPU 微服务 (SAM2, CLIP)
+├── deploy/                             # 生产部署配置与特性开关模板
+├── docs/                               # 深度技术规格书与使用文档
+├── docker-compose.yml                  # 核心基础开发编排
+├── docker-compose.prod.yml             # 生产多阶段镜像编排
+└── docker-compose.gpu.yml              # GPU 加速微服务覆盖编排
 ```
 
 ---
 
-## Enterprise
+## 🧪 本地开发与测试门禁 (Development & Testing)
 
-The open-source platform is fully featured and self-hostable. **CaliperGT
-Enterprise** layers on an **AI auto-annotation engine** and an **enterprise-grade
-security & compliance** stack — so your team hand-labels a fraction of the frames,
-ships ground truth in a fraction of the time, and stays audit-ready.
+### 1. 后端单元测试与代码检查
+项目具备高标准测试覆盖率，所有修改均需通过自动化回归：
 
-### ⭐ Flagship
+```bash
+# 进入容器或在本地执行全部测试
+docker exec anno-backend pytest -q
 
-- **VLA (Vision-Language-Action) ground truth** — the tooling to build training
-  data for **vision-language-action and end-to-end driving/robotics foundation
-  models**: natural-language scene descriptions, instruction & reasoning traces,
-  and **action grounding** aligned to synchronized LiDAR + camera. Produce the
-  datasets the next generation of autonomous systems is trained on — not just
-  boxes and masks.
-- **3D LiDAR auto-annotation** — automatic **3D cuboids and per-point segmentation**
-  straight from raw point clouds, with **cross-frame tracking and stable track
-  IDs**. Turn weeks of manual 3D labeling into a fast review-and-correct pass.
+# 执行单文件或特定领域测试
+docker exec anno-backend pytest tests/test_export_service.py -v
+docker exec anno-backend pytest tests/test_import_jobs.py -v
 
-### 🤖 AI auto-annotation — stop labeling from scratch
+# 代码风格与静态类型检查 (Ruff)
+docker exec anno-backend ruff check app/
+```
 
-Beyond the flagship 3D LiDAR engine above:
+### 2. 前端契约门禁与类型同步
+前端杜绝手动维护后端接口，通过契约自动化命令与后端 OpenAPI 严格同步：
 
-- **Highly optimized 2D auto-annotation** — detection, segmentation, and keypoints
-  powered by **foundation models fine-tuned on your domain** (driving, retail,
-  agriculture, industrial…). Far higher accuracy than off-the-shelf models, so the
-  pre-labels are production-usable, not throwaway.
-- **AI lane detection** — automatic lane, curb, and road-marking extraction as
-  clean, Bézier-smoothed polylines — turning hours of manual lane tracing into a
-  quick QA pass.
-- **Active-learning loop** — models continuously retrain on your accepted labels
-  and keep getting sharper on *your* data.
+```bash
+cd frontend
+# 1. 从运行中的后端拉取最新的 openapi.json
+npm run fetch:api
 
-### 🔒 Security & compliance
+# 2. 离线重新生成 TypeScript 类型定义
+npm run gen:api
 
-- **Encryption everywhere** — field-level **PII encryption at rest**, **encrypted
-  object storage (SSE)**, and **mutual TLS** between every internal service.
-- **Compliance-ready** — full **audit logging**, data-retention controls, and
-  support for your **SOC 2 / GDPR / ISO 27001** programs.
-- **Governance & isolation** — advanced role controls, **per-project/tenant data
-  isolation**, and **air-gapped / in-VPC deployment** — nothing leaves your
-  infrastructure. (The open-source edition already includes SSO/OIDC + RBAC.)
-
-### ⚙️ Operations & scale
-
-- **Managed hosting & auto-scaling** — deployment, upgrades, and ops handled for you.
-- **Team operations & analytics** — live throughput, quality, and efficiency
-  dashboards across a distributed annotation workforce.
-- **Self-hosted LLM assistant** — a private, in-app copilot running entirely on
-  your own infrastructure.
-- **Priority support & SLAs**, guided onboarding, and custom integrations / model
-  fine-tuning on your data.
-
-📧 **See the difference on your own data** — contact
-**[info@caliperai.ai](mailto:info@caliperai.ai)** for a demo.
+# 3. 运行漂移检查门禁（CI 流程自动化执行）
+npm run check:api
+npm run build
+```
 
 ---
 
-## Contributing
+## 📄 开源协议与致谢 (License)
 
-Contributions are welcome — bug reports, docs, tests, and code. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the development setup and pull-request
-workflow, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community guidelines.
-
-Found a security issue? Please report it privately — see
-[SECURITY.md](SECURITY.md). Do not open a public issue for vulnerabilities.
-
----
-
-## License
-
-Licensed under the [Apache License 2.0](LICENSE) © Caliper AI. See
-[NOTICE](NOTICE) for attribution.
+本项目基于 **[Apache License 2.0](LICENSE)** 许可开源。
+欢迎对自动驾驶多传感器融合感知及数据闭环生态感兴趣的开发者提交 Issue 和 Pull Request，共同打造更加稳健、智能的下一代自动驾驶标注平台！
