@@ -34,7 +34,7 @@ class Settings(BaseSettings):
         extra="allow",
     )
 
-    APP_NAME: str = "CaliperGT: Sensor Fusion Annotation Platform"
+    APP_NAME: str = "CheryGT: Sensor Fusion Annotation Platform"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
     ENVIRONMENT: str = "development"

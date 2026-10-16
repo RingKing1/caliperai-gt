@@ -159,8 +159,8 @@ services:
       - /var/brand:size=1M,mode=1777
     environment:
       # Runtime branding via BRAND_* env (set in .env); recreate the container to apply.
-      - BRAND_NAME=${BRAND_NAME:-CaliperGT}
-      - BRAND_COMPANY=${BRAND_COMPANY:-Caliper AI}
+      - BRAND_NAME=${BRAND_NAME:-CheryGT}
+      - BRAND_COMPANY=${BRAND_COMPANY:-Chery AI}
       - BRAND_LOGO=${BRAND_LOGO:-}
     # Feature toggles from a committed file, selected by FEATURES_FILE in .env.
     env_file:
@@ -173,6 +173,7 @@ services:
     volumes:
       # Custom nginx config for behind reverse proxy
       - ./frontend/nginx.proxy.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/public/logo.svg:/usr/share/nginx/html/logo.svg:ro
     networks:
       - anno-internal
       - anno-external

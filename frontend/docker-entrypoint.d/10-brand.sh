@@ -11,8 +11,8 @@
 #   BRAND_LOGO     "none" => text instead of logo (default "" => show logo)
 set -eu
 
-BRAND_NAME="${BRAND_NAME:-CaliperGT}"
-BRAND_COMPANY="${BRAND_COMPANY:-Caliper AI}"
+BRAND_NAME="${BRAND_NAME:-CheryGT}"
+BRAND_COMPANY="${BRAND_COMPANY:-Chery AI}"
 BRAND_LOGO="${BRAND_LOGO:-}"
 
 if [ "$BRAND_LOGO" = "none" ]; then

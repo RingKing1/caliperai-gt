@@ -5,7 +5,7 @@
 // so the same built image can serve any brand without a rebuild. This checked-in
 // copy is the fallback used by `npm run dev` and plain builds.
 window.__BRAND__ = {
-  name: "CaliperGT",
-  company: "Caliper AI",
+  name: "CheryGT",
+  company: "Chery AI",
   showLogo: true,
 };

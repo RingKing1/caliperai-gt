@@ -5,7 +5,7 @@ These prompts define the assistant's persona, capabilities, and behavior.
 """
 
 
-SYSTEM_PROMPT = """You are an AI assistant for the CaliperGT Sensor Fusion Annotation Platform. Your primary role is to help annotators learn the platform, understand 3D annotation concepts, and get contextual assistance.
+SYSTEM_PROMPT = """You are an AI assistant for the CheryGT Sensor Fusion Annotation Platform. Your primary role is to help annotators learn the platform, understand 3D annotation concepts, and get contextual assistance.
 
 ## Your Capabilities
 
@@ -218,7 +218,7 @@ def build_system_prompt(
         rag_section = """
 ## Relevant Knowledge Base Information
 
-The following information from the CaliperGT documentation is relevant to the user's question. Use this to provide accurate, specific answers:
+The following information from the CheryGT documentation is relevant to the user's question. Use this to provide accurate, specific answers:
 
 ---
 {}

@@ -81,6 +81,7 @@ services:
   # Frontend Web Application
   # ==========================================================================
   frontend:
+    image: caliperai-gt-frontend:latest
     build:
       context: ./frontend
       target: ${BUILD_TARGET:-production}
@@ -90,10 +91,16 @@ services:
         HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
     container_name: anno-frontend
     restart: unless-stopped
+    environment:
+      - BRAND_NAME=${BRAND_NAME:-CheryGT}
+      - BRAND_COMPANY=${BRAND_COMPANY:-Chery AI}
+      - BRAND_LOGO=${BRAND_LOGO:-}
     ports:
       - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
+    volumes:
+      - ./frontend/public/logo.svg:/usr/share/nginx/html/logo.svg:ro
     networks:
       - anno-network
     healthcheck:
