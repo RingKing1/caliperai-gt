@@ -7,15 +7,15 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
-from app.core.config import get_settings
-from app.core.database import init_db, close_db, async_session_factory
-from app.core.redis_cache import init_redis, close_redis, get_redis
 from app.api.v1.router import api_router
+from app.core.config import get_settings
+from app.core.database import async_session_factory, close_db, init_db
+from app.core.redis_cache import close_redis, get_redis, init_redis
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -26,26 +26,26 @@ async def initialize_rag():
     if not settings.RAG_ENABLED:
         logger.info("RAG is disabled, skipping knowledge base initialization")
         return
-    
+
     try:
-        from app.services.knowledge_service import KnowledgeService
-        from app.services.embedding_service import get_embedding_service
         from app.core.database import async_session_factory
-        
+        from app.services.embedding_service import get_embedding_service
+        from app.services.knowledge_service import KnowledgeService
+
         logger.info("Initializing RAG knowledge base...")
-        
+
         redis = await get_redis()
-        
+
         embedding_service = await get_embedding_service(redis)
         model_ready = await embedding_service.ensure_model_available()
-        
+
         if not model_ready:
             logger.warning(
                 f"Embedding model {settings.RAG_EMBEDDING_MODEL} not available. "
                 "RAG will work once the model is pulled."
             )
             return
-        
+
         if settings.RAG_REINDEX_ON_STARTUP:
             async with async_session_factory() as db:
                 knowledge_service = KnowledgeService(
@@ -58,7 +58,7 @@ async def initialize_rag():
                 logger.info(f"RAG knowledge base initialized: {chunks_indexed} chunks indexed")
         else:
             logger.info("RAG startup reindexing disabled, using existing index")
-            
+
     except Exception as e:
         logger.error(f"Failed to initialize RAG: {e}")
         logger.info("Chat will work without RAG context until the issue is resolved")
@@ -94,9 +94,9 @@ app = FastAPI(
     version=settings.APP_VERSION,
     description="""
     ## Sensor Fusion Annotation Platform
-    
+
     A production-grade annotation platform for autonomous driving sensor data.
-    
+
     ### Features
     - **Campaign Management**: Organize annotation projects at scale
     - **Dataset Taxonomies**: Dynamic class and attribute configuration

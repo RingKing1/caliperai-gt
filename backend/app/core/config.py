@@ -1,9 +1,9 @@
 """Application configuration settings."""
 import sys
 from functools import lru_cache
-from typing import List, Optional, Union
+
+from pydantic import ConfigDict, field_validator
 from pydantic_settings import BaseSettings
-from pydantic import field_validator, ConfigDict
 
 _KNOWN_WEAK_KEYS: frozenset[str] = frozenset({
     "your-secret-key-change-in-production",
@@ -33,31 +33,31 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="allow",
     )
-    
+
     APP_NAME: str = "CaliperGT: Sensor Fusion Annotation Platform"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
     ENVIRONMENT: str = "development"
-    
+
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/calipergt"
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     # Dev/test convenience: emit CREATE TABLE on boot. Production sets this to
     # false and provisions the schema exclusively via `alembic upgrade head`.
     AUTO_CREATE_TABLES: bool = True
-    
+
     REDIS_URL: str = "redis://localhost:6379/0"
-    
-    S3_ENDPOINT: Optional[str] = None
-    S3_ACCESS_KEY: Optional[str] = None
-    S3_SECRET_KEY: Optional[str] = None
+
+    S3_ENDPOINT: str | None = None
+    S3_ACCESS_KEY: str | None = None
+    S3_SECRET_KEY: str | None = None
     S3_BUCKET_NAME: str = "calipergt-data"
-    
+
     GCS_ENABLED: bool = False
-    GCS_PROJECT_ID: Optional[str] = None
-    GCS_CREDENTIALS_JSON: Optional[str] = None
-    GCS_DEFAULT_BUCKET: Optional[str] = None
-    
+    GCS_PROJECT_ID: str | None = None
+    GCS_CREDENTIALS_JSON: str | None = None
+    GCS_DEFAULT_BUCKET: str | None = None
+
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
@@ -69,19 +69,19 @@ class Settings(BaseSettings):
 
     GCS_BUCKET: str = ""
     GCS_UPLOAD_PREFIX: str = ""
-    GCS_SERVICE_ACCOUNT_JSON: Optional[str] = None
+    GCS_SERVICE_ACCOUNT_JSON: str | None = None
 
-    CORS_ORIGINS: Union[list[str], str] = ["http://localhost:3000", "http://localhost:5173"]
-    
+    CORS_ORIGINS: list[str] | str = ["http://localhost:3000", "http://localhost:5173"]
+
     LLM_PROVIDER: str = "ollama"
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     OLLAMA_MODEL: str = "mistral:7b-instruct"
-    
+
     CHAT_MAX_HISTORY_MESSAGES: int = 20
     CHAT_MAX_TOKENS: int = 2048
     CHAT_TEMPERATURE: float = 0.7
     CHAT_RATE_LIMIT: int = 20
-    
+
     RAG_ENABLED: bool = True
     RAG_EMBEDDING_MODEL: str = "nomic-embed-text"
     RAG_EMBEDDING_DIMENSIONS: int = 768
@@ -99,28 +99,28 @@ class Settings(BaseSettings):
     RAG_REINDEX_ON_STARTUP: bool = True
 
 
-    SSO_GOOGLE_CLIENT_ID: Optional[str] = None
-    SSO_GOOGLE_CLIENT_SECRET: Optional[str] = None
+    SSO_GOOGLE_CLIENT_ID: str | None = None
+    SSO_GOOGLE_CLIENT_SECRET: str | None = None
 
-    SSO_AZURE_CLIENT_ID: Optional[str] = None
-    SSO_AZURE_CLIENT_SECRET: Optional[str] = None
-    SSO_AZURE_TENANT_ID: Optional[str] = "common"
+    SSO_AZURE_CLIENT_ID: str | None = None
+    SSO_AZURE_CLIENT_SECRET: str | None = None
+    SSO_AZURE_TENANT_ID: str | None = "common"
 
-    SSO_OKTA_CLIENT_ID: Optional[str] = None
-    SSO_OKTA_CLIENT_SECRET: Optional[str] = None
-    SSO_OKTA_DOMAIN: Optional[str] = None
+    SSO_OKTA_CLIENT_ID: str | None = None
+    SSO_OKTA_CLIENT_SECRET: str | None = None
+    SSO_OKTA_DOMAIN: str | None = None
 
-    SSO_KEYCLOAK_CLIENT_ID: Optional[str] = None
-    SSO_KEYCLOAK_CLIENT_SECRET: Optional[str] = None
-    SSO_KEYCLOAK_BASE_URL: Optional[str] = None
-    SSO_KEYCLOAK_REALM: Optional[str] = None
+    SSO_KEYCLOAK_CLIENT_ID: str | None = None
+    SSO_KEYCLOAK_CLIENT_SECRET: str | None = None
+    SSO_KEYCLOAK_BASE_URL: str | None = None
+    SSO_KEYCLOAK_REALM: str | None = None
 
     SSO_REDIRECT_BASE_URL: str = "http://localhost:8000"
     SSO_DEFAULT_ROLE: str = "annotator"
     SSO_EMAIL_DOMAIN_ORG_MAP: str = ""
     SSO_FRONTEND_URL: str = "http://localhost:5173"
 
-    ALLOWED_BROWSE_ROOTS: List[str] = ["/uploads", "/data"]
+    ALLOWED_BROWSE_ROOTS: list[str] = ["/uploads", "/data"]
 
     @field_validator('SECRET_KEY')
     @classmethod
@@ -162,7 +162,7 @@ class Settings(BaseSettings):
         if isinstance(v, list):
             return v
         return ["http://localhost:3000", "http://localhost:5173"]
-    
+
 
 
 

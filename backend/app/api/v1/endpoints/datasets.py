@@ -7,7 +7,7 @@ handles authentication/authorization dependencies and HTTP status mapping.
 ``auto_create_tasks_for_scene`` is re-exported for the legacy import paths
 used by the scene import pipeline.
 """
-from typing import Annotated, Optional
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -77,7 +77,7 @@ async def list_datasets(
             )
         ),
     ],
-    campaign_id: Optional[UUID] = None,
+    campaign_id: UUID | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),

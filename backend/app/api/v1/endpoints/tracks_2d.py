@@ -5,20 +5,20 @@ Tracks represent persistent object identities across multiple frames.
 Each annotation can be linked to a track via track_id.
 """
 from datetime import datetime
-from typing import Annotated, List, Optional
+from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, and_, func, or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Track2D, Annotation2D, Task, User, Permission
+from app.models.models import Annotation2D, Permission, Task, Track2D, User
 from app.schemas.schemas import (
-    Track2DCreate,
-    Track2DUpdate,
-    Track2DResponse,
     BulkTrack2DCreate,
+    Track2DCreate,
+    Track2DResponse,
+    Track2DUpdate,
 )
 from app.services.rbac_service import RequirePermissions
 
@@ -35,7 +35,7 @@ async def create_track_2d(
     task = await db.get(Task, track.task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     track_id = track.id if track.id else uuid4()
 
     track_name = track.name or f"{track.class_id}_{track_id}"
@@ -53,32 +53,32 @@ async def create_track_2d(
         is_complete=track.is_complete,
         attributes=track.attributes,
     )
-    
+
     db.add(db_track)
     await db.commit()
     await db.refresh(db_track)
-    
+
     return db_track
 
 
-@router.get("", response_model=List[Track2DResponse])
+@router.get("", response_model=list[Track2DResponse])
 async def list_tracks_2d(
     task_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
-    camera_id: Optional[str] = Query(None, description="Camera ID to filter by"),
-    class_id: Optional[str] = Query(None, description="Class ID to filter by"),
+    camera_id: str | None = Query(None, description="Camera ID to filter by"),
+    class_id: str | None = Query(None, description="Class ID to filter by"),
     db: AsyncSession = Depends(get_db),
 ):
     """List 2D tracks for a task. Requires ANNOTATIONS_READ permission."""
     query = select(Track2D).where(Track2D.task_id == task_id)
-    
+
     if camera_id:
         query = query.where(
             or_(Track2D.camera_id == camera_id, Track2D.camera_id == "default")
         )
     if class_id:
         query = query.where(Track2D.class_id == class_id)
-    
+
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -96,7 +96,7 @@ async def get_track_2d(
     return track
 
 
-@router.get("/{track_id}/annotations", response_model=List[dict])
+@router.get("/{track_id}/annotations", response_model=list[dict])
 async def get_track_annotations(
     track_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
@@ -106,11 +106,11 @@ async def get_track_annotations(
     track = await db.get(Track2D, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    
+
     query = select(Annotation2D).where(Annotation2D.track_id == track_id)
     result = await db.execute(query)
     annotations = result.scalars().all()
-    
+
     return [
         {
             "id": str(ann.id),
@@ -136,14 +136,14 @@ async def update_track_2d(
     track = await db.get(Track2D, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    
+
     update_data = update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(track, key, value)
-    
+
     await db.commit()
     await db.refresh(track)
-    
+
     return track
 
 
@@ -157,17 +157,17 @@ async def delete_track_2d(
     track = await db.get(Track2D, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    
+
     query = select(Annotation2D).where(Annotation2D.track_id == track_id)
     result = await db.execute(query)
     for ann in result.scalars():
         ann.track_id = None
-    
+
     await db.delete(track)
     await db.commit()
 
 
-@router.post("/bulk", response_model=List[Track2DResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/bulk", response_model=list[Track2DResponse], status_code=status.HTTP_201_CREATED)
 async def create_tracks_2d_bulk(
     bulk_in: BulkTrack2DCreate,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_CREATE))],
@@ -175,10 +175,10 @@ async def create_tracks_2d_bulk(
 ):
     """Bulk create 2D tracks. Requires ANNOTATIONS_CREATE permission."""
     created = []
-    
+
     for track in bulk_in.tracks:
         track_id = track.id if track.id else uuid4()
-        
+
         db_track = Track2D(
             id=track_id,
             task_id=track.task_id,
@@ -192,26 +192,26 @@ async def create_tracks_2d_bulk(
             is_complete=track.is_complete,
             attributes=track.attributes,
         )
-        
+
         db.add(db_track)
         created.append(db_track)
-    
+
     await db.commit()
     for t in created:
         await db.refresh(t)
-    
+
     return created
 
 
 @router.post("/{track_id}/merge", response_model=Track2DResponse, status_code=status.HTTP_200_OK)
 async def merge_tracks(
     track_id: UUID,
-    source_track_ids: List[UUID],
+    source_track_ids: list[UUID],
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_UPDATE))],
     db: AsyncSession = Depends(get_db),
 ):
     """Merge multiple source tracks into a target track.
-    
+
     All annotations from source tracks are reassigned to the target track.
     Source tracks are deleted after merge. Frame range on target is updated.
     Requires ANNOTATIONS_UPDATE permission.
@@ -262,7 +262,7 @@ async def merge_tracks(
 @router.post("/{track_id}/assign-annotations", status_code=status.HTTP_200_OK)
 async def assign_annotations_to_track(
     track_id: UUID,
-    annotation_ids: List[UUID],
+    annotation_ids: list[UUID],
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_UPDATE))],
     db: AsyncSession = Depends(get_db),
 ):
@@ -270,14 +270,14 @@ async def assign_annotations_to_track(
     track = await db.get(Track2D, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    
+
     updated_count = 0
     for ann_id in annotation_ids:
         ann = await db.get(Annotation2D, ann_id)
         if ann:
             ann.track_id = track_id
             updated_count += 1
-    
+
     await db.commit()
-    
+
     return {"track_id": str(track_id), "updated_count": updated_count}

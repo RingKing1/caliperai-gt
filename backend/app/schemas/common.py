@@ -1,11 +1,11 @@
 """Shared API-schema base classes and cross-domain enums."""
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     PENDING = "pending"
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
@@ -14,7 +14,7 @@ class TaskStatus(str, Enum):
     REJECTED = "rejected"
 
 
-class AnnotationType(str, Enum):
+class AnnotationType(StrEnum):
     CUBOID = "cuboid"
     BOX2D = "box2d"
     POLYLINE = "polyline"
@@ -24,7 +24,7 @@ class AnnotationType(str, Enum):
     SEGMENTATION_2D = "segmentation_2d"
 
 
-class AnnotationSource(str, Enum):
+class AnnotationSource(StrEnum):
     MANUAL = "manual"
     AUTO_INTERPOLATED = "auto_interpolated"
     AIRFLOW_MODEL_V1 = "airflow_model_v1"
@@ -32,7 +32,7 @@ class AnnotationSource(str, Enum):
     IMPORTED = "imported"
 
 
-class UserRole(str, Enum):
+class UserRole(StrEnum):
     """User roles for RBAC."""
     ADMIN = "admin"
     PROJECT_MANAGER = "project_manager"
@@ -41,7 +41,7 @@ class UserRole(str, Enum):
     CUSTOMER_QA = "customer_qa"
 
 
-class TaxonomyAnnotationMode(str, Enum):
+class TaxonomyAnnotationMode(StrEnum):
     """Annotation mode that a taxonomy supports."""
     FUSION_3D = "fusion_3d"
     ONLY_2D = "2d_only"

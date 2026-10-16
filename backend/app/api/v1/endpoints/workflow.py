@@ -4,14 +4,21 @@ Workflow API Endpoints with RBAC protection.
 Provides endpoints for task stage/status transitions.
 """
 import uuid
-from typing import Annotated, List
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
 
 from app.core.database import get_db
-from app.models.models import Task, TaskStageHistory, TaskAssignmentHistory, User, Permission, UserRole, TaskStatus, TaskStage, Taxonomy, QAReview
+from app.models.models import (
+    Permission,
+    QAReview,
+    Task,
+    TaskStatus,
+    User,
+    UserRole,
+)
 from app.schemas.task import (
     AssignmentHistoryItem,
     AssignmentRequest,
@@ -24,13 +31,11 @@ from app.schemas.task import (
     StatusTransitionRequest,
     TaskWorkflowInfo,
 )
-from app.services.workflow_service import WorkflowService, WorkflowError
 from app.services.rbac_service import (
-    get_current_user,
     RequirePermissions,
-    require_permission,
+    get_current_user,
 )
-
+from app.services.workflow_service import WorkflowError, WorkflowService
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
 
@@ -63,7 +68,7 @@ async def get_workflow_info(
     )
 
 
-@router.get("/tasks/{task_id}/history", response_model=List[StageHistoryItem])
+@router.get("/tasks/{task_id}/history", response_model=list[StageHistoryItem])
 async def get_task_history(
     task_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -72,7 +77,7 @@ async def get_task_history(
     """Get stage/status transition history for a task."""
     workflow = WorkflowService(db)
     history = await workflow.get_task_history(task_id)
-    
+
     return [
         StageHistoryItem(
             id=str(h.id),
@@ -88,7 +93,7 @@ async def get_task_history(
     ]
 
 
-@router.get("/tasks/{task_id}/assignment-history", response_model=List[AssignmentHistoryItem])
+@router.get("/tasks/{task_id}/assignment-history", response_model=list[AssignmentHistoryItem])
 async def get_assignment_history(
     task_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -142,9 +147,9 @@ async def transition_task_status(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     workflow = WorkflowService(db)
-    
+
     try:
         task = await workflow.transition_status(
             task=task,
@@ -154,9 +159,9 @@ async def transition_task_status(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -182,7 +187,7 @@ async def assign_task(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     workflow = WorkflowService(db)
 
     try:
@@ -221,9 +226,9 @@ async def assign_qa_reviewer(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     workflow = WorkflowService(db)
-    
+
     try:
         task = await workflow.assign_reviewer(
             task=task,
@@ -232,9 +237,9 @@ async def assign_qa_reviewer(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -260,9 +265,9 @@ async def assign_customer_reviewer(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     workflow = WorkflowService(db)
-    
+
     try:
         task = await workflow.assign_customer_reviewer(
             task=task,
@@ -271,9 +276,9 @@ async def assign_customer_reviewer(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -306,9 +311,9 @@ async def start_task(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -342,9 +347,9 @@ async def submit_task(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -378,9 +383,9 @@ async def submit_fixes(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -418,9 +423,9 @@ async def complete_qa_review(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -458,9 +463,9 @@ async def complete_customer_qa_review(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -485,14 +490,14 @@ async def set_skip_customer_qa(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     task.skip_customer_qa = skip
     await db.commit()
     await db.refresh(task)
-    
+
     workflow = WorkflowService(db)
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -533,9 +538,9 @@ async def unassign_task(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -560,9 +565,9 @@ async def unassign_reviewer(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     workflow = WorkflowService(db)
-    
+
     try:
         task = await workflow.unassign_reviewer(
             task=task,
@@ -571,9 +576,9 @@ async def unassign_reviewer(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -602,19 +607,19 @@ async def on_editor_open(
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"EDITOR OPEN: task_id={task_id}, user_id={current_user.id}, user={current_user.email}, role={current_user.role}")
-    
+
     result = await db.execute(select(Task).where(Task.id == task_id))
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     logger.info(f"EDITOR OPEN: task.status={task.status}, task.stage={task.stage}, task.assignee_id={task.assignee_id}")
-    
+
     workflow = WorkflowService(db)
-    
+
     is_admin = current_user.role in [UserRole.ADMIN.value, UserRole.PROJECT_MANAGER.value]
     logger.info(f"EDITOR OPEN: is_admin={is_admin}")
-    
+
     try:
         task = await workflow.on_editor_open(
             task=task,
@@ -626,9 +631,9 @@ async def on_editor_open(
     except WorkflowError as e:
         logger.error(f"EDITOR OPEN: workflow error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,
@@ -652,18 +657,18 @@ async def bulk_assign_tasks(
     task_ids = [uuid.UUID(tid) for tid in request.task_ids]
     result = await db.execute(select(Task).where(Task.id.in_(task_ids)))
     tasks = list(result.scalars().all())
-    
+
     workflow = WorkflowService(db)
-    
+
     updated_tasks = await workflow.bulk_assign_tasks(
         tasks=tasks,
         assignee_id=uuid.UUID(request.user_id),
         changed_by_id=current_user.id,
     )
     await db.commit()
-    
+
     success_count = sum(1 for t in updated_tasks if t.status == "assigned")
-    
+
     task_infos = [
         TaskWorkflowInfo(
             task_id=str(t.id),
@@ -678,7 +683,7 @@ async def bulk_assign_tasks(
         )
         for t in updated_tasks
     ]
-    
+
     return BulkOperationResult(
         success_count=success_count,
         failed_count=len(tasks) - success_count,
@@ -696,17 +701,17 @@ async def bulk_submit_tasks(
     task_ids = [uuid.UUID(tid) for tid in request.task_ids]
     result = await db.execute(select(Task).where(Task.id.in_(task_ids)))
     tasks = list(result.scalars().all())
-    
+
     workflow = WorkflowService(db)
-    
+
     updated_tasks = await workflow.bulk_submit_tasks(
         tasks=tasks,
         changed_by_id=current_user.id,
     )
     await db.commit()
-    
+
     success_count = sum(1 for t in updated_tasks if t.stage == "qa")
-    
+
     task_infos = [
         TaskWorkflowInfo(
             task_id=str(t.id),
@@ -721,7 +726,7 @@ async def bulk_submit_tasks(
         )
         for t in updated_tasks
     ]
-    
+
     return BulkOperationResult(
         success_count=success_count,
         failed_count=len(tasks) - success_count,
@@ -739,18 +744,18 @@ async def bulk_assign_reviewers(
     task_ids = [uuid.UUID(tid) for tid in request.task_ids]
     result = await db.execute(select(Task).where(Task.id.in_(task_ids)))
     tasks = list(result.scalars().all())
-    
+
     workflow = WorkflowService(db)
-    
+
     updated_tasks = await workflow.bulk_assign_reviewers(
         tasks=tasks,
         reviewer_id=uuid.UUID(request.user_id),
         changed_by_id=current_user.id,
     )
     await db.commit()
-    
+
     success_count = sum(1 for t in updated_tasks if t.reviewer_id is not None)
-    
+
     task_infos = [
         TaskWorkflowInfo(
             task_id=str(t.id),
@@ -765,7 +770,7 @@ async def bulk_assign_reviewers(
         )
         for t in updated_tasks
     ]
-    
+
     return BulkOperationResult(
         success_count=success_count,
         failed_count=len(tasks) - success_count,
@@ -785,9 +790,9 @@ async def skip_qa_stage(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     workflow = WorkflowService(db)
-    
+
     try:
         task = await workflow.skip_qa_stage(
             task=task,
@@ -796,9 +801,9 @@ async def skip_qa_stage(
         await db.commit()
     except WorkflowError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     available = workflow.get_available_transitions(task)
-    
+
     return TaskWorkflowInfo(
         task_id=str(task.id),
         stage=task.stage,

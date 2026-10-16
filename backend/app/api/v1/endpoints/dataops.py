@@ -9,14 +9,14 @@ Provides endpoints for:
 """
 import uuid
 from datetime import datetime
-from typing import Annotated, List, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Task, Scene, Dataset, User
+from app.models.models import Dataset, Scene, Task, User
 from app.schemas.dataops import (
     AnnotationHistoryListResponse,
     AnnotationHistoryResponse,
@@ -28,8 +28,7 @@ from app.schemas.dataops import (
     TaskDataOpsStats,
 )
 from app.services.dataops_service import DataOpsService, get_dataops_service
-from app.services.rbac_service import get_current_user, RequirePermissions
-
+from app.services.rbac_service import RequirePermissions, get_current_user
 
 router = APIRouter(prefix="/dataops", tags=["dataops"])
 
@@ -39,7 +38,7 @@ async def get_task_history(
     task_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    change_type: Optional[str] = Query(None, description="Filter by change type: created, updated, deleted"),
+    change_type: str | None = Query(None, description="Filter by change type: created, updated, deleted"),
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
 ):
@@ -48,18 +47,18 @@ async def get_task_history(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     dataops = get_dataops_service(db)
-    
+
     history = await dataops.get_task_annotation_history(
         task_id=task_id,
         change_type=change_type,
         limit=limit,
         offset=offset,
     )
-    
+
     total = await dataops.get_task_history_count(task_id, change_type)
-    
+
     items = [
         AnnotationHistoryResponse(
             id=str(h.id),
@@ -77,7 +76,7 @@ async def get_task_history(
         )
         for h in history
     ]
-    
+
     return AnnotationHistoryListResponse(
         items=items,
         total=total,
@@ -99,12 +98,12 @@ async def get_task_snapshots(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     dataops = get_dataops_service(db)
-    
+
     snapshots = await dataops.get_task_snapshots(task_id, limit, offset)
     total = await dataops.get_snapshot_count(task_id)
-    
+
     items = [
         SnapshotSummaryResponse(
             id=str(s.id),
@@ -123,7 +122,7 @@ async def get_task_snapshots(
         )
         for s in snapshots
     ]
-    
+
     return SnapshotListResponse(
         items=items,
         total=total,
@@ -143,10 +142,10 @@ async def get_task_stats(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     dataops = get_dataops_service(db)
     stats = await dataops.get_task_dataops_stats(task_id)
-    
+
     return TaskDataOpsStats(**stats)
 
 
@@ -156,7 +155,7 @@ async def get_dataset_history(
     dataset_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    change_type: Optional[str] = Query(None, description="Filter by change type"),
+    change_type: str | None = Query(None, description="Filter by change type"),
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
 ):
@@ -165,18 +164,18 @@ async def get_dataset_history(
     dataset = result.scalar_one_or_none()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    
+
     dataops = get_dataops_service(db)
-    
+
     history = await dataops.get_dataset_history(
         dataset_id=dataset_id,
         change_type=change_type,
         limit=limit,
         offset=offset,
     )
-    
+
     stats = await dataops.get_dataset_dataops_stats(dataset_id)
-    
+
     items = [
         AnnotationHistoryResponse(
             id=str(h.id),
@@ -194,7 +193,7 @@ async def get_dataset_history(
         )
         for h in history
     ]
-    
+
     return AnnotationHistoryListResponse(
         items=items,
         total=stats["total_changes"],
@@ -216,12 +215,12 @@ async def get_dataset_snapshots(
     dataset = result.scalar_one_or_none()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    
+
     dataops = get_dataops_service(db)
-    
+
     snapshots = await dataops.get_dataset_snapshots(dataset_id, limit, offset)
     stats = await dataops.get_dataset_dataops_stats(dataset_id)
-    
+
     items = [
         SnapshotSummaryResponse(
             id=str(s.id),
@@ -240,7 +239,7 @@ async def get_dataset_snapshots(
         )
         for s in snapshots
     ]
-    
+
     return SnapshotListResponse(
         items=items,
         total=stats["total_snapshots"],
@@ -260,10 +259,10 @@ async def get_dataset_stats(
     dataset = result.scalar_one_or_none()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    
+
     dataops = get_dataops_service(db)
     stats = await dataops.get_dataset_dataops_stats(dataset_id)
-    
+
     return DatasetDataOpsStats(**stats)
 
 
@@ -277,10 +276,10 @@ async def get_snapshot_detail(
     """Get full details of a specific snapshot including annotation data."""
     dataops = get_dataops_service(db)
     snapshot = await dataops.get_snapshot(snapshot_id)
-    
+
     if not snapshot:
         raise HTTPException(status_code=404, detail="Snapshot not found")
-    
+
     return SnapshotDetailResponse(
         id=str(snapshot.id),
         task_id=str(snapshot.task_id),
@@ -310,15 +309,15 @@ async def compare_snapshots(
     """Compare two snapshots and return the differences."""
     dataops = get_dataops_service(db)
     result = await dataops.compare_snapshots(snapshot_id_1, snapshot_id_2)
-    
+
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
-    
+
     return SnapshotCompareResponse(**result)
 
 
 
-@router.get("/annotations/{annotation_id}/history", response_model=List[AnnotationHistoryResponse])
+@router.get("/annotations/{annotation_id}/history", response_model=list[AnnotationHistoryResponse])
 async def get_annotation_version_history(
     annotation_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -329,7 +328,7 @@ async def get_annotation_version_history(
     """Get version history for a specific annotation."""
     dataops = get_dataops_service(db)
     history = await dataops.get_annotation_history(annotation_id, limit, offset)
-    
+
     return [
         AnnotationHistoryResponse(
             id=str(h.id),

@@ -10,7 +10,7 @@ endpoints translate them.
 """
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -90,7 +90,7 @@ def split_filter_values(values: list[str] | None) -> list[str]:
 
 
 def parse_label_filters(
-    q: Optional[str],
+    q: str | None,
     classes: list[str],
     groups: list[str],
 ) -> tuple[list[str], list[str]]:
@@ -140,11 +140,11 @@ def parse_label_filters(
 async def search_by_labels(
     db: AsyncSession,
     *,
-    q: Optional[str],
+    q: str | None,
     classes: list[str],
     groups: list[str],
-    dataset_id: Optional[UUID],
-    name_contains: Optional[str],
+    dataset_id: UUID | None,
+    name_contains: str | None,
     min_objects: int,
     min_class_ratio: float,
     min_group_ratio: float,
@@ -188,17 +188,17 @@ async def search_by_labels(
 async def search_hybrid(
     db: AsyncSession,
     *,
-    semantic_q: Optional[str],
+    semantic_q: str | None,
     cameras: list[str],
     min_similarity: float,
     top_k_frames: int,
-    candidate_pool: Optional[int],
+    candidate_pool: int | None,
     preview_frames: int,
-    q: Optional[str],
+    q: str | None,
     classes: list[str],
     groups: list[str],
-    dataset_id: Optional[UUID],
-    name_contains: Optional[str],
+    dataset_id: UUID | None,
+    name_contains: str | None,
     min_objects: int,
     min_class_ratio: float,
     min_group_ratio: float,
@@ -244,11 +244,11 @@ async def search_semantic(
     db: AsyncSession,
     *,
     query_text: str,
-    dataset_id: Optional[UUID],
+    dataset_id: UUID | None,
     cameras: list[str],
     min_similarity: float,
     top_k_frames: int,
-    candidate_pool: Optional[int],
+    candidate_pool: int | None,
     page_size: int,
 ) -> dict:
     """Semantic scene search over CLIP frame embeddings (Chinese-CLIP)."""
@@ -420,7 +420,7 @@ async def create_scene(db: AsyncSession, scene_in: SceneCreate) -> Scene:
 
 async def list_scenes(
     db: AsyncSession,
-    dataset_id: Optional[UUID] = None,
+    dataset_id: UUID | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> list[Scene]:

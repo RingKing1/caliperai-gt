@@ -4,7 +4,7 @@ Pipeline: query text -> CLIP text vector (anno-clip GPU service) ->
 pgvector HNSW nearest frames -> per-scene aggregation (mean of the scene's
 top-K frame similarities) so results rank whole scenes rather than frames.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -18,7 +18,7 @@ from app.services.clip_client_service import clip_client
 EMBEDDING_MODEL_TAG = "cn_clip_vit_b_16"
 
 
-async def embedding_coverage(db: AsyncSession) -> List[Dict[str, Any]]:
+async def embedding_coverage(db: AsyncSession) -> list[dict[str, Any]]:
     """Per-scene embedding counts for the configured model."""
     rows = await db.execute(
         text(
@@ -43,15 +43,15 @@ async def embedding_coverage(db: AsyncSession) -> List[Dict[str, Any]]:
 async def search_scenes_semantic(
     db: AsyncSession,
     query_text: str,
-    dataset_id: Optional[UUID] = None,
-    cameras: Optional[List[str]] = None,
+    dataset_id: UUID | None = None,
+    cameras: list[str] | None = None,
     min_similarity: float = 0.18,
-    top_k_frames: Optional[int] = None,
-    candidate_pool: Optional[int] = None,
+    top_k_frames: int | None = None,
+    candidate_pool: int | None = None,
     preview_frames: int = 5,
     limit: int = 50,
-    scene_ids: Optional[List[UUID]] = None,
-) -> Dict[str, Any]:
+    scene_ids: list[UUID] | None = None,
+) -> dict[str, Any]:
     """Rank scenes by how well their best-matching frames fit the query.
 
     When ``scene_ids`` is given, vector ranking is restricted to that
@@ -63,7 +63,7 @@ async def search_scenes_semantic(
     vector_literal = "[" + ",".join(f"{v:.8f}" for v in query_vector) + "]"
 
     where_extra = ""
-    params: Dict[str, Any] = {"model": EMBEDDING_MODEL_TAG, "qvec": vector_literal}
+    params: dict[str, Any] = {"model": EMBEDDING_MODEL_TAG, "qvec": vector_literal}
     pool_sql = " LIMIT :pool" if candidate_pool else ""
     if candidate_pool:
         params["pool"] = candidate_pool
@@ -178,7 +178,7 @@ async def search_scenes_semantic(
             "preview_per_scene": preview_frames,
         },
     )
-    preview_by_scene: Dict[UUID, List[Dict[str, Any]]] = {}
+    preview_by_scene: dict[UUID, list[dict[str, Any]]] = {}
     for row in previews.mappings():
         bucket = preview_by_scene.setdefault(row["scene_id"], [])
         if len(bucket) < preview_frames:

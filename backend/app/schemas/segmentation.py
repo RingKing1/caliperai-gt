@@ -1,5 +1,4 @@
 """Per-point LiDAR segmentation label save/load/export API schemas."""
-from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -19,19 +18,19 @@ class SegmentationLabelsCreate(BaseModel):
     """
     frame_id: UUID
     point_count: int = Field(..., description="Total number of points")
-    labels: Optional[List[int]] = Field(
+    labels: list[int] | None = Field(
         None, description="Full snapshot (legacy). Provide either this or delta_*."
     )
-    instance_ids: Optional[List[int]] = Field(
+    instance_ids: list[int] | None = Field(
         None, description="Full snapshot instance ids paired with `labels`."
     )
-    delta_indices: Optional[List[int]] = Field(
+    delta_indices: list[int] | None = Field(
         None, description="Indices of points the client changed since baseline."
     )
-    delta_labels: Optional[List[int]] = Field(
+    delta_labels: list[int] | None = Field(
         None, description="New label per index in `delta_indices` (-1 to clear)."
     )
-    delta_instance_ids: Optional[List[int]] = Field(
+    delta_instance_ids: list[int] | None = Field(
         None, description="Optional new instance id per index in `delta_indices`."
     )
 
@@ -60,17 +59,17 @@ class SegmentationLabelsCreate(BaseModel):
 class SegmentationLabelsResponse(BaseModel):
     """Response containing segmentation labels."""
     frame_id: UUID
-    labels: List[int]
+    labels: list[int]
     point_count: int
     labeled_count: int
     class_distribution: dict
-    instance_ids: Optional[List[int]] = None
+    instance_ids: list[int] | None = None
     instance_count: int = 0
 
 
 class SegmentationExportRequest(BaseModel):
     """Request to export segmentation labels."""
-    frame_ids: List[UUID]
+    frame_ids: list[UUID]
     format: str = Field(default="npy", description="Export format: 'npy' or 'bin'")
     include_unlabeled: bool = Field(default=True, description="Include unlabeled points in export")
 

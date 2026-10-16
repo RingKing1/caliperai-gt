@@ -3,21 +3,21 @@ Pydantic schemas for AI Chatbot API.
 Request/response validation for chat endpoints.
 """
 from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class ChatMessageRole(str, Enum):
+class ChatMessageRole(StrEnum):
     """Role of the message sender."""
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
 
 
-class ChatFeedback(str, Enum):
+class ChatFeedback(StrEnum):
     """User feedback on assistant responses."""
     HELPFUL = "helpful"
     NOT_HELPFUL = "not_helpful"
@@ -39,38 +39,38 @@ class ChatContext(ChatBaseSchema):
     Context about user's current state in the application.
     Sent with each message to provide contextual assistance.
     """
-    page: Optional[str] = Field(
+    page: str | None = Field(
         None,
         description="Current page path, e.g., '/editor/3d/scene-123'",
         examples=["/editor/3d/abc123", "/tasks", "/projects/xyz"]
     )
-    view: Optional[str] = Field(
+    view: str | None = Field(
         None,
         description="Current view mode",
         examples=["3d", "2d", "bev", "fusion"]
     )
-    active_tool: Optional[str] = Field(
+    active_tool: str | None = Field(
         None,
         description="Currently active annotation tool",
         examples=["box", "polygon", "ai_segment", "cuboid"]
     )
-    selected_annotation_id: Optional[UUID] = Field(
+    selected_annotation_id: UUID | None = Field(
         None,
         description="ID of currently selected annotation"
     )
-    task_id: Optional[UUID] = Field(
+    task_id: UUID | None = Field(
         None,
         description="ID of current task being worked on"
     )
-    project_id: Optional[UUID] = Field(
+    project_id: UUID | None = Field(
         None,
         description="ID of current project"
     )
-    scene_id: Optional[UUID] = Field(
+    scene_id: UUID | None = Field(
         None,
         description="ID of current scene"
     )
-    frame_index: Optional[int] = Field(
+    frame_index: int | None = Field(
         None,
         description="Current frame index in scene"
     )
@@ -85,11 +85,11 @@ class SendMessageRequest(ChatBaseSchema):
         max_length=10000,
         description="The user's message to the AI assistant"
     )
-    context: Optional[ChatContext] = Field(
+    context: ChatContext | None = Field(
         None,
         description="Current UI context for contextual assistance"
     )
-    session_id: Optional[UUID] = Field(
+    session_id: UUID | None = Field(
         None,
         description="Existing session ID. If None, creates a new session"
     )
@@ -110,15 +110,15 @@ class MessageResponse(ChatBaseSchema):
     role: ChatMessageRole = Field(..., description="Message role")
     content: str = Field(..., description="Message content")
     created_at: datetime = Field(..., description="Message timestamp")
-    context: Optional[Dict[str, Any]] = Field(
+    context: dict[str, Any] | None = Field(
         None,
         description="Context at time of message"
     )
-    model_used: Optional[str] = Field(
+    model_used: str | None = Field(
         None,
         description="LLM model used for assistant responses"
     )
-    feedback: Optional[ChatFeedback] = Field(
+    feedback: ChatFeedback | None = Field(
         None,
         description="User feedback if provided"
     )
@@ -127,7 +127,7 @@ class MessageResponse(ChatBaseSchema):
 class ChatSessionResponse(ChatBaseSchema):
     """Chat session with messages."""
     session_id: UUID = Field(..., description="Session ID")
-    title: Optional[str] = Field(None, description="Session title")
+    title: str | None = Field(None, description="Session title")
     created_at: datetime = Field(..., description="Session creation time")
     updated_at: datetime = Field(..., description="Last activity time")
     message_count: int = Field(0, description="Number of messages in session")
@@ -136,8 +136,8 @@ class ChatSessionResponse(ChatBaseSchema):
 class ChatHistoryResponse(ChatBaseSchema):
     """Full chat history for a session."""
     session_id: UUID = Field(..., description="Session ID")
-    title: Optional[str] = Field(None, description="Session title")
-    messages: List[MessageResponse] = Field(
+    title: str | None = Field(None, description="Session title")
+    messages: list[MessageResponse] = Field(
         default_factory=list,
         description="List of messages in chronological order"
     )
@@ -146,7 +146,7 @@ class ChatHistoryResponse(ChatBaseSchema):
 
 class SuggestionResponse(ChatBaseSchema):
     """Contextual question suggestions."""
-    suggestions: List[str] = Field(
+    suggestions: list[str] = Field(
         default_factory=list,
         description="Suggested questions based on current context"
     )
@@ -176,7 +176,7 @@ class SSECompleteEvent(ChatBaseSchema):
     user_message_id: UUID = Field(..., description="User message ID")
     assistant_message_id: UUID = Field(..., description="Assistant message ID")
     model_used: str = Field(..., description="Model used for response")
-    tokens_used: Optional[int] = Field(None, description="Total tokens used")
+    tokens_used: int | None = Field(None, description="Total tokens used")
     latency_ms: int = Field(..., description="Response latency in milliseconds")
 
 
@@ -189,7 +189,7 @@ class SSEErrorEvent(ChatBaseSchema):
 
 class ChatSessionListResponse(ChatBaseSchema):
     """List of chat sessions."""
-    sessions: List[ChatSessionResponse] = Field(
+    sessions: list[ChatSessionResponse] = Field(
         default_factory=list,
         description="List of user's chat sessions"
     )

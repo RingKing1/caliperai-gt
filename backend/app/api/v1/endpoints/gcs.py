@@ -9,21 +9,21 @@ Provides endpoints for:
 - Importing scenes from GCS
 """
 import json
+import logging
 import os
 import shutil
 import tempfile
-import logging
-from typing import Annotated, Optional, List, Dict, Any
 from pathlib import Path
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.core.config import settings
+from app.core.database import get_db
 from app.core.redis_cache import get_redis_client
-from app.models.models import Dataset, User, Permission
+from app.models.models import Dataset, Permission, User
 from app.schemas.gcs import (
     GCSBucketResponse,
     GCSConnectionTest,
@@ -35,16 +35,12 @@ from app.schemas.gcs import (
     GCSObjectResponse,
     GCSSceneResponse,
 )
-from app.services.rbac_service import RequirePermissions
 from app.services.gcs_service import (
-    GCSService, 
-    GCSConfig, 
-    GCSBucket, 
-    GCSObject, 
-    GCSScene,
+    GCSService,
     create_gcs_service,
-    get_gcs_service
+    get_gcs_service,
 )
+from app.services.rbac_service import RequirePermissions
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -54,7 +50,7 @@ GCS_CREDENTIALS_KEY_PREFIX = "gcs_credentials:"
 GCS_CREDENTIALS_TTL = 3600
 
 
-async def store_user_gcs_credentials(user_id: str, credentials_json: str, project_id: Optional[str] = None):
+async def store_user_gcs_credentials(user_id: str, credentials_json: str, project_id: str | None = None):
     """Store GCS credentials in Redis for a user."""
     redis = get_redis_client()
     if redis:
@@ -69,7 +65,7 @@ async def store_user_gcs_credentials(user_id: str, credentials_json: str, projec
         )
 
 
-async def get_user_gcs_credentials(user_id: str) -> Optional[Dict[str, Any]]:
+async def get_user_gcs_credentials(user_id: str) -> dict[str, Any] | None:
     """Get GCS credentials from Redis for a user."""
     redis = get_redis_client()
     if redis:
@@ -86,7 +82,7 @@ async def clear_user_gcs_credentials(user_id: str):
         await redis.delete(f"{GCS_CREDENTIALS_KEY_PREFIX}{user_id}")
 
 
-async def get_user_gcs_service_async(user_id: str) -> Optional[GCSService]:
+async def get_user_gcs_service_async(user_id: str) -> GCSService | None:
     """Get GCS service for a user (from Redis or default)."""
     creds = await get_user_gcs_credentials(user_id)
     if creds:
@@ -94,10 +90,10 @@ async def get_user_gcs_service_async(user_id: str) -> Optional[GCSService]:
             credentials_json=creds.get("credentials_json"),
             project_id=creds.get("project_id")
         )
-    
+
     if settings.GCS_ENABLED:
         return get_gcs_service()
-    
+
     return None
 
 
@@ -105,7 +101,7 @@ async def get_user_gcs_service_async(user_id: str) -> Optional[GCSService]:
 @router.get("/status")
 async def get_gcs_status(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_READ))]
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get GCS integration status."""
     creds = await get_user_gcs_credentials(str(current_user.id))
     return {
@@ -124,7 +120,7 @@ async def connect_gcs(
 ) -> GCSConnectionTest:
     """
     Connect to GCS with provided credentials.
-    
+
     The credentials are stored for the session and used for subsequent operations.
     """
     try:
@@ -132,16 +128,16 @@ async def connect_gcs(
             credentials_json=request.credentials_json,
             project_id=request.project_id
         )
-        
+
         success, message = service.test_connection()
-        
+
         if success:
             await store_user_gcs_credentials(
                 str(current_user.id),
                 request.credentials_json,
                 request.project_id
             )
-            
+
             project_id = request.project_id
             if not project_id:
                 try:
@@ -149,7 +145,7 @@ async def connect_gcs(
                     project_id = creds_dict.get('project_id')
                 except:
                     pass
-            
+
             return GCSConnectionTest(
                 success=True,
                 message=message,
@@ -160,7 +156,7 @@ async def connect_gcs(
                 success=False,
                 message=message
             )
-            
+
     except json.JSONDecodeError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -177,7 +173,7 @@ async def connect_gcs(
 @router.post("/disconnect")
 async def disconnect_gcs(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_READ))]
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Disconnect from GCS (clear stored credentials)."""
     await clear_user_gcs_credentials(str(current_user.id))
     return {"message": "Disconnected from GCS"}
@@ -186,16 +182,16 @@ async def disconnect_gcs(
 @router.get("/buckets")
 async def list_buckets(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_READ))]
-) -> List[GCSBucketResponse]:
+) -> list[GCSBucketResponse]:
     """List all accessible GCS buckets."""
     service = await get_user_gcs_service_async(str(current_user.id))
-    
+
     if not service:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Not connected to GCS. Please connect first."
         )
-    
+
     try:
         buckets = service.list_buckets()
         return [
@@ -223,13 +219,13 @@ async def browse_bucket(
 ) -> GCSListObjectsResponse:
     """Browse objects in a bucket with optional prefix (folder navigation)."""
     service = await get_user_gcs_service_async(str(current_user.id))
-    
+
     if not service:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Not connected to GCS. Please connect first."
         )
-    
+
     try:
         objects, folders = service.list_objects(bucket_name, prefix)
         return GCSListObjectsResponse(
@@ -264,13 +260,13 @@ async def discover_scenes(
 ) -> GCSDiscoverScenesResponse:
     """Discover scenes in a bucket/prefix."""
     service = await get_user_gcs_service_async(str(current_user.id))
-    
+
     if not service:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Not connected to GCS. Please connect first."
         )
-    
+
     try:
         scenes = service.discover_scenes(bucket_name, prefix)
         return GCSDiscoverScenesResponse(
@@ -309,55 +305,55 @@ async def import_from_gcs(
 ) -> GCSImportResponse:
     """
     Import a scene from GCS into a dataset.
-    
+
     This downloads the scene data to the uploads folder and imports it.
     """
     if request.credentials_json:
         service = create_gcs_service(request.credentials_json)
     else:
         service = await get_user_gcs_service_async(str(current_user.id))
-    
+
     if not service:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Not connected to GCS. Please connect first or provide credentials."
         )
-    
+
     dataset_result = await db.execute(
         select(Dataset).where(Dataset.id == request.dataset_id)
     )
     dataset = dataset_result.scalar_one_or_none()
-    
+
     if not dataset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found"
         )
-    
+
     errors = []
     temp_dir = None
-    
+
     try:
         prefix = request.prefix.rstrip('/')
         is_zip_file = prefix.endswith('.zip')
-        
+
         if is_zip_file:
             logger.info(f"Downloading zip file from gs://{request.bucket}/{prefix}")
             zip_path = service.download_file(request.bucket, prefix)
             logger.info(f"Downloaded zip to {zip_path}")
-            
+
             import zipfile
             temp_dir = tempfile.mkdtemp(prefix="gcs_scene_")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_dir)
             logger.info(f"Extracted zip to {temp_dir}")
-            
+
             os.unlink(zip_path)
         else:
             logger.info(f"Downloading scene from gs://{request.bucket}/{prefix}")
             temp_dir = service.download_scene(request.bucket, prefix)
             logger.info(f"Downloaded scene to {temp_dir}")
-        
+
         temp_path = Path(temp_dir)
         if temp_path.exists():
             all_files = list(temp_path.rglob("*"))
@@ -366,40 +362,40 @@ async def import_from_gcs(
                 logger.info(f"  - {f.relative_to(temp_path)}")
         else:
             logger.error(f"Temp dir does not exist: {temp_dir}")
-        
+
         scene_id = request.prefix.rstrip('/').split('/')[-1]
-        
+
         UPLOAD_DIR = Path("/uploads")
         dataset_upload_dir = UPLOAD_DIR / str(request.dataset_id)
         dataset_upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         import uuid as uuid_module
         new_scene_id = uuid_module.uuid4()
         permanent_scene_dir = dataset_upload_dir / str(new_scene_id)
-        
+
         shutil.copytree(temp_dir, permanent_scene_dir)
         logger.info(f"Copied scene to permanent storage: {permanent_scene_dir}")
-        
-        from app.services.dataset_import import (
-            import_scene_annotations,
-            parse_calibration_file,
-            discover_frames,
-            scan_annotations_for_classes,
-            derive_and_merge_taxonomy,
-        )
-        from app.models.models import Scene, Frame, Task
+
         from asyncpg import Range as PgRange
         from sqlalchemy.orm import attributes
-        
+
+        from app.models.models import Frame, Scene, Task
+        from app.services.dataset_import import (
+            derive_and_merge_taxonomy,
+            import_scene_annotations,
+            parse_calibration_file,
+            scan_annotations_for_classes,
+        )
+
         scene_dir = permanent_scene_dir
         relative_path_base = f"uploads/{request.dataset_id}/{new_scene_id}"
-        
+
         sensor_folders = {'lidar', 'cameras'}
-        
+
         scene_contents = list(scene_dir.iterdir()) if scene_dir.exists() else []
         scene_dir_names = {item.name for item in scene_contents if item.is_dir()}
         has_sensor_folders = bool(scene_dir_names & sensor_folders)
-        
+
         if not has_sensor_folders:
             data_subdir = scene_dir / "data"
             if data_subdir.exists() and data_subdir.is_dir():
@@ -423,27 +419,27 @@ async def import_from_gcs(
                         logger.info(f"Found sensor data in {actual_scene_dir.name}/data/ subfolder")
                         scene_dir = data_sub
                         relative_path_base = f"uploads/{request.dataset_id}/{new_scene_id}/{actual_scene_dir.name}/data"
-        
+
         scene_meta_path = scene_dir / "scene_metadata.json"
         scene_meta = {}
         if scene_meta_path.exists():
             with open(scene_meta_path) as f:
                 scene_meta = json.load(f)
-        
+
         lidar_path = scene_dir / "lidar"
         cameras_path = scene_dir / "cameras"
-        
+
         frame_count = 0
         data_files = []
         lidar_files = []
         camera_files = {}
         cameras_storage_paths = {}
-        
+
         if lidar_path.exists():
             lidar_files = sorted([f for f in lidar_path.iterdir() if f.is_file()], key=lambda x: x.name)
             data_files = lidar_files
             frame_count = len(lidar_files)
-        
+
         if cameras_path.exists():
             for cam_dir in cameras_path.iterdir():
                 if cam_dir.is_dir():
@@ -451,12 +447,12 @@ async def import_from_gcs(
                     if cam_files:
                         camera_files[cam_dir.name] = cam_files
                         cameras_storage_paths[cam_dir.name] = f"{relative_path_base}/cameras/{cam_dir.name}"
-            
+
             if not data_files and camera_files:
                 first_cam = next(iter(camera_files.values()))
                 data_files = first_cam
                 frame_count = len(first_cam)
-        
+
         if frame_count == 0:
             logger.error(f"No frames found in scene_dir: {scene_dir}")
             logger.error(f"Scene dir contents: {list(scene_dir.iterdir()) if scene_dir.exists() else 'dir not found'}")
@@ -470,7 +466,7 @@ async def import_from_gcs(
                 message="No frames detected in the downloaded scene. Expected 'lidar/' or 'cameras/' folders with data files.",
                 errors=errors
             )
-        
+
         calibration_data = None
         calibration_file = scene_dir / "calibration.json"
         calibration_dir = scene_dir / "calibration"
@@ -479,12 +475,12 @@ async def import_from_gcs(
                 calibration_data = json.load(f)
         elif calibration_dir.exists():
             calibration_data = parse_calibration_file(calibration_dir)
-        
+
         ego_poses_data = {}
         ego_poses_file = scene_dir / "ego_poses" / "poses.json"
         if not ego_poses_file.exists():
             ego_poses_file = scene_dir / "ego_poses" / "ego_poses.json"
-        
+
         ego_poses_path = None
         if ego_poses_file.exists():
             ego_poses_path = f"{relative_path_base}/ego_poses/{ego_poses_file.name}"
@@ -500,7 +496,7 @@ async def import_from_gcs(
                                 "velocity": pose_entry.get("velocity"),
                                 "timestamp": pose_entry.get("timestamp"),
                             }
-        
+
         scene_name = scene_meta.get("name", scene_id)
         existing_scene_query = select(Scene).where(
             Scene.dataset_id == dataset.id,
@@ -513,7 +509,7 @@ async def import_from_gcs(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"A scene with the name '{scene_name}' already exists in this dataset",
             )
-        
+
         scene = Scene(
             id=new_scene_id,
             dataset_id=dataset.id,
@@ -539,13 +535,13 @@ async def import_from_gcs(
         )
         db.add(scene)
         await db.flush()
-        
+
         for frame_idx, data_file in enumerate(data_files):
             frame_file_paths = {}
-            
+
             if lidar_files and frame_idx < len(lidar_files):
                 frame_file_paths["lidar"] = lidar_files[frame_idx].name
-            
+
             if camera_files:
                 cameras_dict = {}
                 for cam_name, cam_file_list in camera_files.items():
@@ -553,10 +549,10 @@ async def import_from_gcs(
                         cameras_dict[cam_name] = cam_file_list[frame_idx].name
                 if cameras_dict:
                     frame_file_paths["cameras"] = cameras_dict
-            
+
             ego_pose = ego_poses_data.get(frame_idx)
             timestamp = ego_pose.get("timestamp") if ego_pose else None
-            
+
             frame = Frame(
                 scene_id=scene.id,
                 frame_index=frame_idx,
@@ -565,9 +561,9 @@ async def import_from_gcs(
                 file_paths=frame_file_paths,
             )
             db.add(frame)
-        
+
         await db.flush()
-        
+
         if request.derive_taxonomy:
             try:
                 discovered_classes = scan_annotations_for_classes([scene_dir])
@@ -582,7 +578,7 @@ async def import_from_gcs(
                         errors.append(f"Taxonomy: Created/updated '{taxonomy.name}' with {len(taxonomy.classes)} classes")
             except Exception as e:
                 errors.append(f"Taxonomy derivation failed: {str(e)}")
-        
+
         task = Task(
             scene_id=scene.id,
             name=f"GCS Import - {scene.name}",
@@ -592,7 +588,7 @@ async def import_from_gcs(
         )
         db.add(task)
         await db.flush()
-        
+
         try:
             annotations_3d, annotations_2d = await import_scene_annotations(
                 db=db,
@@ -605,9 +601,9 @@ async def import_from_gcs(
                 errors.append(f"Imported {annotations_3d} 3D and {annotations_2d} 2D annotations")
         except Exception as e:
             errors.append(f"Annotation import failed: {str(e)}")
-        
+
         await db.commit()
-        
+
         return GCSImportResponse(
             success=True,
             message=f"Successfully imported scene '{scene.name}' with {frame_count} frames from GCS",
@@ -615,20 +611,20 @@ async def import_from_gcs(
             frames_imported=frame_count,
             errors=errors
         )
-        
+
     except Exception as e:
         logger.error(f"Error importing from GCS: {e}")
         import traceback
         traceback.print_exc()
         await db.rollback()
         errors.append(str(e))
-        
+
         return GCSImportResponse(
             success=False,
             message=f"Import failed: {str(e)}",
             errors=errors
         )
-        
+
     finally:
         if temp_dir and Path(temp_dir).exists():
             try:

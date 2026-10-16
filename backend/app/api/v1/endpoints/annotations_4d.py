@@ -4,30 +4,38 @@
 Handles 4D (temporal/multi-frame) annotations that work with stacked point clouds.
 """
 from datetime import datetime
-from typing import Annotated, List, Optional
+from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, and_
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Annotation4D, Annotation, Annotation3D, Frame, Task, User, Permission
+from app.models.models import (
+    Annotation,
+    Annotation3D,
+    Annotation4D,
+    Frame,
+    Permission,
+    Task,
+    User,
+)
 from app.schemas.schemas import (
     Annotation4DCreate,
-    Annotation4DUpdate,
-    Annotation4DResponse,
     Annotation4DMigrateRequest,
     Annotation4DMigrateResponse,
+    Annotation4DResponse,
+    Annotation4DUpdate,
+    BulkAnnotation4DDelete,
+    BulkAnnotation4DUpdate,
+    BulkOperationResponse,
     Migrate4DTo3DRequest,
     Migrate4DTo3DResponse,
-    BulkAnnotation4DUpdate,
-    BulkAnnotation4DDelete,
-    BulkOperationResponse,
 )
+from app.services.achievement_service import check_achievements_for_user
 from app.services.annotation_service import AnnotationService
 from app.services.rbac_service import RequirePermissions
-from app.services.achievement_service import check_achievements_for_user
 
 router = APIRouter(prefix="/annotations-4d", tags=["annotations-4d"])
 
@@ -52,29 +60,29 @@ async def create_annotation_4d(
     return db_annotation
 
 
-@router.get("", response_model=List[Annotation4DResponse])
+@router.get("", response_model=list[Annotation4DResponse])
 async def list_annotations_4d(
     task_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
-    is_migrated: Optional[bool] = Query(None, description="Filter by migration status"),
+    is_migrated: bool | None = Query(None, description="Filter by migration status"),
     db: AsyncSession = Depends(get_db),
 ):
     """List 4D annotations for a task. Requires ANNOTATIONS_READ permission."""
     import logging
     logger = logging.getLogger(__name__)
-    
+
     logger.info(f"[4D LIST] Fetching annotations for task_id: {task_id}, is_migrated: {is_migrated}")
     query = select(Annotation4D).where(Annotation4D.task_id == task_id)
-    
+
     if is_migrated is not None:
         query = query.where(Annotation4D.is_migrated == is_migrated)
-    
+
     result = await db.execute(query)
     annotations = result.scalars().all()
     logger.info(f"[4D LIST] Returned {len(annotations)} annotations")
     for ann in annotations[:5]:
         logger.info(f"[4D LIST]   - {ann.id}, class_id: {ann.class_id}")
-    
+
     return annotations
 
 
@@ -115,17 +123,17 @@ async def delete_annotation_4d(
     """Delete a 4D annotation. Requires ANNOTATIONS_DELETE permission."""
     import logging
     logger = logging.getLogger(__name__)
-    
+
     logger.info(f"[4D DELETE] Single delete requested for: {annotation_id}")
     annotation = await db.get(Annotation4D, annotation_id)
     if not annotation:
         logger.warning(f"[4D DELETE] Annotation not found: {annotation_id}")
         raise HTTPException(status_code=404, detail="4D Annotation not found")
-    
+
     logger.info(f"[4D DELETE] Found annotation: {annotation.id}, class_id: {annotation.class_id}")
     await db.delete(annotation)
     logger.info(f"[4D DELETE] Deleted from session: {annotation_id}")
-    
+
     try:
         await db.commit()
         logger.info(f"[4D DELETE] Single delete commit successful for: {annotation_id}")
@@ -135,9 +143,9 @@ async def delete_annotation_4d(
         raise
 
 
-@router.post("/bulk", response_model=List[Annotation4DResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/bulk", response_model=list[Annotation4DResponse], status_code=status.HTTP_201_CREATED)
 async def create_annotations_4d_bulk(
-    annotations: List[Annotation4DCreate],
+    annotations: list[Annotation4DCreate],
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_CREATE))],
     db: AsyncSession = Depends(get_db),
 ):
@@ -151,7 +159,7 @@ async def create_annotations_4d_bulk(
     return created
 
 
-@router.post("/bulk-update", response_model=List[Annotation4DResponse])
+@router.post("/bulk-update", response_model=list[Annotation4DResponse])
 async def update_annotations_4d_bulk(
     request: BulkAnnotation4DUpdate,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_UPDATE))],
@@ -159,12 +167,12 @@ async def update_annotations_4d_bulk(
 ):
     """Bulk update 4D annotations. Requires ANNOTATIONS_UPDATE permission."""
     updated = []
-    
+
     for item in request.annotations:
         annotation = await db.get(Annotation4D, item.id)
         if not annotation:
             continue
-        
+
         update_data = {}
         if item.world_data is not None:
             update_data['world_data'] = item.world_data
@@ -176,17 +184,17 @@ async def update_annotations_4d_bulk(
             update_data['attributes'] = item.attributes
         if item.class_id is not None:
             update_data['class_id'] = item.class_id
-        
+
         for key, value in update_data.items():
             setattr(annotation, key, value)
-        
+
         updated.append(annotation)
-    
+
     await db.commit()
-    
+
     for ann in updated:
         await db.refresh(ann)
-    
+
     return updated
 
 
@@ -199,16 +207,16 @@ async def delete_annotations_4d_bulk(
     """Bulk delete 4D annotations. Requires ANNOTATIONS_DELETE permission."""
     import logging
     logger = logging.getLogger(__name__)
-    
+
     logger.info(f"[4D DELETE] Starting bulk delete for {len(request.annotation_ids)} annotations")
-    
+
     deleted_count = 0
     not_found = []
-    
+
     for annotation_id in request.annotation_ids:
         logger.info(f"[4D DELETE] Processing annotation_id: {annotation_id}")
         annotation = await db.get(Annotation4D, annotation_id)
-        
+
         if annotation:
             logger.info(f"[4D DELETE] Found annotation: {annotation.id}, class_id: {annotation.class_id}, task_id: {annotation.task_id}")
             await db.delete(annotation)
@@ -217,7 +225,7 @@ async def delete_annotations_4d_bulk(
         else:
             logger.warning(f"[4D DELETE] Annotation NOT FOUND: {annotation_id}")
             not_found.append(str(annotation_id))
-    
+
     try:
         await db.commit()
         logger.info(f"[4D DELETE] Commit successful! Deleted {deleted_count} annotations")
@@ -225,14 +233,14 @@ async def delete_annotations_4d_bulk(
         logger.error(f"[4D DELETE] Commit FAILED: {e}", exc_info=True)
         await db.rollback()
         raise
-    
+
     for annotation_id in request.annotation_ids:
         check = await db.get(Annotation4D, annotation_id)
         if check is None:
             logger.info(f"[4D DELETE] ✓ Verification: {annotation_id} is gone from DB")
         else:
             logger.error(f"[4D DELETE] ✗ Verification FAILED: {annotation_id} still exists in DB after delete!")
-    
+
     return BulkOperationResponse(
         success_count=deleted_count,
         error_count=len(not_found),
@@ -249,9 +257,9 @@ async def migrate_4d_to_legacy(
 ):
     """
     [LEGACY] Migrate 4D annotations to legacy annotations table. Requires ANNOTATIONS_UPDATE permission.
-    
+
     NOTE: Prefer using /migrate-to-3d endpoint which uses the new annotations_3d table.
-    
+
     For each 4D annotation:
     - Creates one Annotation per frame using the frame_data (LiDAR coordinates)
     - Preserves the track_id across all created annotations
@@ -263,10 +271,10 @@ async def migrate_4d_to_legacy(
             Annotation4D.is_migrated == False,
         )
     )
-    
+
     if request.annotation_4d_ids:
         query = query.where(Annotation4D.id.in_(request.annotation_4d_ids))
-    
+
     result = await db.execute(query)
     annotations_4d = result.scalars().all()
 
@@ -284,7 +292,7 @@ async def migrate_4d_to_legacy(
 
             for frame_id_str, lidar_data in frame_data.items():
                 frame_id = UUID(frame_id_str) if isinstance(frame_id_str, str) else frame_id_str
-                
+
                 frame = await db.get(Frame, frame_id)
                 if not frame:
                     errors.append({
@@ -293,17 +301,17 @@ async def migrate_4d_to_legacy(
                         "error": "Frame not found"
                     })
                     continue
-                
+
                 annotation_data = {
                     "center": lidar_data.get("center", world_data.get("center", {})),
                     "dimensions": world_data.get("dimensions", {}),
                     "rotation": lidar_data.get("rotation", world_data.get("rotation", {})),
                     "confidence": 1.0,
                 }
-                
+
                 is_keyframe = lidar_data.get("is_keyframe", False)
                 source = "manual" if is_keyframe else "auto_interpolated"
-                
+
                 db_annotation = Annotation(
                     id=uuid4(),
                     task_id=ann_4d.task_id,
@@ -321,22 +329,22 @@ async def migrate_4d_to_legacy(
                     source=source,
                     is_verified=is_keyframe,
                 )
-                
+
                 db.add(db_annotation)
                 created_annotation_ids.append(db_annotation.id)
-            
+
             ann_4d.is_migrated = True
             ann_4d.migrated_at = datetime.utcnow()
             migrated_count += 1
-            
+
         except Exception as e:
             errors.append({
                 "annotation_4d_id": str(ann_4d.id),
                 "error": str(e)
             })
-    
+
     await db.commit()
-    
+
     return Annotation4DMigrateResponse(
         migrated_count=migrated_count,
         created_annotations=created_annotation_ids,
@@ -353,13 +361,13 @@ async def migrate_4d_to_3d_new(
 ):
     """
     Migrate 4D annotations to the new 3D annotations table (annotations_3d). Requires ANNOTATIONS_UPDATE permission.
-    
+
     For each 4D annotation:
     - Creates one Annotation3D per frame using the frame_data (LiDAR coordinates)
     - Preserves the track_id across all created annotations
     - Preserves UUIDs when possible (uses track_id, not annotation id)
     - Marks the 4D annotation as migrated
-    
+
     The 3D annotations can then be further migrated to Fusion mode.
     """
     query = select(Annotation4D).where(
@@ -368,28 +376,28 @@ async def migrate_4d_to_3d_new(
             Annotation4D.is_migrated == False,
         )
     )
-    
+
     if request.annotation_4d_ids:
         query = query.where(Annotation4D.id.in_(request.annotation_4d_ids))
-    
+
     result = await db.execute(query)
     annotations_4d = result.scalars().all()
-    
+
     created_annotation_ids = []
     track_id_mapping = {}
     errors = []
     migrated_count = 0
-    
+
     for ann_4d in annotations_4d:
         try:
             frame_data = ann_4d.frame_data or {}
             world_data = ann_4d.world_data or {}
-            
+
             track_id_mapping[str(ann_4d.track_id)] = str(ann_4d.track_id)
-            
+
             for frame_id_str, lidar_data in frame_data.items():
                 frame_id = UUID(frame_id_str) if isinstance(frame_id_str, str) else frame_id_str
-                
+
                 frame = await db.get(Frame, frame_id)
                 if not frame:
                     errors.append({
@@ -398,17 +406,17 @@ async def migrate_4d_to_3d_new(
                         "error": "Frame not found"
                     })
                     continue
-                
+
                 annotation_data = {
                     "center": lidar_data.get("center", world_data.get("center", {})),
                     "dimensions": world_data.get("dimensions", {}),
                     "rotation": lidar_data.get("rotation", world_data.get("rotation", {})),
                     "confidence": 1.0,
                 }
-                
+
                 is_keyframe = lidar_data.get("is_keyframe", False)
                 source = "manual_3d" if is_keyframe else "migrated_from_4d"
-                
+
                 db_annotation = Annotation3D(
                     id=uuid4(),
                     task_id=ann_4d.task_id,
@@ -426,22 +434,22 @@ async def migrate_4d_to_3d_new(
                     source=source,
                     is_verified=is_keyframe,
                 )
-                
+
                 db.add(db_annotation)
                 created_annotation_ids.append(db_annotation.id)
-            
+
             ann_4d.is_migrated = True
             ann_4d.migrated_at = datetime.utcnow()
             migrated_count += 1
-            
+
         except Exception as e:
             errors.append({
                 "annotation_4d_id": str(ann_4d.id),
                 "error": str(e)
             })
-    
+
     await db.commit()
-    
+
     return Migrate4DTo3DResponse(
         migrated_count=migrated_count,
         created_annotation_ids=created_annotation_ids,
@@ -450,7 +458,7 @@ async def migrate_4d_to_3d_new(
     )
 
 
-@router.get("/by-track/{track_id}", response_model=List[Annotation4DResponse])
+@router.get("/by-track/{track_id}", response_model=list[Annotation4DResponse])
 async def get_annotations_4d_by_track(
     track_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],

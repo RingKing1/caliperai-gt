@@ -1,5 +1,4 @@
 """Knowledge-base (RAG) administration and search API schemas."""
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -9,7 +8,7 @@ class KnowledgeStatsResponse(BaseModel):
     total_chunks: int
     total_files: int
     avg_chunk_size: int
-    last_indexed: Optional[str] = None
+    last_indexed: str | None = None
     embedding_model: str
     embedding_dimensions: int
     rag_enabled: bool = Field(default=True)
@@ -36,7 +35,7 @@ class SearchRequest(BaseModel):
 class SearchResponse(BaseModel):
     """Search response."""
     query: str
-    results: List[SearchResult]
+    results: list[SearchResult]
     total: int
 
 

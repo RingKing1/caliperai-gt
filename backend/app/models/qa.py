@@ -1,7 +1,7 @@
 """Quality assurance: review sessions, per-annotation reviews, comments, suggestions."""
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     Boolean,
@@ -49,7 +49,7 @@ class QAReview(Base, TimestampMixin):
         ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=False,
     )
-    reviewer_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    reviewer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
@@ -69,17 +69,17 @@ class QAReview(Base, TimestampMixin):
         server_default=func.now(),
         nullable=False,
     )
-    completed_at: Mapped[Optional[datetime]] = mapped_column(
+    completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
-    review_stage: Mapped[Optional[str]] = mapped_column(
+    review_stage: Mapped[str | None] = mapped_column(
         String(20),
         nullable=True,
     )
     """The task stage this review was created for ('qa' or 'customer_qa').
     Used to separate QA reviews from Customer QA reviews."""
-    summary: Mapped[Optional[dict]] = mapped_column(
+    summary: Mapped[dict | None] = mapped_column(
         JSONB,
         nullable=True,
     )
@@ -100,7 +100,7 @@ class QAReview(Base, TimestampMixin):
     reviewer: Mapped[Optional["User"]] = relationship(
         "User", foreign_keys=[reviewer_id]
     )
-    annotation_reviews: Mapped[List["AnnotationReview"]] = relationship(
+    annotation_reviews: Mapped[list["AnnotationReview"]] = relationship(
         "AnnotationReview",
         back_populates="qa_review",
         cascade="all, delete-orphan",
@@ -139,39 +139,39 @@ class AnnotationReview(Base, TimestampMixin):
         default="annotations",
         nullable=False,
     )
-    frame_id: Mapped[Optional[str]] = mapped_column(
+    frame_id: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
     )
-    class_id: Mapped[Optional[str]] = mapped_column(
+    class_id: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
     )
-    verdict: Mapped[Optional[str]] = mapped_column(
+    verdict: Mapped[str | None] = mapped_column(
         String(20),
         nullable=True,
     )
-    issue_types: Mapped[Optional[List[str]]] = mapped_column(
+    issue_types: Mapped[list[str] | None] = mapped_column(
         PGARRAY(String(50)),
         nullable=True,
     )
-    notes: Mapped[Optional[str]] = mapped_column(
+    notes: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
-    reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+    reviewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
-    location_x: Mapped[Optional[float]] = mapped_column(
+    location_x: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,
     )
-    location_y: Mapped[Optional[float]] = mapped_column(
+    location_y: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,
     )
-    location_z: Mapped[Optional[float]] = mapped_column(
+    location_z: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,
     )
@@ -217,12 +217,12 @@ class AnnotationComment(Base, TimestampMixin):
         default="annotations",
         nullable=False,
     )
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("annotation_comments.id", ondelete="CASCADE"),
         nullable=True,
@@ -236,12 +236,12 @@ class AnnotationComment(Base, TimestampMixin):
         default=False,
         nullable=False,
     )
-    resolved_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    resolved_at: Mapped[Optional[datetime]] = mapped_column(
+    resolved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -280,15 +280,15 @@ class QASuggestion(Base):
         ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=False,
     )
-    annotation_id: Mapped[Optional[str]] = mapped_column(
+    annotation_id: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
     )
-    annotation_table: Mapped[Optional[str]] = mapped_column(
+    annotation_table: Mapped[str | None] = mapped_column(
         String(50),
         nullable=True,
     )
-    frame_id: Mapped[Optional[str]] = mapped_column(
+    frame_id: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
     )
@@ -317,7 +317,7 @@ class QASuggestion(Base):
         Text,
         nullable=False,
     )
-    details: Mapped[Optional[dict]] = mapped_column(
+    details: Mapped[dict | None] = mapped_column(
         JSONB,
         nullable=True,
     )
@@ -333,12 +333,12 @@ class QASuggestion(Base):
         default=False,
         nullable=False,
     )
-    dismissed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    dismissed_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    dismissed_at: Mapped[Optional[datetime]] = mapped_column(
+    dismissed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )

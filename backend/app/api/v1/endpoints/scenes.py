@@ -9,7 +9,7 @@ HTTP status mapping and image thumbnail/streaming responses.
 """
 import logging
 from io import BytesIO
-from typing import Annotated, Optional
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -75,14 +75,14 @@ async def search_scenes_by_labels(
         User,
         Depends(RequirePermissions(Permission.SCENES_READ, Permission.SCENES_READ_ALL, require_all=False)),
     ],
-    q: Optional[str] = Query(
+    q: str | None = Query(
         None,
         description="Class or class group, e.g. car, motorcycle, bicycle, two_wheeler, vehicle, pedestrian",
     ),
     classes: list[str] = Query(default_factory=list, description="Required classes; repeat or comma-separate"),
     groups: list[str] = Query(default_factory=list, description="Required class groups; repeat or comma-separate"),
-    dataset_id: Optional[UUID] = Query(None),
-    name_contains: Optional[str] = Query(None),
+    dataset_id: UUID | None = Query(None),
+    name_contains: str | None = Query(None),
     min_objects: int = Query(0, ge=0),
     min_class_ratio: float = Query(0.0, ge=0.0, le=1.0),
     min_group_ratio: float = Query(0.0, ge=0.0, le=1.0),
@@ -118,21 +118,21 @@ async def search_scenes_hybrid_endpoint(
         Depends(RequirePermissions(Permission.SCENES_READ, Permission.SCENES_READ_ALL, require_all=False)),
     ],
     # semantic layer (optional; omit for structured-only mode)
-    semantic_q: Optional[str] = Query(
+    semantic_q: str | None = Query(
         None,
         description="Free-text visual semantics, e.g. 堵车, 雨夜路口, 施工路段",
     ),
     cameras: list[str] = Query(default_factory=list, description="CLIP cameras; repeat or comma-separate"),
     min_similarity: float = Query(0.0, ge=-1.0, le=1.0),
     top_k_frames: int = Query(200, ge=1, le=2000),
-    candidate_pool: Optional[int] = Query(None, ge=100, le=100000),
+    candidate_pool: int | None = Query(None, ge=100, le=100000),
     preview_frames: int = Query(5, ge=0, le=20),
     # structured layer
-    q: Optional[str] = Query(None, description="Class/group, e.g. car, two_wheeler, 二轮车"),
+    q: str | None = Query(None, description="Class/group, e.g. car, two_wheeler, 二轮车"),
     classes: list[str] = Query(default_factory=list),
     groups: list[str] = Query(default_factory=list),
-    dataset_id: Optional[UUID] = Query(None),
-    name_contains: Optional[str] = Query(None),
+    dataset_id: UUID | None = Query(None),
+    name_contains: str | None = Query(None),
     min_objects: int = Query(0, ge=0),
     min_class_ratio: float = Query(0.0, ge=0.0, le=1.0),
     min_group_ratio: float = Query(0.0, ge=0.0, le=1.0),
@@ -177,11 +177,11 @@ async def search_scenes_by_image_semantics(
         Depends(RequirePermissions(Permission.SCENES_READ, Permission.SCENES_READ_ALL, require_all=False)),
     ],
     q: str = Query(..., min_length=1, description="Natural-language scene query, e.g. 二轮车场景, cars on highway"),
-    dataset_id: Optional[UUID] = Query(None),
+    dataset_id: UUID | None = Query(None),
     cameras: list[str] = Query(default_factory=list, description="Filter cameras; repeat or comma-separate"),
     min_similarity: float = Query(0.18, ge=-1.0, le=1.0),
     top_k_frames: int = Query(200, ge=1, le=2000),
-    candidate_pool: Optional[int] = Query(None, ge=100, le=100000, description="Limit ANN candidates; default scans all frames for accurate scene ranking"),
+    candidate_pool: int | None = Query(None, ge=100, le=100000, description="Limit ANN candidates; default scans all frames for accurate scene ranking"),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -286,7 +286,7 @@ async def create_scene(
 @router.get("", response_model=list[SceneResponse])
 async def list_scenes(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.SCENES_READ, Permission.SCENES_READ_ALL, require_all=False))],
-    dataset_id: Optional[UUID] = None,
+    dataset_id: UUID | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),

@@ -1,7 +1,7 @@
 """AI assistant chat sessions, messages and RAG knowledge chunks."""
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -43,9 +43,9 @@ class ChatSession(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    metadata_: Mapped[Optional[dict]] = mapped_column(
+    metadata_: Mapped[dict | None] = mapped_column(
         "metadata",
         JSONB,
         default=dict,
@@ -65,7 +65,7 @@ class ChatSession(Base):
     )
 
     user: Mapped["User"] = relationship("User", back_populates="chat_sessions")
-    messages: Mapped[List["ChatMessage"]] = relationship(
+    messages: Mapped[list["ChatMessage"]] = relationship(
         "ChatMessage",
         back_populates="session",
         cascade="all, delete-orphan",
@@ -101,17 +101,17 @@ class ChatMessage(Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
-    context: Mapped[Optional[dict]] = mapped_column(
+    context: Mapped[dict | None] = mapped_column(
         JSONB,
         default=dict,
         nullable=True,
     )
 
-    model_used: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    tokens_used: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    feedback: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    feedback: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -154,15 +154,15 @@ class KnowledgeChunk(Base):
         String(255),
         nullable=False,
     )
-    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
-    embedding: Mapped[Optional[List[float]]] = mapped_column(
+    embedding: Mapped[list[float] | None] = mapped_column(
         PGARRAY(Float, dimensions=1),
         nullable=True,
     )
 
-    metadata_: Mapped[Optional[dict]] = mapped_column(
+    metadata_: Mapped[dict | None] = mapped_column(
         "metadata",
         JSONB,
         default=dict,

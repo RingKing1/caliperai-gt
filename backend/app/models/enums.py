@@ -1,8 +1,8 @@
 """Shared enumerations and role-permission mapping for ORM models."""
-from enum import Enum
+from enum import StrEnum
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Task lifecycle states."""
     PENDING = "pending"
     ASSIGNED = "assigned"
@@ -12,7 +12,7 @@ class TaskStatus(str, Enum):
     REJECTED = "rejected"
 
 
-class TaskStage(str, Enum):
+class TaskStage(StrEnum):
     """Task workflow stages."""
     ANNOTATION = "annotation"
     QA = "qa"
@@ -20,7 +20,7 @@ class TaskStage(str, Enum):
     ACCEPTED = "accepted"
 
 
-class AnnotationType(str, Enum):
+class AnnotationType(StrEnum):
     """Types of annotations supported."""
     CUBOID = "cuboid"
     BOX2D = "box2d"
@@ -31,7 +31,7 @@ class AnnotationType(str, Enum):
     SEGMENTATION_2D = "segmentation_2d"
 
 
-class AnnotationSource(str, Enum):
+class AnnotationSource(StrEnum):
     """Source of annotation creation."""
     MANUAL = "manual"
     AUTO = "auto"
@@ -40,14 +40,14 @@ class AnnotationSource(str, Enum):
     AIRFLOW_MODEL_V2 = "airflow_model_v2"
 
 
-class TaxonomyAnnotationMode(str, Enum):
+class TaxonomyAnnotationMode(StrEnum):
     """Annotation mode that a taxonomy supports."""
     FUSION_3D = "fusion_3d"
     ONLY_2D = "2d_only"
     SEGMENTATION_3D = "segmentation_3d"
 
 
-class UserRole(str, Enum):
+class UserRole(StrEnum):
     """User roles for RBAC."""
     ADMIN = "admin"
     PROJECT_MANAGER = "project_manager"
@@ -56,7 +56,7 @@ class UserRole(str, Enum):
     CUSTOMER_QA = "customer_qa"
 
 
-class Permission(str, Enum):
+class Permission(StrEnum):
     """
     Fine-grained permissions for RBAC.
     Format: {resource}:{action}
@@ -242,14 +242,14 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
 }
 
 
-class OrganizationRole(str, Enum):
+class OrganizationRole(StrEnum):
     """Roles within an organization."""
     OWNER = "owner"
     ADMIN = "admin"
     MEMBER = "member"
 
 
-class ActivityEventType(str, Enum):
+class ActivityEventType(StrEnum):
     """Types of user activity events for tracking engagement."""
     SESSION_START = "session_start"
     SESSION_END = "session_end"
@@ -268,7 +268,7 @@ class ActivityEventType(str, Enum):
     VIEW_MODE_CHANGE = "view_mode_change"
 
 
-class AchievementType(str, Enum):
+class AchievementType(StrEnum):
     """Types of achievements users can earn."""
     SPEED_DEMON = "speed_demon"
     LIGHTNING_FAST = "lightning_fast"
@@ -285,14 +285,14 @@ class AchievementType(str, Enum):
     COMEBACK_KID = "comeback_kid"
 
 
-class AlertSeverity(str, Enum):
+class AlertSeverity(StrEnum):
     """Severity levels for performance alerts."""
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
 
 
-class AlertType(str, Enum):
+class AlertType(StrEnum):
     """Types of performance alerts."""
     VELOCITY_DROP = "velocity_drop"
     HIGH_REJECTION_RATE = "high_rejection_rate"
@@ -302,7 +302,7 @@ class AlertType(str, Enum):
     TASK_STUCK = "task_stuck"
 
 
-class GoalType(str, Enum):
+class GoalType(StrEnum):
     """Types of user goals."""
     DAILY_LABELS = "daily_labels"
     WEEKLY_LABELS = "weekly_labels"
@@ -311,21 +311,21 @@ class GoalType(str, Enum):
     ACCEPTANCE_RATE = "acceptance_rate"
 
 
-class QAReviewStatus(str, Enum):
+class QAReviewStatus(StrEnum):
     """QA review session status."""
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     PAUSED = "paused"
 
 
-class QAReviewMode(str, Enum):
+class QAReviewMode(StrEnum):
     """QA review mode."""
     VIEW_ONLY = "view_only"
     EDIT = "edit"
     SUGGEST = "suggest"
 
 
-class ReviewVerdict(str, Enum):
+class ReviewVerdict(StrEnum):
     """Review verdict for an annotation."""
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -333,7 +333,7 @@ class ReviewVerdict(str, Enum):
     PENDING = "pending"
 
 
-class SuggestionSeverity(str, Enum):
+class SuggestionSeverity(StrEnum):
     """Severity level for QA suggestions."""
     LOW = "low"
     MEDIUM = "medium"
@@ -341,14 +341,14 @@ class SuggestionSeverity(str, Enum):
     CRITICAL = "critical"
 
 
-class ChatMessageRole(str, Enum):
+class ChatMessageRole(StrEnum):
     """Role of the message sender."""
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
 
 
-class ChatMessageFeedback(str, Enum):
+class ChatMessageFeedback(StrEnum):
     """User feedback on assistant responses."""
     HELPFUL = "helpful"
     NOT_HELPFUL = "not_helpful"

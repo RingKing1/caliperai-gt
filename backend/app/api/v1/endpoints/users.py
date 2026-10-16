@@ -1,29 +1,33 @@
 """
 User endpoints with RBAC protection.
 """
-from typing import Annotated, Optional, List
+from typing import Annotated
 from uuid import UUID
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import User, Permission, UserRole, OrganizationMember, Organization
+from app.models.models import (
+    Organization,
+    OrganizationMember,
+    Permission,
+    User,
+)
 from app.schemas.schemas import (
     UserCreate,
-    UserUpdate,
     UserResponse,
-)
-from app.services.rbac_service import (
-    get_current_user,
-    RequirePermissions,
-    RequireRole,
-    require_permission,
-    PermissionDeniedError,
+    UserUpdate,
 )
 from app.services.organization_service import get_user_accessible_organization_ids
+from app.services.rbac_service import (
+    PermissionDeniedError,
+    RequirePermissions,
+    get_current_user,
+    require_permission,
+)
 
 router = APIRouter()
 
@@ -38,11 +42,11 @@ def hash_password(password: str) -> str:
 async def create_user(
     user_in: UserCreate,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.USERS_CREATE))],
-    organization_id: Optional[UUID] = Query(None, description="Organization to add the user to after creation"),
+    organization_id: UUID | None = Query(None, description="Organization to add the user to after creation"),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Create a new user. Requires USERS_CREATE permission (Admin only).
-    
+
     If organization_id is provided:
     - New users will be automatically added to that organization
     - If user already exists (same email or username), they will be added to the organization
@@ -78,7 +82,7 @@ async def create_user(
                 )
                 db.add(membership)
                 await db.flush()
-            
+
             if not existing_user.is_active:
                 existing_user.is_active = True
                 await db.flush()
@@ -90,7 +94,7 @@ async def create_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered",
             )
-    
+
     user = User(
         email=user_in.email,
         username=user_in.username,
@@ -101,7 +105,7 @@ async def create_user(
     db.add(user)
     await db.flush()
     await db.refresh(user)
-    
+
     if organization_id:
         membership = OrganizationMember(
             user_id=user.id,
@@ -119,35 +123,35 @@ async def create_user(
 @router.get("", response_model=list[UserResponse])
 async def list_users(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.USERS_READ_ALL))],
-    role: Optional[str] = None,
-    is_active: Optional[bool] = None,
-    organization_id: Optional[UUID] = Query(None, description="Filter by organization membership"),
+    role: str | None = None,
+    is_active: bool | None = None,
+    organization_id: UUID | None = Query(None, description="Filter by organization membership"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ) -> list[User]:
     """
     List users with filters. Requires USERS_READ_ALL permission.
-    
+
     - If organization_id is provided, only shows users who are members of that organization
     - If no organization_id, superusers see all; others see users in their organizations
     - The 'default' organization (system default) shows all users
     """
     query = select(User)
-    
+
     if organization_id:
         if not current_user.is_superuser:
             accessible_org_ids = await get_user_accessible_organization_ids(db, current_user.id)
             if organization_id not in accessible_org_ids:
                 raise PermissionDeniedError("You do not have access to this organization")
-        
+
         org_result = await db.execute(
             select(Organization).where(Organization.id == organization_id)
         )
         org = org_result.scalar_one_or_none()
-        
+
         is_default_org = org and org.settings.get("is_system_default", False)
-        
+
         if not is_default_org:
             query = query.where(
                 User.id.in_(
@@ -164,15 +168,15 @@ async def list_users(
                 .where(OrganizationMember.organization_id.in_(accessible_org_ids))
             )
         )
-    
+
     if role:
         query = query.where(User.role == role)
     if is_active is not None:
         query = query.where(User.is_active == is_active)
-    
+
     query = query.order_by(User.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
-    
+
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -186,17 +190,17 @@ async def get_user(
     """Get a user by ID. Users can view their own profile, admins can view any."""
     if user_id != current_user.id:
         require_permission(current_user, Permission.USERS_READ)
-    
+
     query = select(User).where(User.id == user_id)
     result = await db.execute(query)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User {user_id} not found",
         )
-    
+
     return user
 
 
@@ -211,13 +215,13 @@ async def update_user(
     query = select(User).where(User.id == user_id)
     result = await db.execute(query)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User {user_id} not found",
         )
-    
+
     if user_id != current_user.id:
         require_permission(current_user, Permission.USERS_UPDATE)
 
@@ -225,15 +229,15 @@ async def update_user(
 
     if "role" in update_data and update_data["role"] != user.role:
         require_permission(current_user, Permission.USERS_ASSIGN_ROLE)
-    
+
     was_inactive = not user.is_active
     will_be_active = update_data.get("is_active", user.is_active)
     if was_inactive and will_be_active:
         update_data["must_change_password"] = True
-    
+
     for field, value in update_data.items():
         setattr(user, field, value)
-    
+
     await db.flush()
     await db.refresh(user)
     return user
@@ -249,12 +253,12 @@ async def deactivate_user(
     query = select(User).where(User.id == user_id)
     result = await db.execute(query)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User {user_id} not found",
         )
-    
+
     user.is_active = False
     await db.flush()

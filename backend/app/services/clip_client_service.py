@@ -5,7 +5,6 @@ Mirrors the API-mode pattern of sam2_service: the main backend stays
 lightweight (no torch) while image/text embedding runs in anno-clip.
 """
 import logging
-from typing import List, Optional
 
 import httpx
 
@@ -16,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 class ClipClientService:
-    def __init__(self, api_url: Optional[str] = None) -> None:
+    def __init__(self, api_url: str | None = None) -> None:
         self._api_url = (api_url or settings.CLIP_API_URL).rstrip("/")
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -43,7 +42,7 @@ class ClipClientService:
             logger.warning("CLIP service health check failed: %s", exc)
             return False
 
-    async def embed_texts(self, texts: List[str]) -> List[List[float]]:
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
         client = await self._get_client()
@@ -52,7 +51,7 @@ class ClipClientService:
         response.raise_for_status()
         return EmbedResponse.model_validate(response.json()).vectors
 
-    async def embed_images(self, image_bytes_list: List[bytes]) -> List[List[float]]:
+    async def embed_images(self, image_bytes_list: list[bytes]) -> list[list[float]]:
         if not image_bytes_list:
             return []
         client = await self._get_client()

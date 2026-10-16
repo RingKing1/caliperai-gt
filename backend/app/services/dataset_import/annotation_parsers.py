@@ -1,6 +1,6 @@
 """Parsers for external annotation formats (COCO, KITTI, CVAT, CaliperGT)."""
 import xml.etree.ElementTree as ET
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from app.models.models import (
@@ -18,12 +18,12 @@ from app.services.dataset_import.taxonomy import map_source_class_to_taxonomy
 
 
 def detect_annotation_mode_from_data(
-    annotation_data: Dict[str, Any],
-    sensor_name: Optional[str] = None,
+    annotation_data: dict[str, Any],
+    sensor_name: str | None = None,
 ) -> str:
     """
     Smart auto-detection of annotation mode based on annotation data.
-    
+
     Returns:
         "fusion_3d" if the data contains 3D information (cuboids, 3D segmentation)
         "2d_only" if the data is pure 2D without 3D association
@@ -32,68 +32,68 @@ def detect_annotation_mode_from_data(
         "position_x", "position_y", "position_z",
         "center", "position", "location"
     ])
-    
+
     has_3d_dimensions = any(key in annotation_data for key in [
         "dimension_length", "dimension_width", "dimension_height",
         "dimensions", "size"
     ])
-    
+
     ann_type = annotation_data.get("type", "").lower()
     if ann_type in FUSION_3D_TYPES:
         return TaxonomyAnnotationMode.FUSION_3D.value
-    
+
     if ann_type in ONLY_2D_TYPES and not has_3d_position and not has_3d_dimensions:
         return TaxonomyAnnotationMode.ONLY_2D.value
-    
+
     if sensor_name:
         sensor_lower = sensor_name.lower()
         if any(pattern in sensor_lower for pattern in LIDAR_SENSOR_PATTERNS):
             return TaxonomyAnnotationMode.FUSION_3D.value
-    
+
     if has_3d_position and has_3d_dimensions:
         return TaxonomyAnnotationMode.FUSION_3D.value
-    
+
     return TaxonomyAnnotationMode.ONLY_2D.value
 
 
 def detect_annotation_mode_from_file(
-    file_content: Dict[str, Any],
+    file_content: dict[str, Any],
     file_name: str,
 ) -> str:
     """
     Detect annotation mode from a file's structure and name.
-    
+
     Returns:
         "fusion_3d" for 3D annotation files
         "2d_only" for pure 2D annotation files
     """
     sensor_name = file_name.replace('.json', '').split('/')[-1].lower()
-    
+
     if any(pattern in sensor_name for pattern in LIDAR_SENSOR_PATTERNS):
         return TaxonomyAnnotationMode.FUSION_3D.value
-    
+
     has_frames = "frames" in file_content
     has_images = "images" in file_content
-    
+
     if has_frames and not has_images:
         return TaxonomyAnnotationMode.FUSION_3D.value
-    
+
     annotations = file_content.get("annotations", [])
     if annotations:
         sample_ann = annotations[0] if isinstance(annotations, list) else annotations
         if isinstance(sample_ann, dict):
             if any(key in sample_ann for key in ["cuboid_3d", "position_3d", "dimensions_3d"]):
                 return TaxonomyAnnotationMode.FUSION_3D.value
-    
+
     return TaxonomyAnnotationMode.ONLY_2D.value
 
 
 def parse_calipergt_2d_annotations(
     coco_data: dict,
     camera_id: str,
-    frame_id_map: Dict[int, UUID],
-    taxonomy: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
+    frame_id_map: dict[int, UUID],
+    taxonomy: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Parse CaliperGT export format 2D annotations.
 
     CaliperGT format::
@@ -118,7 +118,7 @@ def parse_calipergt_2d_annotations(
     """
     annotations_to_create = []
 
-    label_map: Dict[int, str] = {}
+    label_map: dict[int, str] = {}
     labels = coco_data.get("categories", {}).get("label", {}).get("labels", [])
     for idx, label in enumerate(labels):
         label_name = label.get("name")
@@ -175,13 +175,13 @@ def parse_calipergt_2d_annotations(
 
 
 def parse_coco_2d_annotations(
-    coco_data: dict, 
+    coco_data: dict,
     camera_id: str,
-    frame_id_map: Dict[int, UUID],
-    taxonomy: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
+    frame_id_map: dict[int, UUID],
+    taxonomy: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Parse COCO format 2D annotations for a specific camera.
-    
+
     COCO format structure:
     {
         "images": [{"id": 1, "file_name": "000001.jpg", "width": 1920, "height": 1080}],
@@ -190,7 +190,7 @@ def parse_coco_2d_annotations(
     }
     """
     annotations_to_create = []
-    
+
     category_map = {}
     for cat in coco_data.get("categories", []):
         cat_id = cat.get("id")
@@ -203,7 +203,7 @@ def parse_coco_2d_annotations(
                     category_map[int(cat_id)] = cat_name
                 except ValueError:
                     pass
-    
+
     image_to_frame = {}
     for img in coco_data.get("images", []):
         frame_index = img.get("frame_index")
@@ -214,19 +214,19 @@ def parse_coco_2d_annotations(
             except ValueError:
                 frame_index = img["id"]
         image_to_frame[img["id"]] = frame_index
-    
+
     for ann in coco_data.get("annotations", []):
         image_id = ann["image_id"]
         frame_index = image_to_frame.get(image_id)
         if frame_index is None:
             continue
-        
+
         frame_id = frame_id_map.get(frame_index)
         if frame_id is None:
             continue
-            
+
         bbox = ann.get("bbox", [0, 0, 0, 0])
-        
+
         ann_type = ann.get("type", "").lower()
 
         polyline_points = None
@@ -255,7 +255,7 @@ def parse_coco_2d_annotations(
 
         keypoints_flat = ann.get("keypoints") if ann_type in ("keypoints", "points") else None
         keypoint_names = ann.get("keypoint_names", []) if keypoints_flat else []
-        
+
         cat_id = ann.get("category_id")
         source_class_name = category_map.get(cat_id) or category_map.get(str(cat_id) if cat_id else None)
         if not source_class_name:
@@ -267,7 +267,7 @@ def parse_coco_2d_annotations(
             else:
                 source_class_name = "unknown"
         class_id = map_source_class_to_taxonomy(source_class_name, taxonomy) if taxonomy else source_class_name
-        
+
         annotation_dict = {
             "type": "2d",
             "ann_type": ann_type,
@@ -284,7 +284,7 @@ def parse_coco_2d_annotations(
             "confidence": ann.get("score", 1.0),
             "track_id": ann.get("track_id"),
         }
-        
+
         if polyline_points:
             annotation_dict["polyline_points"] = polyline_points
         elif polygon_points:
@@ -296,27 +296,27 @@ def parse_coco_2d_annotations(
         if keypoints_flat:
             annotation_dict["keypoints_flat"] = keypoints_flat
             annotation_dict["keypoint_names"] = keypoint_names
-        
+
         annotations_to_create.append(annotation_dict)
-    
+
     return annotations_to_create
 
 
 def parse_coco_3d_annotations(
     coco_data: dict,
-    frame_id_map: Dict[int, UUID],
-    taxonomy: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
+    frame_id_map: dict[int, UUID],
+    taxonomy: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Parse COCO-like 3D annotations for LiDAR.
-    
+
     Expected format:
     {
         "frames": [{"id": 0, "file_name": "000000.pcd", "timestamp": 0.0}],
         "annotations": [
             {
-                "id": 1, 
-                "frame_id": 0, 
-                "category_id": 1, 
+                "id": 1,
+                "frame_id": 0,
+                "category_id": 1,
                 "cuboid_3d": {
                     "position": {"x": 10.0, "y": 5.0, "z": 0.5},
                     "dimensions": {"length": 4.5, "width": 2.0, "height": 1.5},
@@ -328,10 +328,10 @@ def parse_coco_3d_annotations(
     }
     """
     annotations_to_create = []
-    
+
     category_map = {cat["id"]: cat["name"] for cat in coco_data.get("categories", [])}
 
-    json_frame_id_to_index: Dict[Any, int] = {}
+    json_frame_id_to_index: dict[Any, int] = {}
     for frame in coco_data.get("frames", []):
         json_id = frame.get("id")
         if json_id is None:
@@ -345,7 +345,7 @@ def parse_coco_3d_annotations(
                 frame_index_val = json_id
         json_frame_id_to_index[json_id] = int(frame_index_val)
 
-    uuid_to_frame_index: Dict[str, int] = {
+    uuid_to_frame_index: dict[str, int] = {
         str(uuid_val): idx for idx, uuid_val in frame_id_map.items()
     }
 
@@ -361,18 +361,18 @@ def parse_coco_3d_annotations(
                 frame_index = int(raw_frame_ref)
             except (TypeError, ValueError):
                 continue
-        
+
         cuboid = ann.get("cuboid_3d", {})
         position = cuboid.get("position", {})
         dimensions = cuboid.get("dimensions", {})
         rotation = cuboid.get("rotation", {})
-        
+
         if not position or not dimensions:
             continue
-        
+
         source_class_name = category_map.get(ann.get("category_id"), f"class_{ann.get('category_id', 0)}")
         class_id = map_source_class_to_taxonomy(source_class_name, taxonomy) if taxonomy else source_class_name
-        
+
         annotations_to_create.append({
             "type": "3d",
             "frame_index": frame_index,
@@ -391,13 +391,13 @@ def parse_coco_3d_annotations(
             "confidence": ann.get("confidence", ann.get("score", 1.0)),
             "track_id": ann.get("track_id"),
         })
-    
+
     return annotations_to_create
 
 
-def parse_coco_annotations(coco_data: dict, scene: Scene, task: Task) -> List[Dict[str, Any]]:
+def parse_coco_annotations(coco_data: dict, scene: Scene, task: Task) -> list[dict[str, Any]]:
     """Parse COCO format annotations and convert to internal format (legacy function).
-    
+
     COCO format structure:
     {
         "images": [{"id": 1, "file_name": "000001.jpg", "width": 1920, "height": 1080}],
@@ -406,9 +406,9 @@ def parse_coco_annotations(coco_data: dict, scene: Scene, task: Task) -> List[Di
     }
     """
     annotations_to_create = []
-    
+
     category_map = {cat["id"]: cat["name"] for cat in coco_data.get("categories", [])}
-    
+
     image_map = {}
     for img in coco_data.get("images", []):
         file_name = img["file_name"]
@@ -417,15 +417,15 @@ def parse_coco_annotations(coco_data: dict, scene: Scene, task: Task) -> List[Di
         except ValueError:
             frame_idx = img["id"]
         image_map[img["id"]] = frame_idx
-    
+
     for ann in coco_data.get("annotations", []):
         image_id = ann["image_id"]
         if image_id not in image_map:
             continue
-            
+
         frame_index = image_map[image_id]
         bbox = ann["bbox"]
-        
+
         annotations_to_create.append({
             "frame_index": frame_index,
             "class_id": category_map.get(ann["category_id"], f"class_{ann['category_id']}"),
@@ -438,48 +438,48 @@ def parse_coco_annotations(coco_data: dict, scene: Scene, task: Task) -> List[Di
             "confidence": ann.get("score", 1.0),
             "camera_id": ann.get("camera_id", "camera_front")
         })
-    
+
     return annotations_to_create
 
 
 def parse_kitti_annotations(
-    kitti_lines: List[str], 
-    scene: Scene, 
+    kitti_lines: list[str],
+    scene: Scene,
     task: Task,
-    taxonomy: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
+    taxonomy: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Parse KITTI format annotations and convert to internal format.
-    
+
     KITTI format (one line per object):
     Type Truncated Occluded Alpha Bbox_2D[4] Dimensions[3] Location[3] Rotation_y Score
     Example: Car 0.00 0 -1.57 599.41 156.40 629.75 189.25 1.50 1.60 3.70 -0.30 1.65 46.70 -1.53
     """
     annotations_to_create = []
-    
+
     for line in kitti_lines:
         parts = line.strip().split()
         if len(parts) < 15:
             continue
-            
+
         class_name = parts[0]
         truncated = float(parts[1])
         occluded = int(parts[2])
         alpha = float(parts[3])
-        
+
         height = float(parts[8])
         width = float(parts[9])
         length = float(parts[10])
-        
+
         location_x = float(parts[11])
         location_y = float(parts[12])
         location_z = float(parts[13])
-        
+
         rotation_y = float(parts[14])
-        
+
         score = float(parts[15]) if len(parts) > 15 else 1.0
-        
+
         class_id = map_source_class_to_taxonomy(class_name, taxonomy) if taxonomy else class_name.lower()
-        
+
         annotations_to_create.append({
             "frame_index": 0,
             "class_id": class_id,
@@ -500,16 +500,16 @@ def parse_kitti_annotations(
             "source": AnnotationSource.AUTO.value,
             "confidence": score
         })
-    
+
     return annotations_to_create
 
 
-def parse_cvat_xml_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) -> List[Dict[str, Any]]:
+def parse_cvat_xml_annotations(xml_content: str, frame_id_map: dict[int, UUID]) -> list[dict[str, Any]]:
     """Parse CVAT XML format annotations with 3D attributes into per-frame 3D boxes.
-    
-    CVAT exports 3D annotations with box elements containing position_3d, rotation_3d, 
+
+    CVAT exports 3D annotations with box elements containing position_3d, rotation_3d,
     and dimensions_3d as attributes. This parser handles both image-based and track-based formats.
-    
+
     Expected format:
     <annotations>
       <image id="0" name="0">
@@ -520,7 +520,7 @@ def parse_cvat_xml_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) 
         </box>
       </image>
     </annotations>
-    
+
     Or track-based format:
     <annotations>
       <track id="0" label="Car">
@@ -533,8 +533,8 @@ def parse_cvat_xml_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) 
     """
     import logging
     logger = logging.getLogger(__name__)
-    
-    annotations: List[Dict[str, Any]] = []
+
+    annotations: list[dict[str, Any]] = []
 
     def parse_3d_values(value_str: str) -> tuple:
         """Parse comma-separated 3D values like 'x,y,z' into tuple of floats."""
@@ -545,7 +545,7 @@ def parse_cvat_xml_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) 
             logger.warning(f"Failed to parse 3D values '{value_str}': {e}")
             return (0.0, 0.0, 0.0)
 
-    def get_box_attributes(box_el: ET.Element) -> Dict[str, Any]:
+    def get_box_attributes(box_el: ET.Element) -> dict[str, Any]:
         """Extract 3D attributes from a box element."""
         attrs = {}
         for attr_el in box_el.findall('attribute'):
@@ -568,7 +568,7 @@ def parse_cvat_xml_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) 
         frame_index = 0
         image_id = image_el.get('id', '')
         image_name = image_el.get('name', '')
-        
+
         try:
             if image_id and image_id.isdigit():
                 frame_index = int(image_id)
@@ -584,21 +584,21 @@ def parse_cvat_xml_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) 
             label = box_el.get('label', 'unknown').lower()
             track_id = box_el.get('track_id', '')
             occluded = int(box_el.get('occluded', '0'))
-            
+
             attrs = get_box_attributes(box_el)
-            
+
             position_3d = attrs.get('position_3d', '0,0,0')
             rotation_3d = attrs.get('rotation_3d', '0,0,0')
             dimensions_3d = attrs.get('dimensions_3d', '1,1,1')
-            
+
             px, py, pz = parse_3d_values(position_3d)
             rx, ry, rz = parse_3d_values(rotation_3d)
             dim_l, dim_w, dim_h = parse_3d_values(dimensions_3d)
-            
+
             if 'dimensions_3d' not in attrs:
                 logger.warning(f"Box {track_id} at frame {frame_index} missing dimensions_3d attribute")
                 continue
-            
+
             annotations.append({
                 "frame_index": frame_index,
                 "class_id": label,
@@ -620,7 +620,7 @@ def parse_cvat_xml_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) 
                 "confidence": 1.0,
                 "track_id": track_id if track_id else None,
             })
-    
+
     logger.info(f"Found {images_found} images, {boxes_found} boxes, created {len(annotations)} annotations from image format")
 
     tracks_found = 0
@@ -629,7 +629,7 @@ def parse_cvat_xml_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) 
         tracks_found += 1
         label = track_el.get('label', 'unknown').lower()
         track_id = track_el.get('id', '')
-        
+
         for box_el in track_el.findall('box'):
             track_boxes_found += 1
             frame_str = box_el.get('frame', '0')
@@ -637,27 +637,27 @@ def parse_cvat_xml_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) 
                 frame_index = int(frame_str)
             except ValueError:
                 frame_index = 0
-            
+
             occluded = int(box_el.get('occluded', '0'))
             outside = int(box_el.get('outside', '0'))
-            
+
             if outside:
                 continue
-            
+
             attrs = get_box_attributes(box_el)
-            
+
             position_3d = attrs.get('position_3d', '0,0,0')
             rotation_3d = attrs.get('rotation_3d', '0,0,0')
             dimensions_3d = attrs.get('dimensions_3d', '1,1,1')
-            
+
             px, py, pz = parse_3d_values(position_3d)
             rx, ry, rz = parse_3d_values(rotation_3d)
             dim_l, dim_w, dim_h = parse_3d_values(dimensions_3d)
-            
+
             if 'dimensions_3d' not in attrs:
                 logger.warning(f"Track {track_id} box at frame {frame_index} missing dimensions_3d attribute")
                 continue
-            
+
             annotations.append({
                 "frame_index": frame_index,
                 "class_id": label,
@@ -679,16 +679,16 @@ def parse_cvat_xml_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) 
                 "confidence": 1.0,
                 "track_id": track_id if track_id else None,
             })
-    
+
     logger.info(f"Found {tracks_found} tracks, {track_boxes_found} track boxes, total annotations: {len(annotations)}")
     return annotations
 
 
 def parse_cvat_json_annotations(
     cvat_data: dict,
-    frame_id_map: Dict[int, UUID],
-    taxonomy: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
+    frame_id_map: dict[int, UUID],
+    taxonomy: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Parse CVAT JSON format 3D cuboid annotations.
 
     CVAT JSON structure (from auto-annotation export):
@@ -718,9 +718,9 @@ def parse_cvat_json_annotations(
         [6:9]  dimensions  length, width, height
         [9:16] reserved / zeros
     """
-    annotations: List[Dict[str, Any]] = []
+    annotations: list[dict[str, Any]] = []
 
-    track_id_map_local: Dict[int, UUID] = {}
+    track_id_map_local: dict[int, UUID] = {}
 
     for track_idx, track in enumerate(cvat_data.get("tracks", [])):
         label = track.get("label", "unknown").lower()
@@ -808,22 +808,22 @@ def parse_cvat_json_annotations(
     return annotations
 
 
-def parse_kitti_tracklet_annotations(xml_content: str, frame_id_map: Dict[int, UUID]) -> List[Dict[str, Any]]:
+def parse_kitti_tracklet_annotations(xml_content: str, frame_id_map: dict[int, UUID]) -> list[dict[str, Any]]:
     """Parse KITTI tracklet_labels.xml annotations into per-frame 3D boxes.
-    
+
     KITTI raw sequences provide 3D boxes in tracklet_labels.xml with one tracklet per object
     and per-frame poses. This converts each pose into an Annotation3D entry keyed by frame index.
     """
-    annotations: List[Dict[str, Any]] = []
+    annotations: list[dict[str, Any]] = []
 
-    def _get_float(el: Optional[ET.Element], tag: str, default: float = 0.0) -> float:
+    def _get_float(el: ET.Element | None, tag: str, default: float = 0.0) -> float:
         try:
             text = el.find(tag).text if el is not None else None
             return float(text) if text is not None else default
         except Exception:
             return default
 
-    def _get_int(el: Optional[ET.Element], tag: str, default: int = 0) -> int:
+    def _get_int(el: ET.Element | None, tag: str, default: int = 0) -> int:
         try:
             text = el.find(tag).text if el is not None else None
             return int(text) if text is not None else default
@@ -888,7 +888,7 @@ def parse_kitti_tracklet_annotations(xml_content: str, frame_id_map: Dict[int, U
 
 def compute_annotation_fingerprint(frame_id: UUID, camera_id: str, bbox_x: float, bbox_y: float, bbox_w: float, bbox_h: float) -> str:
     """Compute a fingerprint for a 2D annotation for deduplication.
-    
+
     Uses frame_id, camera_id, and rounded bbox coordinates to identify duplicates.
     Coordinates are rounded to handle minor floating point differences.
     """

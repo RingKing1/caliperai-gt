@@ -12,8 +12,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.core.config import settings
+from app.core.database import get_db
+from app.core.redis_cache import get_redis
 from app.models.models import User, UserRole
 from app.schemas.knowledge import (
     KnowledgeStatsResponse,
@@ -22,8 +23,7 @@ from app.schemas.knowledge import (
     SearchResponse,
     SearchResult,
 )
-from app.services.rbac_service import get_current_user, RequireRole
-from app.core.redis_cache import get_redis
+from app.services.rbac_service import RequireRole, get_current_user
 
 router = APIRouter()
 
@@ -37,14 +37,14 @@ async def get_knowledge_service(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="RAG is not enabled",
         )
-    
+
     try:
-        from app.services.knowledge_service import KnowledgeService
         from app.services.embedding_service import get_embedding_service
-        
+        from app.services.knowledge_service import KnowledgeService
+
         redis = await get_redis()
         embedding_service = await get_embedding_service(redis)
-        
+
         service = KnowledgeService(
             db=db,
             embedding_service=embedding_service,
@@ -67,7 +67,7 @@ async def get_knowledge_stats(
 ):
     """
     Get knowledge base statistics.
-    
+
     Returns information about indexed documents and configuration.
     """
     stats = await knowledge_service.get_stats()
@@ -84,7 +84,7 @@ async def reindex_knowledge_base(
 ):
     """
     Manually trigger knowledge base reindexing.
-    
+
     Only indexes files that have changed since last index.
     Requires admin role.
     """
@@ -111,12 +111,12 @@ async def search_knowledge(
 ):
     """
     Search the knowledge base.
-    
+
     Supports three search types:
     - `semantic`: Vector similarity search
     - `keyword`: Full-text search
     - `hybrid`: Combined semantic + keyword (default, recommended)
-    
+
     Useful for debugging RAG retrieval.
     """
     if request.search_type == "semantic":
@@ -134,7 +134,7 @@ async def search_knowledge(
             query=request.query,
             top_k=request.top_k,
         )
-    
+
     return SearchResponse(
         query=request.query,
         results=[SearchResult(**r) for r in results],
@@ -149,7 +149,7 @@ async def get_rag_status(
 ):
     """
     Get RAG system status.
-    
+
     Returns whether RAG is enabled and if the embedding model is available.
     """
     status_info = {
@@ -159,7 +159,7 @@ async def get_rag_status(
         "top_k": settings.RAG_TOP_K,
         "similarity_threshold": settings.RAG_SIMILARITY_THRESHOLD,
     }
-    
+
     if settings.RAG_ENABLED:
         try:
             from app.services.embedding_service import get_embedding_service
@@ -169,5 +169,5 @@ async def get_rag_status(
         except Exception as e:
             status_info["model_available"] = False
             status_info["error"] = str(e)
-    
+
     return status_info

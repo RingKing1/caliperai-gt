@@ -3,35 +3,35 @@ Organization API endpoints.
 
 Provides endpoints for managing organizations and organization memberships.
 """
-from typing import Annotated, Optional
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import User, Permission, OrganizationRole
+from app.models.models import OrganizationRole, Permission, User
 from app.schemas.schemas import (
     OrganizationCreate,
-    OrganizationUpdate,
-    OrganizationResponse,
     OrganizationListResponse,
     OrganizationMemberCreate,
-    OrganizationMemberUpdate,
-    OrganizationMemberResponse,
     OrganizationMemberListResponse,
-    UserOrganizationsResponse,
+    OrganizationMemberResponse,
+    OrganizationMemberUpdate,
+    OrganizationResponse,
+    OrganizationUpdate,
     OrganizationWithMembershipResponse,
+    UserOrganizationsResponse,
     UserResponse,
 )
-from app.services.rbac_service import (
-    get_current_user,
-    RequirePermissions,
-    PermissionDeniedError,
-)
 from app.services.organization_service import (
-    OrganizationService,
     OrganizationMemberService,
+    OrganizationService,
+)
+from app.services.rbac_service import (
+    PermissionDeniedError,
+    RequirePermissions,
+    get_current_user,
 )
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
@@ -63,7 +63,7 @@ async def list_organizations(
     db: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    search: Optional[str] = None,
+    search: str | None = None,
 ):
     """
     List all organizations (admin only).
@@ -83,10 +83,10 @@ async def get_my_organizations(
     """
     member_service = OrganizationMemberService(db)
     memberships = await member_service.get_user_organizations(current_user.id)
-    
+
     orgs_with_membership = []
     default_org = None
-    
+
     for membership in memberships:
         org_response = OrganizationWithMembershipResponse(
             id=membership.organization.id,
@@ -110,7 +110,7 @@ async def get_my_organizations(
             ),
         )
         orgs_with_membership.append(org_response)
-        
+
         if membership.is_default:
             default_org = OrganizationResponse(
                 id=membership.organization.id,
@@ -123,7 +123,7 @@ async def get_my_organizations(
                 created_at=membership.organization.created_at,
                 updated_at=membership.organization.updated_at,
             )
-    
+
     return UserOrganizationsResponse(
         organizations=orgs_with_membership,
         default_organization=default_org,
@@ -142,16 +142,16 @@ async def get_organization(
     """
     service = OrganizationService(db)
     member_service = OrganizationMemberService(db)
-    
+
     org = await service.get_organization(org_id)
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
-    
+
     if not current_user.is_superuser:
         is_member = await member_service.is_member(org_id, current_user.id)
         if not is_member:
             raise PermissionDeniedError("You are not a member of this organization")
-    
+
     return org
 
 
@@ -168,16 +168,16 @@ async def update_organization(
     """
     service = OrganizationService(db)
     member_service = OrganizationMemberService(db)
-    
+
     if not current_user.is_superuser:
         is_admin = await member_service.is_admin(org_id, current_user.id)
         if not is_admin:
             raise PermissionDeniedError("Only organization admins can update organization settings")
-    
+
     org = await service.update_organization(org_id, data)
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
-    
+
     await db.commit()
     return org
 
@@ -193,17 +193,17 @@ async def delete_organization(
     Only organization owners can delete.
     """
     member_service = OrganizationMemberService(db)
-    
+
     if not current_user.is_superuser:
         is_owner = await member_service.is_owner(org_id, current_user.id)
         if not is_owner:
             raise PermissionDeniedError("Only organization owners can delete the organization")
-    
+
     service = OrganizationService(db)
     success = await service.delete_organization(org_id)
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
-    
+
     await db.commit()
 
 
@@ -215,22 +215,22 @@ async def list_organization_members(
     db: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    role: Optional[str] = None,
+    role: str | None = None,
 ):
     """
     List members of an organization.
     """
     member_service = OrganizationMemberService(db)
-    
+
     if not current_user.is_superuser:
         is_member = await member_service.is_member(org_id, current_user.id)
         if not is_member:
             raise PermissionDeniedError("You are not a member of this organization")
-    
+
     members, total = await member_service.get_organization_members(
         org_id, skip=skip, limit=limit, role=role
     )
-    
+
     member_responses = []
     for member in members:
         user_response = None
@@ -246,7 +246,7 @@ async def list_organization_members(
                 created_at=member.user.created_at,
                 updated_at=member.user.updated_at,
             )
-        
+
         member_responses.append(OrganizationMemberResponse(
             id=member.id,
             organization_id=member.organization_id,
@@ -258,7 +258,7 @@ async def list_organization_members(
             updated_at=member.updated_at,
             user=user_response,
         ))
-    
+
     return OrganizationMemberListResponse(members=member_responses, total=total)
 
 
@@ -274,16 +274,16 @@ async def add_organization_member(
     Only organization admins can add members.
     """
     member_service = OrganizationMemberService(db)
-    
+
     if not current_user.is_superuser:
         is_admin = await member_service.is_admin(org_id, current_user.id)
         if not is_admin:
             raise PermissionDeniedError("Only organization admins can add members")
-    
+
     try:
         membership = await member_service.add_member(org_id, data, invited_by=current_user.id)
         await db.commit()
-        
+
         return OrganizationMemberResponse(
             id=membership.id,
             organization_id=membership.organization_id,
@@ -312,23 +312,23 @@ async def update_organization_member(
     Users can update their own default organization.
     """
     member_service = OrganizationMemberService(db)
-    
+
     is_self = user_id == current_user.id
     is_admin = await member_service.is_admin(org_id, current_user.id)
-    
+
     if not current_user.is_superuser:
         if is_self and data.role is not None:
             raise PermissionDeniedError("You cannot change your own role")
-        
+
         if not is_self and not is_admin:
             raise PermissionDeniedError("Only organization admins can update member roles")
-    
+
     membership = await member_service.update_membership(org_id, user_id, data)
     if not membership:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membership not found")
-    
+
     await db.commit()
-    
+
     return OrganizationMemberResponse(
         id=membership.id,
         organization_id=membership.organization_id,
@@ -353,14 +353,14 @@ async def remove_organization_member(
     Admins can remove members. Users can remove themselves.
     """
     member_service = OrganizationMemberService(db)
-    
+
     is_self = user_id == current_user.id
-    
+
     if not current_user.is_superuser and not is_self:
         is_admin = await member_service.is_admin(org_id, current_user.id)
         if not is_admin:
             raise PermissionDeniedError("Only organization admins can remove members")
-    
+
     try:
         success = await member_service.remove_member(org_id, user_id)
         if not success:
@@ -380,15 +380,16 @@ async def set_default_organization(
     Set an organization as the current user's default.
     """
     member_service = OrganizationMemberService(db)
-    
+
     is_member = await member_service.is_member(org_id, current_user.id)
     if not is_member:
         raise PermissionDeniedError("You are not a member of this organization")
-    
-    from app.schemas.schemas import OrganizationMemberUpdate as MemberUpdate, OrganizationRole as SchemaOrgRole
-    
+
+    from app.schemas.schemas import OrganizationMemberUpdate as MemberUpdate
+    from app.schemas.schemas import OrganizationRole as SchemaOrgRole
+
     data = MemberUpdate(is_default=True)
     membership = await member_service.update_membership(org_id, current_user.id, data)
     await db.commit()
-    
+
     return {"message": "Default organization updated", "organization_id": str(org_id)}

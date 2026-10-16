@@ -5,7 +5,6 @@ Shared by the backend proxy API and the standalone SAM2 GPU microservice
 keeps only its contract deltas (``multimask_output``, ``mask_index``, required
 ``embedding_key``) as thin subclasses.
 """
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,11 +26,11 @@ class BoxPromptSchema(BaseModel):
 
 class SegmentRequest(BaseModel):
     """Request for SAM2 segmentation."""
-    image_url: Optional[str] = Field(None, description="URL to fetch image from (e.g., MinIO)")
-    image_base64: Optional[str] = Field(None, description="Base64-encoded image data")
-    points: List[PointPromptSchema] = Field(default_factory=list, description="Point prompts")
-    box: Optional[BoxPromptSchema] = Field(None, description="Optional box prompt")
-    embedding_key: Optional[str] = Field(None, description="Cached embedding key for faster inference")
+    image_url: str | None = Field(None, description="URL to fetch image from (e.g., MinIO)")
+    image_base64: str | None = Field(None, description="Base64-encoded image data")
+    points: list[PointPromptSchema] = Field(default_factory=list, description="Point prompts")
+    box: BoxPromptSchema | None = Field(None, description="Optional box prompt")
+    embedding_key: str | None = Field(None, description="Cached embedding key for faster inference")
     simplify_tolerance: float = Field(default=0.01, ge=0.001, le=0.1, description="Polygon simplification tolerance (0.001=fine/many points, 0.1=coarse/few points)")
 
 
@@ -43,22 +42,22 @@ class PolygonPoint(BaseModel):
 
 class SegmentResult(BaseModel):
     """A segmentation result."""
-    polygon: List[PolygonPoint] = Field(..., description="Polygon points defining the mask boundary")
+    polygon: list[PolygonPoint] = Field(..., description="Polygon points defining the mask boundary")
     score: float = Field(..., description="Confidence score (0-1)")
     area: int = Field(..., description="Pixel area of the mask")
 
 
 class SegmentResponse(BaseModel):
     """Response from SAM2 segmentation."""
-    masks: List[SegmentResult] = Field(..., description="Segmentation results")
-    embedding_key: Optional[str] = Field(None, description="Embedding cache key for follow-up requests")
+    masks: list[SegmentResult] = Field(..., description="Segmentation results")
+    embedding_key: str | None = Field(None, description="Embedding cache key for follow-up requests")
     inference_time_ms: float = Field(..., description="Inference time in milliseconds")
 
 
 class EmbeddingRequest(BaseModel):
     """Request to precompute image embedding."""
-    image_url: Optional[str] = Field(None, description="URL to fetch image from")
-    image_base64: Optional[str] = Field(None, description="Base64-encoded image data")
+    image_url: str | None = Field(None, description="URL to fetch image from")
+    image_base64: str | None = Field(None, description="Base64-encoded image data")
 
 
 class EmbeddingResponse(BaseModel):
@@ -78,20 +77,20 @@ class ObjectInitSchema(BaseModel):
     object_id: int = Field(..., description="Unique object ID for this track")
     box: BoxPromptSchema = Field(..., description="Initial bounding box")
     frame_index: int = Field(default=0, description="Frame index where object is initialized")
-    polygon: Optional[List[PolygonPointInitSchema]] = Field(default=None, description="Optional polygon points for precise mask initialization (preserves shape details like mirrors)")
+    polygon: list[PolygonPointInitSchema] | None = Field(default=None, description="Optional polygon points for precise mask initialization (preserves shape details like mirrors)")
 
 
 class VideoFrameSchema(BaseModel):
     """A single video frame."""
     frame_index: int
-    image_base64: Optional[str] = None
-    image_url: Optional[str] = None
+    image_base64: str | None = None
+    image_url: str | None = None
 
 
 class VideoPropagateRequest(BaseModel):
     """Request to propagate object annotations across video frames."""
-    frames: List[VideoFrameSchema] = Field(..., description="List of video frames in order")
-    objects: List[ObjectInitSchema] = Field(..., description="Objects to track with initial boxes")
+    frames: list[VideoFrameSchema] = Field(..., description="List of video frames in order")
+    objects: list[ObjectInitSchema] = Field(..., description="Objects to track with initial boxes")
     min_confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Stop tracking if confidence drops below this")
 
 
@@ -102,14 +101,14 @@ class PropagatedBoxSchema(BaseModel):
     box: BoxPromptSchema
     confidence: float
     status: str = Field(default="tracked", description="tracked, lost, or keyframe")
-    polygon: Optional[List[PolygonPointInitSchema]] = Field(default=None, description="Propagated polygon (preserves shape details)")
+    polygon: list[PolygonPointInitSchema] | None = Field(default=None, description="Propagated polygon (preserves shape details)")
 
 
 class VideoPropagateResponse(BaseModel):
     """Response with propagated annotations."""
-    boxes: List[PropagatedBoxSchema]
+    boxes: list[PropagatedBoxSchema]
     total_frames: int
     tracked_frames: int
-    lost_at_frame: Optional[int] = None
+    lost_at_frame: int | None = None
     processing_time_ms: float
 

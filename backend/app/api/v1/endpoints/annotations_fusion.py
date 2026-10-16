@@ -5,21 +5,20 @@ These store annotations that combine 3D LiDAR cuboids with 2D camera projections
 Can be created directly or migrated from 3D annotations.
 """
 from datetime import datetime
-from typing import Annotated, List, Optional
+from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import AnnotationFusion, Annotation3D, User, Permission
+from app.models.models import Annotation3D, AnnotationFusion, Permission, User
 from app.schemas.schemas import (
     AnnotationFusionCreate,
-    AnnotationFusionUpdate,
     AnnotationFusionResponse,
+    AnnotationFusionUpdate,
     BulkAnnotationFusionCreate,
-    BulkOperationResponse,
     Migrate3DToFusionRequest,
     Migrate3DToFusionResponse,
 )
@@ -51,22 +50,22 @@ async def create_annotation_fusion(
     return db_annotation
 
 
-@router.get("", response_model=List[AnnotationFusionResponse])
+@router.get("", response_model=list[AnnotationFusionResponse])
 async def list_annotations_fusion(
     task_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
-    frame_id: Optional[UUID] = Query(None, description="Frame ID to filter by"),
-    track_id: Optional[UUID] = Query(None, description="Track ID to filter by"),
+    frame_id: UUID | None = Query(None, description="Frame ID to filter by"),
+    track_id: UUID | None = Query(None, description="Track ID to filter by"),
     db: AsyncSession = Depends(get_db),
 ):
     """List Fusion annotations for a task. Requires ANNOTATIONS_READ permission."""
     query = select(AnnotationFusion).where(AnnotationFusion.task_id == task_id)
-    
+
     if frame_id:
         query = query.where(AnnotationFusion.frame_id == frame_id)
     if track_id:
         query = query.where(AnnotationFusion.track_id == track_id)
-    
+
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -109,12 +108,12 @@ async def delete_annotation_fusion(
     annotation = await db.get(AnnotationFusion, annotation_id)
     if not annotation:
         raise HTTPException(status_code=404, detail="Fusion Annotation not found")
-    
+
     await db.delete(annotation)
     await db.commit()
 
 
-@router.post("/bulk", response_model=List[AnnotationFusionResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/bulk", response_model=list[AnnotationFusionResponse], status_code=status.HTTP_201_CREATED)
 async def create_annotations_fusion_bulk(
     bulk_in: BulkAnnotationFusionCreate,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_CREATE))],
@@ -137,7 +136,7 @@ async def migrate_3d_to_fusion(
 ):
     """
     Migrate 3D annotations to Fusion annotations. Requires ANNOTATIONS_UPDATE permission.
-    
+
     For each 3D annotation:
     - Creates a Fusion annotation with the same UUID (preserving identity)
     - Copies 3D data to data_3d field
@@ -150,21 +149,21 @@ async def migrate_3d_to_fusion(
             Annotation3D.is_migrated_to_fusion == False,
         )
     )
-    
+
     if request.annotation_3d_ids:
         query = query.where(Annotation3D.id.in_(request.annotation_3d_ids))
-    
+
     result = await db.execute(query)
     annotations_3d = result.scalars().all()
-    
+
     created_annotation_ids = []
     errors = []
     migrated_count = 0
-    
+
     for ann_3d in annotations_3d:
         try:
             fusion_id = ann_3d.id if request.preserve_uuids else uuid4()
-            
+
             db_fusion = AnnotationFusion(
                 id=fusion_id,
                 task_id=ann_3d.task_id,
@@ -182,23 +181,23 @@ async def migrate_3d_to_fusion(
                 source_3d_annotation_id=ann_3d.id,
                 is_verified=False,
             )
-            
+
             db.add(db_fusion)
             created_annotation_ids.append(fusion_id)
-            
+
             ann_3d.is_migrated_to_fusion = True
             ann_3d.migrated_at = datetime.utcnow()
             ann_3d.fusion_annotation_id = fusion_id
             migrated_count += 1
-            
+
         except Exception as e:
             errors.append({
                 "annotation_3d_id": str(ann_3d.id),
                 "error": str(e)
             })
-    
+
     await db.commit()
-    
+
     return Migrate3DToFusionResponse(
         migrated_count=migrated_count,
         created_annotation_ids=created_annotation_ids,
@@ -206,7 +205,7 @@ async def migrate_3d_to_fusion(
     )
 
 
-@router.get("/by-track/{track_id}", response_model=List[AnnotationFusionResponse])
+@router.get("/by-track/{track_id}", response_model=list[AnnotationFusionResponse])
 async def get_annotations_fusion_by_track(
     track_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],

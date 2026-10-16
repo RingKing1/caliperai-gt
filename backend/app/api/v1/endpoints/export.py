@@ -21,14 +21,14 @@ Folder structure for exports:
 import io
 import json
 import math
-import zipfile
 import os
 import re
+import zipfile
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Literal, Dict, List, Any
+from typing import Any, Literal
 from uuid import UUID
-from collections import defaultdict
 
 import numpy as np
 
@@ -36,23 +36,33 @@ SEGMENTATION_ROOT = os.environ.get("SEGMENTATION_ROOT", "/uploads/segmentation")
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.endpoints.auth import get_current_user
 from app.core.database import get_db
 from app.models.models import (
-    Dataset, Scene, Task, Frame,
-    Annotation, Annotation2D, Annotation3D, Annotation4D, AnnotationFusion,
-    Track2D, User, Taxonomy, dataset_taxonomy_association,
+    Annotation,
+    Annotation2D,
+    Annotation3D,
+    Annotation4D,
+    AnnotationFusion,
+    Dataset,
+    Frame,
+    Scene,
+    Task,
+    Taxonomy,
+    Track2D,
+    User,
+    dataset_taxonomy_association,
 )
-from app.api.v1.endpoints.auth import get_current_user
 
 router = APIRouter()
 
 DATA_BASE_PATH = Path("/data")
 
 
-async def get_segmentation_taxonomy_classes(db: AsyncSession, dataset_id: UUID) -> Optional[List[dict]]:
+async def get_segmentation_taxonomy_classes(db: AsyncSession, dataset_id: UUID) -> list[dict] | None:
     """
     Return the classes list of the segmentation_3d taxonomy linked to this dataset,
     or None if no such taxonomy is linked.
@@ -72,138 +82,138 @@ async def get_segmentation_taxonomy_classes(db: AsyncSession, dataset_id: UUID) 
     return list(tax.classes) if tax and tax.classes else None
 
 
-def merge_overlapping_annotations(all_annotations: Dict[str, List[dict]]) -> Dict[str, List[dict]]:
+def merge_overlapping_annotations(all_annotations: dict[str, list[dict]]) -> dict[str, list[dict]]:
     """
     Merge annotations from overlapping tasks using Track ID merge strategy.
-    
+
     For annotations with the same track_id and frame_index:
     - Keep the annotation with the most recent created_at timestamp ("Prefer Recent")
-    
+
     For annotations without track_id:
     - Keep all (no merging possible without track identification)
-    
+
     Special handling for annotations_4d which have frame_range instead of frame_index.
     """
     merged = {}
-    
+
     for ann_type, annotations in all_annotations.items():
         if ann_type == "annotations_4d":
             merged[ann_type] = _merge_4d_annotations(annotations)
         else:
             merged[ann_type] = _merge_frame_indexed_annotations(annotations)
-    
+
     return merged
 
 
-def _merge_frame_indexed_annotations(annotations: List[dict]) -> List[dict]:
+def _merge_frame_indexed_annotations(annotations: list[dict]) -> list[dict]:
     """
     Merge annotations that have frame_index field.
-    
+
     Groups by (track_id, frame_index) and keeps the most recent annotation.
     Annotations without track_id are kept as-is.
     """
     if not annotations:
         return []
-    
+
     tracked = []
     untracked = []
-    
+
     for ann in annotations:
         if ann.get("track_id"):
             tracked.append(ann)
         else:
             untracked.append(ann)
-    
+
     merged_tracked = {}
-    
+
     for ann in tracked:
         if "camera_id" in ann:
             key = (ann["track_id"], ann.get("frame_index"), ann.get("camera_id"))
         else:
             key = (ann["track_id"], ann.get("frame_index"))
-        
+
         if key not in merged_tracked:
             merged_tracked[key] = ann
         else:
             existing_created = merged_tracked[key].get("created_at")
             new_created = ann.get("created_at")
-            
+
             if not existing_created and new_created:
                 merged_tracked[key] = ann
             elif existing_created and new_created:
                 if new_created > existing_created:
                     merged_tracked[key] = ann
-    
+
     return list(merged_tracked.values()) + untracked
 
 
-def _merge_4d_annotations(annotations: List[dict]) -> List[dict]:
+def _merge_4d_annotations(annotations: list[dict]) -> list[dict]:
     """
     Merge 4D annotations that have frame_range instead of frame_index.
-    
+
     4D annotations represent tracks across a frame range.
     For same track_id with overlapping frame ranges, prefer the more recent one.
     """
     if not annotations:
         return []
-    
+
     tracked = []
     untracked = []
-    
+
     for ann in annotations:
         if ann.get("track_id"):
             tracked.append(ann)
         else:
             untracked.append(ann)
-    
-    by_track: Dict[str, List[dict]] = defaultdict(list)
+
+    by_track: dict[str, list[dict]] = defaultdict(list)
     for ann in tracked:
         by_track[ann["track_id"]].append(ann)
-    
+
     merged_tracked = []
-    
+
     for track_id, track_anns in by_track.items():
         if len(track_anns) == 1:
             merged_tracked.append(track_anns[0])
             continue
-        
+
         sorted_anns = sorted(track_anns, key=lambda a: a.get("frame_range", {}).get("start", 0))
-        
+
         result_anns = []
-        
+
         for ann in sorted_anns:
             frame_range = ann.get("frame_range", {})
             ann_start = frame_range.get("start", 0)
             ann_end = frame_range.get("end", 0)
             ann_created = ann.get("created_at")
-            
+
             overlap_idx = None
             for i, existing in enumerate(result_anns):
                 existing_range = existing.get("frame_range", {})
                 existing_start = existing_range.get("start", 0)
                 existing_end = existing_range.get("end", 0)
-                
+
                 if ann_start <= existing_end and ann_end >= existing_start:
                     overlap_idx = i
                     break
-            
+
             if overlap_idx is None:
                 result_anns.append(ann)
             else:
                 existing = result_anns[overlap_idx]
                 existing_created = existing.get("created_at")
-                
+
                 if not existing_created and ann_created:
                     result_anns[overlap_idx] = ann
                 elif existing_created and ann_created and ann_created > existing_created:
                     result_anns[overlap_idx] = ann
-        
+
         merged_tracked.extend(result_anns)
-    
+
     return merged_tracked + untracked
 
 
-def resolve_storage_path(path_str: Optional[str], storage_paths: dict) -> Optional[Path]:
+def resolve_storage_path(path_str: str | None, storage_paths: dict) -> Path | None:
     """Resolve a stored path to an absolute filesystem path.
 
     Handles both absolute paths (written directly to storage_paths) and
@@ -238,8 +248,8 @@ def resolve_storage_path(path_str: Optional[str], storage_paths: dict) -> Option
 async def get_annotations_for_task(
     db: AsyncSession,
     task_id: UUID,
-    taxonomy_id: Optional[UUID] = None,
-    annotation_mode: Optional[str] = None,
+    taxonomy_id: UUID | None = None,
+    annotation_mode: str | None = None,
 ) -> dict:
     """Get annotations for a task, optionally filtered to a specific taxonomy.
 
@@ -415,7 +425,7 @@ def add_segmentation_kitti_to_zip(
     frames_data: list,
     taxonomy: dict,
     prefix: str = "annotations",
-    scene_classes: Optional[List[dict]] = None,
+    scene_classes: list[dict] | None = None,
 ) -> int:
     """
     Add 3D semantic segmentation .label files under {prefix}/lidar_segmentation/.
@@ -437,7 +447,7 @@ def add_segmentation_kitti_to_zip(
         return 0
 
     classes = scene_classes if scene_classes is not None else taxonomy.get("classes", [])
-    id_to_cat: Dict[int, Dict] = {0: {"id": 0, "name": "unlabeled", "color": "", "supercategory": ""}}
+    id_to_cat: dict[int, dict] = {0: {"id": 0, "name": "unlabeled", "color": "", "supercategory": ""}}
     for idx, cls in enumerate(classes):
         id_to_cat[idx + 1] = {
             "id": idx + 1,
@@ -446,7 +456,7 @@ def add_segmentation_kitti_to_zip(
             "supercategory": cls.get("supercategory", "object"),
         }
 
-    frame_entries: List[Dict[str, Any]] = []
+    frame_entries: list[dict[str, Any]] = []
     frames_exported = 0
 
     for frame in frames_data:
@@ -459,7 +469,7 @@ def add_segmentation_kitti_to_zip(
         labels_path = seg_root / f"{frame_id}.npy"
         has_labels = labels_path.exists()
 
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "id": frame_index,
             "frame_number": frame_index + 1,
             "frame_index": frame_index,
@@ -516,7 +526,7 @@ def add_segmentation_kitti_to_zip(
 
     categories = [id_to_cat[k] for k in sorted(id_to_cat.keys())]
 
-    labels_info: Dict[str, Any] = {
+    labels_info: dict[str, Any] = {
         "info": {
             "description": "3D Semantic Segmentation — KITTI Semantic format",
             "format": "kitti_semantic",
@@ -546,7 +556,7 @@ def add_segmentation_kitti_to_zip(
 def add_scene_data_to_zip(zf: zipfile.ZipFile, scene: Scene, frames_data: list, prefix: str = "data"):
     """Add actual data files (lidar, camera images) for a scene to the ZIP archive."""
     storage_paths = scene.storage_paths or {}
-    
+
     lidar_base = storage_paths.get("lidar_base")
     lidar_path = resolve_storage_path(lidar_base, storage_paths)
     if lidar_path and lidar_path.exists():
@@ -554,7 +564,7 @@ def add_scene_data_to_zip(zf: zipfile.ZipFile, scene: Scene, frames_data: list, 
             if lidar_file.is_file():
                 arcname = f"{prefix}/lidar/{lidar_file.name}"
                 zf.write(str(lidar_file), arcname)
-    
+
     cameras = storage_paths.get("cameras", {})
     for camera_name, camera_path_str in cameras.items():
         camera_path = resolve_storage_path(camera_path_str, storage_paths)
@@ -563,7 +573,7 @@ def add_scene_data_to_zip(zf: zipfile.ZipFile, scene: Scene, frames_data: list, 
                 if img_file.is_file():
                     arcname = f"{prefix}/cameras/{camera_name}/{img_file.name}"
                     zf.write(str(img_file), arcname)
-    
+
     ego_poses_path = storage_paths.get("ego_poses")
     ego_file = resolve_storage_path(ego_poses_path, storage_paths)
     if ego_file and ego_file.exists():
@@ -583,7 +593,7 @@ def add_scene_data_to_zip(zf: zipfile.ZipFile, scene: Scene, frames_data: list, 
         if frame_poses:
             poses_json = json.dumps({"frames": frame_poses}, indent=2)
             zf.writestr(f"{prefix}/ego_poses/ego_poses.json", poses_json)
-    
+
     if scene.calibration:
         zf.writestr(f"{prefix}/calibration.json", json.dumps(scene.calibration, indent=2))
 
@@ -609,12 +619,12 @@ def _bbox_from_coords(coords: list) -> tuple:
     return x, y, max(xs) - x, max(ys) - y
 
 
-def build_coco_categories(taxonomy: dict) -> List[Dict[str, Any]]:
+def build_coco_categories(taxonomy: dict) -> list[dict[str, Any]]:
     """Build COCO categories from taxonomy."""
     categories = []
     if not taxonomy:
         return categories
-    
+
     classes = taxonomy.get("classes", [])
     for idx, cls in enumerate(classes):
         categories.append({
@@ -625,12 +635,12 @@ def build_coco_categories(taxonomy: dict) -> List[Dict[str, Any]]:
     return categories
 
 
-def get_category_id_map(taxonomy: dict) -> Dict[str, int]:
+def get_category_id_map(taxonomy: dict) -> dict[str, int]:
     """Map class_id to COCO category ID."""
     category_map = {}
     if not taxonomy:
         return category_map
-    
+
     classes = taxonomy.get("classes", [])
     for idx, cls in enumerate(classes):
         class_id = cls.get("id", cls.get("name", f"class_{idx}"))
@@ -639,15 +649,15 @@ def get_category_id_map(taxonomy: dict) -> Dict[str, int]:
 
 
 def convert_2d_annotations_to_coco(
-    annotations_2d: List[Dict],
-    frames_data: List[Dict],
+    annotations_2d: list[dict],
+    frames_data: list[dict],
     taxonomy: dict,
     scene: Scene,
     camera_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Convert 2D annotations for a specific camera to COCO format.
-    
+
     COCO format:
     {
         "info": {...},
@@ -657,10 +667,10 @@ def convert_2d_annotations_to_coco(
     }
     """
     camera_annotations = [ann for ann in annotations_2d if ann.get("camera_id") == camera_id]
-    
+
     category_map = get_category_id_map(taxonomy)
     categories = build_coco_categories(taxonomy)
-    
+
     unique_class_ids = set(ann.get("class_id", "unknown") for ann in camera_annotations)
     next_cat_id = len(categories) + 1
     for class_id in unique_class_ids:
@@ -672,18 +682,18 @@ def convert_2d_annotations_to_coco(
                 "supercategory": "object",
             })
             next_cat_id += 1
-    
+
     images = []
     frame_id_to_coco_id = {}
     storage_paths = scene.storage_paths or {}
     cameras_config = storage_paths.get("cameras", {})
-    
+
     for frame in frames_data:
         frame_index = frame["frame_index"]
         file_paths = frame.get("file_paths", {})
         camera_files = file_paths.get("cameras", {})
         camera_file = camera_files.get(camera_id, f"{frame_index:06d}.jpg")
-        
+
         width, height = 1920, 1080
         if scene.calibration:
             lidar_to_cameras = scene.calibration.get("lidar_to_cameras", {})
@@ -692,10 +702,10 @@ def convert_2d_annotations_to_coco(
             if "cx" in intrinsic and "cy" in intrinsic:
                 width = int(intrinsic.get("cx", 960) * 2)
                 height = int(intrinsic.get("cy", 540) * 2)
-        
+
         coco_image_id = frame_index + 1
         frame_id_to_coco_id[frame_index] = coco_image_id
-        
+
         images.append({
             "id": coco_image_id,
             "file_name": camera_file,
@@ -704,22 +714,22 @@ def convert_2d_annotations_to_coco(
             "frame_index": frame_index,
             "timestamp": frame.get("timestamp", 0.0),
         })
-    
+
     coco_annotations = []
     for idx, ann in enumerate(camera_annotations):
         frame_index = ann.get("frame_index")
         if frame_index is None:
             continue
-        
+
         coco_image_id = frame_id_to_coco_id.get(frame_index)
         if coco_image_id is None:
             continue
-        
+
         class_id = ann.get("class_id", "unknown")
         category_id = category_map.get(class_id)
         if category_id is None:
             category_id = 1
-        
+
         data = ann.get("data") or {}
         ann_type = ann.get("type", "box2d")
         x = y = width = height = 0.0
@@ -841,9 +851,9 @@ def convert_2d_annotations_to_coco(
             coco_ann["segmentation"] = segmentation
 
         coco_ann.update(extra_fields)
-        
+
         coco_annotations.append(coco_ann)
-    
+
     return {
         "info": {
             "description": f"Annotations for camera: {camera_id}",
@@ -861,14 +871,14 @@ def convert_2d_annotations_to_coco(
 
 
 def convert_3d_annotations_to_coco(
-    annotations_3d: List[Dict],
-    frames_data: List[Dict],
+    annotations_3d: list[dict],
+    frames_data: list[dict],
     taxonomy: dict,
     scene: Scene,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Convert 3D LiDAR annotations to COCO-like format.
-    
+
     Extended COCO format for 3D:
     {
         "info": {...},
@@ -879,7 +889,7 @@ def convert_3d_annotations_to_coco(
     """
     category_map = get_category_id_map(taxonomy)
     categories = build_coco_categories(taxonomy)
-    
+
     unique_class_ids = set(ann.get("class_id", "unknown") for ann in annotations_3d)
     next_cat_id = len(categories) + 1
     for class_id in unique_class_ids:
@@ -891,35 +901,35 @@ def convert_3d_annotations_to_coco(
                 "supercategory": "object",
             })
             next_cat_id += 1
-    
+
     frames = []
     storage_paths = scene.storage_paths or {}
-    
+
     for frame in frames_data:
         frame_index = frame["frame_index"]
         file_paths = frame.get("file_paths", {})
         lidar_file = file_paths.get("lidar", f"{frame_index:06d}.pcd")
-        
+
         frames.append({
             "id": frame_index,
             "file_name": lidar_file,
             "timestamp": frame.get("timestamp", 0.0),
             "ego_pose": frame.get("ego_pose"),
         })
-    
+
     coco_annotations = []
     for idx, ann in enumerate(annotations_3d):
         frame_index = ann.get("frame_index", 0)
-        
+
         class_id = ann.get("class_id", "unknown")
         category_id = category_map.get(class_id)
         if category_id is None:
             category_id = 1
-        
+
         position = ann.get("position", {})
         dimensions = ann.get("dimensions", {})
         rotation = ann.get("rotation", {})
-        
+
         coco_ann = {
             "id": idx + 1,
             "frame_id": frame_index,
@@ -947,9 +957,9 @@ def convert_3d_annotations_to_coco(
             "source": ann.get("source", "manual"),
             "confidence": ann.get("confidence", 1.0),
         }
-        
+
         coco_annotations.append(coco_ann)
-    
+
     return {
         "info": {
             "description": "LiDAR 3D Annotations",
@@ -968,17 +978,17 @@ def convert_3d_annotations_to_coco(
 
 
 def convert_fusion_annotations_to_coco(
-    annotations_fusion: List[Dict],
-    frames_data: List[Dict],
+    annotations_fusion: list[dict],
+    frames_data: list[dict],
     taxonomy: dict,
     scene: Scene,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Convert Fusion annotations (3D + 2D projections) to COCO-like format.
     """
     category_map = get_category_id_map(taxonomy)
     categories = build_coco_categories(taxonomy)
-    
+
     unique_class_ids = set(ann.get("class_id", "unknown") for ann in annotations_fusion)
     next_cat_id = len(categories) + 1
     for class_id in unique_class_ids:
@@ -990,12 +1000,12 @@ def convert_fusion_annotations_to_coco(
                 "supercategory": "object",
             })
             next_cat_id += 1
-    
+
     frames = []
     for frame in frames_data:
         frame_index = frame["frame_index"]
         file_paths = frame.get("file_paths", {})
-        
+
         frames.append({
             "id": frame_index,
             "lidar_file": file_paths.get("lidar", f"{frame_index:06d}.pcd"),
@@ -1003,18 +1013,18 @@ def convert_fusion_annotations_to_coco(
             "timestamp": frame.get("timestamp", 0.0),
             "ego_pose": frame.get("ego_pose"),
         })
-    
+
     coco_annotations = []
     for idx, ann in enumerate(annotations_fusion):
         frame_index = ann.get("frame_index", 0)
-        
+
         class_id = ann.get("class_id", "unknown")
         category_id = category_map.get(class_id)
         if category_id is None:
             category_id = 1
-        
+
         cuboid_3d = ann.get("cuboid_3d", {})
-        
+
         coco_ann = {
             "id": idx + 1,
             "frame_id": frame_index,
@@ -1026,9 +1036,9 @@ def convert_fusion_annotations_to_coco(
             "track_id": ann.get("track_id"),
             "source": ann.get("source", "manual"),
         }
-        
+
         coco_annotations.append(coco_ann)
-    
+
     return {
         "info": {
             "description": "Fusion Annotations (3D + 2D projections)",
@@ -1045,7 +1055,7 @@ def convert_fusion_annotations_to_coco(
     }
 
 
-def get_cameras_from_annotations(annotations_2d: List[Dict]) -> List[str]:
+def get_cameras_from_annotations(annotations_2d: list[dict]) -> list[str]:
     """Extract unique camera IDs from 2D annotations."""
     cameras = set()
     for ann in annotations_2d:
@@ -1066,30 +1076,30 @@ def build_task_export_folder_name(task: Task) -> str:
 
 def add_sensor_annotations_to_zip(
     zf: zipfile.ZipFile,
-    annotations: Dict[str, List],
-    frames_data: List[Dict],
+    annotations: dict[str, list],
+    frames_data: list[dict],
     taxonomy: dict,
     scene: Scene,
     prefix: str = "annotations",
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """
     Add per-sensor COCO format annotation files to the ZIP archive.
-    
+
     Creates:
     - annotations/lidar.json for 3D cuboid annotations
     - annotations/{camera_id}.json for each camera's 2D annotations
     - annotations/fusion.json for fusion annotations
-    
+
     Returns dict with counts per sensor.
     """
     counts = {}
-    
+
     cuboids_3d = annotations.get("cuboids_3d", [])
     if cuboids_3d:
         coco_lidar = convert_3d_annotations_to_coco(cuboids_3d, frames_data, taxonomy, scene)
         zf.writestr(f"{prefix}/lidar.json", json.dumps(coco_lidar, indent=2))
         counts["lidar"] = len(cuboids_3d)
-    
+
     boxes_2d = annotations.get("boxes_2d", [])
     tracks_2d = annotations.get("tracks_2d", [])
     if boxes_2d:
@@ -1106,7 +1116,7 @@ def add_sensor_annotations_to_zip(
                 safe_camera_id = camera_id.replace("/", "_").replace("\\", "_")
                 zf.writestr(f"{prefix}/{safe_camera_id}.json", json.dumps(coco_camera, indent=2))
                 counts[camera_id] = len(camera_annotations)
-    
+
     annotations_fusion = annotations.get("annotations_fusion", [])
     if annotations_fusion:
         coco_fusion = convert_fusion_annotations_to_coco(
@@ -1114,7 +1124,7 @@ def add_sensor_annotations_to_zip(
         )
         zf.writestr(f"{prefix}/fusion.json", json.dumps(coco_fusion, indent=2))
         counts["fusion"] = len(annotations_fusion)
-    
+
     annotations_4d = annotations.get("annotations_4d", [])
     if annotations_4d:
         coco_4d = {
@@ -1132,7 +1142,7 @@ def add_sensor_annotations_to_zip(
         }
         zf.writestr(f"{prefix}/lidar_4d.json", json.dumps(coco_4d, indent=2))
         counts["lidar_4d"] = len(annotations_4d)
-    
+
     return counts
 
 
@@ -1142,18 +1152,18 @@ async def export_task(
     task_id: UUID,
     include_data: bool = Query(False, description="Include raw data files (images, point clouds)"),
     format: Literal["json", "coco"] = Query("coco", description="Export format (coco = per-sensor COCO files, json = legacy single file)"),
-    taxonomy_id: Optional[UUID] = Query(None, description="Filter export to a specific taxonomy. Segmentation taxonomies export only .label files; others export only their DB annotations."),
+    taxonomy_id: UUID | None = Query(None, description="Filter export to a specific taxonomy. Segmentation taxonomies export only .label files; others export only their DB annotations."),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     Export a single task's annotations.
-    
+
     - **include_data**: If True, returns a ZIP with data files + labels.
-    - **format**: 
+    - **format**:
         - coco: Per-sensor COCO format files (annotations/lidar.json, annotations/camera_front.json, etc.)
         - json: Legacy single labels.json file
-    
+
     ZIP structure for 'coco' format:
     ```
     task_export.zip/
@@ -1178,7 +1188,7 @@ async def export_task(
     dataset = await db.get(Dataset, scene.dataset_id)
     taxonomy = dataset.taxonomy if dataset else {}
 
-    annotation_mode: Optional[str] = None
+    annotation_mode: str | None = None
     if taxonomy_id is not None:
         tax_obj = await db.get(Taxonomy, taxonomy_id)
         if tax_obj:
@@ -1247,13 +1257,13 @@ async def export_task(
             **metadata,
             "annotations": annotations,
         }
-        
+
         if include_data:
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr("labels.json", json.dumps(export_data, indent=2))
                 add_scene_data_to_zip(zf, scene, frames_data, prefix="data")
-            
+
             zip_buffer.seek(0)
             filename = f"task_{task_id}_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
             return StreamingResponse(
@@ -1275,18 +1285,18 @@ async def export_scene(
     scene_id: UUID,
     include_data: bool = Query(False, description="Include raw data files"),
     format: Literal["json", "coco"] = Query("coco", description="Export format (coco = per-sensor COCO files, json = legacy single file)"),
-    taxonomy_id: Optional[UUID] = Query(None, description="Filter export to a specific taxonomy."),
+    taxonomy_id: UUID | None = Query(None, description="Filter export to a specific taxonomy."),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     Export all annotations for a scene (across all tasks).
-    
+
     - **include_data**: If True, includes raw data files in the ZIP.
-    - **format**: 
+    - **format**:
         - coco: Per-sensor COCO format files (annotations/lidar.json, annotations/camera_front.json, etc.)
         - json: Legacy single labels.json file
-    
+
     ZIP structure for 'coco' format:
     ```
     scene_export.zip/
@@ -1307,7 +1317,7 @@ async def export_scene(
     dataset = await db.get(Dataset, scene.dataset_id)
     taxonomy = dataset.taxonomy if dataset else {}
 
-    annotation_mode: Optional[str] = None
+    annotation_mode: str | None = None
     if taxonomy_id is not None:
         tax_obj = await db.get(Taxonomy, taxonomy_id)
         if tax_obj:
@@ -1329,7 +1339,7 @@ async def export_scene(
     }
 
     task_info = []
-    task_annotations_by_id: Dict[str, Dict[str, List[dict]]] = {}
+    task_annotations_by_id: dict[str, dict[str, list[dict]]] = {}
     for task in tasks:
         task_annotations = await get_annotations_for_task(
             db, task.id, taxonomy_id=taxonomy_id, annotation_mode=annotation_mode
@@ -1378,8 +1388,8 @@ async def export_scene(
                     metadata["export_info"]["annotation_layout"] = "per_task_sensor_files"
 
                     task_exports = []
-                    counts_by_task: Dict[str, Dict[str, int]] = {}
-                    aggregate_counts: Dict[str, int] = defaultdict(int)
+                    counts_by_task: dict[str, dict[str, int]] = {}
+                    aggregate_counts: dict[str, int] = defaultdict(int)
 
                     for task in tasks:
                         task_id_str = str(task.id)
@@ -1446,13 +1456,13 @@ async def export_scene(
                 "total": sum(len(v) for v in all_annotations.values()),
             },
         }
-        
+
         if include_data:
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr("labels.json", json.dumps(export_data, indent=2))
                 add_scene_data_to_zip(zf, scene, frames_data, prefix="data")
-            
+
             zip_buffer.seek(0)
             filename = f"scene_{scene.name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
             return StreamingResponse(
@@ -1480,13 +1490,13 @@ async def export_dataset(
 ):
     """
     Export all annotations for a dataset (across all scenes and tasks).
-    
+
     - **include_data**: If True, includes raw data files in the ZIP.
     - **accepted_only**: If True, only exports annotations from accepted/completed tasks.
-    - **format**: 
+    - **format**:
         - coco: Per-sensor COCO format files for each scene
         - json: Legacy single labels.json file
-    
+
     ZIP structure for 'coco' format:
     ```
     dataset_export.zip/
@@ -1504,13 +1514,13 @@ async def export_dataset(
     dataset = await db.get(Dataset, dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    
+
     taxonomy = dataset.taxonomy or {}
-    
+
     stmt = select(Scene).where(Scene.dataset_id == dataset_id)
     result = await db.execute(stmt)
     scenes = list(result.scalars().all())
-    
+
     scenes_data = []
     total_annotations = {
         "cuboids_3d": 0,
@@ -1520,14 +1530,14 @@ async def export_dataset(
         "annotations_legacy": 0,
         "tracks_2d": 0,
     }
-    
+
     for scene in scenes:
         task_query = select(Task).where(Task.scene_id == scene.id)
         if accepted_only:
             task_query = task_query.where(Task.status == "accepted")
         result = await db.execute(task_query)
         tasks = list(result.scalars().all())
-        
+
         scene_annotations = {
             "cuboids_3d": [],
             "boxes_2d": [],
@@ -1542,9 +1552,9 @@ async def export_dataset(
             for key in scene_annotations:
                 scene_annotations[key].extend(task_annotations[key])
                 total_annotations[key] += len(task_annotations[key])
-        
+
         scene_annotations = merge_overlapping_annotations(scene_annotations)
-        
+
         scenes_data.append({
             "scene": scene,
             "scene_metadata": get_scene_metadata(scene),
@@ -1552,7 +1562,7 @@ async def export_dataset(
             "task_count": len(tasks),
             "annotations": scene_annotations,
         })
-    
+
     metadata = {
         "export_info": {
             "format_version": "2.0",
@@ -1575,7 +1585,7 @@ async def export_dataset(
             "total_annotation_count": sum(total_annotations.values()),
         },
     }
-    
+
     if format == "coco":
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -1583,20 +1593,20 @@ async def export_dataset(
             for scene_data in scenes_data:
                 scene = scene_data["scene"]
                 scene_name = scene.name.replace("/", "_").replace("\\", "_")
-                
+
                 scene_metadata = {
                     "scene": scene_data["scene_metadata"],
                     "frames": scene_data["frames"],
                     "task_count": scene_data["task_count"],
                 }
                 zf.writestr(f"{scene_name}/metadata.json", json.dumps(scene_metadata, indent=2))
-                
+
                 annotation_counts = add_sensor_annotations_to_zip(
                     zf, scene_data["annotations"], scene_data["frames"], taxonomy, scene,
                     prefix=f"{scene_name}/annotations"
                 )
                 all_scene_counts[scene_name] = annotation_counts
-                
+
                 if include_data:
                     add_scene_data_to_zip(zf, scene, scene_data["frames"], prefix=f"{scene_name}/data")
 
@@ -1605,7 +1615,7 @@ async def export_dataset(
 
             metadata["scene_annotation_counts"] = all_scene_counts
             zf.writestr("metadata.json", json.dumps(metadata, indent=2))
-        
+
         zip_buffer.seek(0)
         filename = f"dataset_{dataset.name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
         return StreamingResponse(
@@ -1626,17 +1636,17 @@ async def export_dataset(
                 for sd in scenes_data
             ],
         }
-        
+
         if include_data:
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr("labels.json", json.dumps(export_data, indent=2))
-                
+
                 for scene_data in scenes_data:
                     scene = scene_data["scene"]
                     scene_prefix = f"data/{scene.name}"
                     add_scene_data_to_zip(zf, scene, scene_data["frames"], prefix=scene_prefix)
-            
+
             zip_buffer.seek(0)
             filename = f"dataset_{dataset.name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
             return StreamingResponse(

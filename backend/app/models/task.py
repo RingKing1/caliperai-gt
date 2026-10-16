@@ -1,7 +1,7 @@
 """Task lifecycle models: tasks, assignment/stage history and snapshots."""
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import (
     Boolean,
@@ -49,7 +49,7 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     status: Mapped[str] = mapped_column(
         String(50),
@@ -68,37 +68,37 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     context_buffer_before: Mapped[int] = mapped_column(Integer, default=5)
     context_buffer_after: Mapped[int] = mapped_column(Integer, default=5)
 
-    assignee_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    assignee_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    assigned_at: Mapped[Optional[datetime]] = mapped_column(
+    assigned_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
-    reviewer_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    reviewer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+    reviewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
-    review_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    customer_reviewer_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    customer_reviewer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    customer_reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+    customer_reviewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
-    customer_review_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    customer_review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     skip_customer_qa: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
@@ -106,7 +106,7 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     revision_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     priority: Mapped[int] = mapped_column(Integer, default=5)
-    deadline: Mapped[Optional[datetime]] = mapped_column(
+    deadline: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -126,11 +126,11 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
     }
     """
 
-    started_at: Mapped[Optional[datetime]] = mapped_column(
+    started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
-    submitted_at: Mapped[Optional[datetime]] = mapped_column(
+    submitted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -151,52 +151,52 @@ class Task(Base, TimestampMixin, SoftDeleteMixin):
         "User",
         foreign_keys=[customer_reviewer_id],
     )
-    annotations: Mapped[List["Annotation"]] = relationship(
+    annotations: Mapped[list["Annotation"]] = relationship(
         "Annotation",
         back_populates="task",
         cascade="all, delete-orphan",
     )
-    stage_history: Mapped[List["TaskStageHistory"]] = relationship(
+    stage_history: Mapped[list["TaskStageHistory"]] = relationship(
         "TaskStageHistory",
         back_populates="task",
         cascade="all, delete-orphan",
         order_by="TaskStageHistory.created_at",
     )
-    stage_snapshots: Mapped[List["StageSnapshot"]] = relationship(
+    stage_snapshots: Mapped[list["StageSnapshot"]] = relationship(
         "StageSnapshot",
         back_populates="task",
         cascade="all, delete-orphan",
         order_by="StageSnapshot.created_at.desc()",
     )
-    annotation_history: Mapped[List["AnnotationHistory"]] = relationship(
+    annotation_history: Mapped[list["AnnotationHistory"]] = relationship(
         "AnnotationHistory",
         back_populates="task",
         cascade="all, delete-orphan",
     )
-    assignment_history: Mapped[List["TaskAssignmentHistory"]] = relationship(
+    assignment_history: Mapped[list["TaskAssignmentHistory"]] = relationship(
         "TaskAssignmentHistory",
         back_populates="task",
         cascade="all, delete-orphan",
         order_by="TaskAssignmentHistory.created_at",
     )
 
-    time_sessions: Mapped[List["TimeSession"]] = relationship(
+    time_sessions: Mapped[list["TimeSession"]] = relationship(
         "TimeSession",
         back_populates="task",
         cascade="all, delete-orphan",
     )
-    activity_events: Mapped[List["ActivityEvent"]] = relationship(
+    activity_events: Mapped[list["ActivityEvent"]] = relationship(
         "ActivityEvent",
         back_populates="task",
         cascade="all, delete-orphan",
     )
-    performance_alerts: Mapped[List["PerformanceAlert"]] = relationship(
+    performance_alerts: Mapped[list["PerformanceAlert"]] = relationship(
         "PerformanceAlert",
         back_populates="task",
         cascade="all, delete-orphan",
     )
 
-    taxonomy_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    taxonomy_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("taxonomies.id", ondelete="SET NULL"),
         nullable=True,
@@ -242,7 +242,7 @@ class TaskAssignmentHistory(Base):
         String(50), nullable=False,
     )
 
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
@@ -254,13 +254,13 @@ class TaskAssignmentHistory(Base):
 
     stage: Mapped[str] = mapped_column(String(50), nullable=False)
 
-    changed_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    changed_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
 
-    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -304,13 +304,13 @@ class TaskStageHistory(Base):
     to_stage: Mapped[str] = mapped_column(String(50), nullable=False)
     to_status: Mapped[str] = mapped_column(String(50), nullable=False)
 
-    changed_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    changed_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
 
-    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -360,13 +360,13 @@ class StageSnapshot(Base):
 
     annotations_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
-    triggered_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    triggered_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
 
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

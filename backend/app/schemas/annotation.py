@@ -1,6 +1,6 @@
 """Annotation API schemas across all modalities, filters and migrations."""
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from uuid import UUID
 
 from pydantic import Field, field_validator
@@ -67,7 +67,7 @@ class Box2DData(BaseSchema):
 class PolylineData(BaseSchema):
     """Polyline annotation data."""
     camera_id: str
-    points: List[List[float]]
+    points: list[list[float]]
     is_closed: bool = False
     bezier: bool = False
 
@@ -85,7 +85,7 @@ class PolylineData(BaseSchema):
 class PolygonData(BaseSchema):
     """Polygon annotation data."""
     camera_id: str
-    points: List[List[float]]
+    points: list[list[float]]
 
     @field_validator("points")
     @classmethod
@@ -106,44 +106,44 @@ class KeypointsData(BaseSchema):
     """Keypoints annotation data."""
     camera_id: str
     skeleton_id: str
-    keypoints: Dict[str, Keypoint]
+    keypoints: dict[str, Keypoint]
 
 
 class Segmentation3DData(BaseSchema):
     """3D semantic segmentation annotation data."""
-    blob_url: Optional[str] = None
+    blob_url: str | None = None
     compression: str = "zlib"
     point_count: int = Field(..., gt=0)
-    class_mapping: Dict[str, str] = Field(default_factory=dict)
+    class_mapping: dict[str, str] = Field(default_factory=dict)
 
 
 class Segmentation2DData(BaseSchema):
     """2D semantic segmentation annotation data."""
     camera_id: str
-    mask_url: Optional[str] = None
-    polygons: Optional[List[List[List[float]]]] = None
+    mask_url: str | None = None
+    polygons: list[list[list[float]]] | None = None
 
 
-AnnotationData = Union[
-    CuboidData,
-    Box2DData,
-    PolylineData,
-    PolygonData,
-    KeypointsData,
-    Segmentation3DData,
-    Segmentation2DData,
-]
+AnnotationData = (
+    CuboidData
+    | Box2DData
+    | PolylineData
+    | PolygonData
+    | KeypointsData
+    | Segmentation3DData
+    | Segmentation2DData
+)
 
 
 
 class AnnotationBase(BaseSchema):
-    track_id: Optional[UUID] = None
+    track_id: UUID | None = None
     type: AnnotationType
     class_id: str
-    data: Dict[str, Any]
-    attributes: Dict[str, Any] = Field(default_factory=dict)
+    data: dict[str, Any]
+    attributes: dict[str, Any] = Field(default_factory=dict)
     source: AnnotationSource = AnnotationSource.MANUAL
-    taxonomy_id: Optional[UUID] = None
+    taxonomy_id: UUID | None = None
 
 
 class AnnotationCreate(AnnotationBase):
@@ -152,16 +152,16 @@ class AnnotationCreate(AnnotationBase):
 
 
 class AnnotationUpdate(BaseSchema):
-    track_id: Optional[UUID] = None
-    class_id: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
-    attributes: Optional[Dict[str, Any]] = None
+    track_id: UUID | None = None
+    class_id: str | None = None
+    data: dict[str, Any] | None = None
+    attributes: dict[str, Any] | None = None
 
 
 class AnnotationVerify(BaseSchema):
     """Verify an auto-annotation."""
     is_verified: bool = True
-    modifications: Optional[Dict[str, Any]] = None
+    modifications: dict[str, Any] | None = None
 
 
 class AnnotationResponse(AnnotationBase, TimestampSchema):
@@ -169,26 +169,26 @@ class AnnotationResponse(AnnotationBase, TimestampSchema):
     task_id: UUID
     frame_id: UUID
     is_verified: bool
-    verified_by: Optional[UUID] = None
-    verified_at: Optional[datetime] = None
+    verified_by: UUID | None = None
+    verified_at: datetime | None = None
 
 
 
 class BulkAnnotationCreate(BaseSchema):
     """Bulk create annotations."""
-    annotations: List[AnnotationCreate]
+    annotations: list[AnnotationCreate]
 
 
 class BulkAnnotationUpdate(BaseSchema):
     """Bulk update annotations."""
-    updates: List[Dict[str, Any]]
+    updates: list[dict[str, Any]]
 
 
 class BulkOperationResponse(BaseSchema):
     """Response for bulk operations."""
     success_count: int
     error_count: int
-    errors: List[Dict[str, Any]] = Field(default_factory=list)
+    errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
 
@@ -200,20 +200,20 @@ class PaginationParams(BaseSchema):
 
 class TaskFilters(BaseSchema):
     """Filter parameters for tasks."""
-    status: Optional[TaskStatus] = None
-    assignee_id: Optional[UUID] = None
-    scene_id: Optional[UUID] = None
-    priority_min: Optional[int] = None
-    priority_max: Optional[int] = None
+    status: TaskStatus | None = None
+    assignee_id: UUID | None = None
+    scene_id: UUID | None = None
+    priority_min: int | None = None
+    priority_max: int | None = None
 
 
 class AnnotationFilters(BaseSchema):
     """Filter parameters for annotations."""
-    type: Optional[AnnotationType] = None
-    class_id: Optional[str] = None
-    source: Optional[AnnotationSource] = None
-    is_verified: Optional[bool] = None
-    track_id: Optional[UUID] = None
+    type: AnnotationType | None = None
+    class_id: str | None = None
+    source: AnnotationSource | None = None
+    is_verified: bool | None = None
+    track_id: UUID | None = None
 
 
 
@@ -243,8 +243,8 @@ class CuboidWorldData(BaseSchema):
     center: Point3D
     dimensions: Dimensions3D
     rotation: Rotation3D
-    origin_frame_id: Optional[UUID] = None
-    origin_ego_pose: Optional[Dict[str, Any]] = None
+    origin_frame_id: UUID | None = None
+    origin_ego_pose: dict[str, Any] | None = None
 
 
 class FrameCuboidData(BaseSchema):
@@ -259,47 +259,47 @@ class Annotation4DBase(BaseSchema):
     track_id: UUID
     type: str = "cuboid"
     class_id: str
-    world_data: Dict[str, Any]
-    frame_data: Dict[str, Any] = Field(default_factory=dict)
-    frame_ids: List[UUID] = Field(default_factory=list)
+    world_data: dict[str, Any]
+    frame_data: dict[str, Any] = Field(default_factory=dict)
+    frame_ids: list[UUID] = Field(default_factory=list)
     is_static: bool = True
-    attributes: Dict[str, Any] = Field(default_factory=dict)
+    attributes: dict[str, Any] = Field(default_factory=dict)
     source: str = "manual_4d"
 
 
 class Annotation4DCreate(Annotation4DBase):
     """Create a new 4D annotation."""
-    id: Optional[UUID] = None
+    id: UUID | None = None
     task_id: UUID
 
 
 class Annotation4DUpdate(BaseSchema):
     """Update a 4D annotation."""
-    world_data: Optional[Dict[str, Any]] = None
-    frame_data: Optional[Dict[str, Any]] = None
-    frame_ids: Optional[List[UUID]] = None
-    attributes: Optional[Dict[str, Any]] = None
-    class_id: Optional[str] = None
+    world_data: dict[str, Any] | None = None
+    frame_data: dict[str, Any] | None = None
+    frame_ids: list[UUID] | None = None
+    attributes: dict[str, Any] | None = None
+    class_id: str | None = None
 
 
 class Annotation4DUpdateBulkItem(BaseSchema):
     """Single item for bulk update of 4D annotations."""
     id: UUID
-    world_data: Optional[Dict[str, Any]] = None
-    frame_data: Optional[Dict[str, Any]] = None
-    frame_ids: Optional[List[UUID]] = None
-    attributes: Optional[Dict[str, Any]] = None
-    class_id: Optional[str] = None
+    world_data: dict[str, Any] | None = None
+    frame_data: dict[str, Any] | None = None
+    frame_ids: list[UUID] | None = None
+    attributes: dict[str, Any] | None = None
+    class_id: str | None = None
 
 
 class BulkAnnotation4DUpdate(BaseSchema):
     """Bulk update 4D annotations."""
-    annotations: List[Annotation4DUpdateBulkItem]
+    annotations: list[Annotation4DUpdateBulkItem]
 
 
 class BulkAnnotation4DDelete(BaseSchema):
     """Bulk delete 4D annotations."""
-    annotation_ids: List[UUID]
+    annotation_ids: list[UUID]
 
 
 class Annotation4DResponse(Annotation4DBase, TimestampSchema):
@@ -307,30 +307,30 @@ class Annotation4DResponse(Annotation4DBase, TimestampSchema):
     id: UUID
     task_id: UUID
     is_migrated: bool
-    migrated_at: Optional[datetime] = None
+    migrated_at: datetime | None = None
 
 
 class Annotation4DMigrateRequest(BaseSchema):
     """Request to migrate 4D annotations to regular 3D annotations."""
-    annotation_4d_ids: Optional[List[UUID]] = None
+    annotation_4d_ids: list[UUID] | None = None
 
 
 class Annotation4DMigrateResponse(BaseSchema):
     """Response for 4D to 3D migration."""
     migrated_count: int
-    created_annotations: List[UUID]
-    errors: List[Dict[str, Any]] = Field(default_factory=list)
+    created_annotations: list[UUID]
+    errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
 
 class Annotation3DBase(BaseSchema):
     """Base schema for 3D LiDAR annotations."""
-    track_id: Optional[UUID] = None
+    track_id: UUID | None = None
     type: str = "cuboid"
     class_id: str
-    taxonomy_id: Optional[UUID] = None
-    data: Dict[str, Any]
-    attributes: Dict[str, Any] = Field(default_factory=dict)
+    taxonomy_id: UUID | None = None
+    data: dict[str, Any]
+    attributes: dict[str, Any] = Field(default_factory=dict)
     source: str = "manual_3d"
     is_keyframe: bool = False
     is_static: bool = False
@@ -339,52 +339,52 @@ class Annotation3DBase(BaseSchema):
 
 class Annotation3DCreate(Annotation3DBase):
     """Create a 3D annotation."""
-    id: Optional[UUID] = None
+    id: UUID | None = None
     task_id: UUID
     frame_id: UUID
 
 
 class Annotation3DUpdate(BaseSchema):
     """Update a 3D annotation."""
-    track_id: Optional[UUID] = None
-    class_id: Optional[str] = None
-    taxonomy_id: Optional[UUID] = None
-    data: Optional[Dict[str, Any]] = None
-    attributes: Optional[Dict[str, Any]] = None
-    is_keyframe: Optional[bool] = None
-    is_static: Optional[bool] = None
-    is_verified: Optional[bool] = None
+    track_id: UUID | None = None
+    class_id: str | None = None
+    taxonomy_id: UUID | None = None
+    data: dict[str, Any] | None = None
+    attributes: dict[str, Any] | None = None
+    is_keyframe: bool | None = None
+    is_static: bool | None = None
+    is_verified: bool | None = None
 
 
 class Annotation3DUpdateBulkItem(BaseSchema):
     """Single item for bulk update."""
     id: UUID
-    track_id: Optional[UUID] = None
-    class_id: Optional[str] = None
-    taxonomy_id: Optional[UUID] = None
-    data: Optional[Dict[str, Any]] = None
-    attributes: Optional[Dict[str, Any]] = None
-    is_keyframe: Optional[bool] = None
-    is_static: Optional[bool] = None
-    is_verified: Optional[bool] = None
+    track_id: UUID | None = None
+    class_id: str | None = None
+    taxonomy_id: UUID | None = None
+    data: dict[str, Any] | None = None
+    attributes: dict[str, Any] | None = None
+    is_keyframe: bool | None = None
+    is_static: bool | None = None
+    is_verified: bool | None = None
 
 
 class BulkAnnotation3DUpdate(BaseSchema):
     """Bulk update 3D annotations."""
-    annotations: List[Annotation3DUpdateBulkItem]
+    annotations: list[Annotation3DUpdateBulkItem]
 
 
 class BulkAnnotation3DDelete(BaseSchema):
     """Bulk delete 3D annotations."""
-    annotation_ids: List[UUID]
+    annotation_ids: list[UUID]
 
 
 class TrackWideUpdate3D(BaseSchema):
     """Update all annotations in a track with specified fields."""
-    class_id: Optional[str] = None
-    attributes: Optional[Dict[str, Any]] = None
-    dimensions: Optional[Dict[str, float]] = None
-    is_static: Optional[bool] = None
+    class_id: str | None = None
+    attributes: dict[str, Any] | None = None
+    dimensions: dict[str, float] | None = None
+    is_static: bool | None = None
 
 
 class Annotation3DResponse(Annotation3DBase, TimestampSchema):
@@ -392,10 +392,10 @@ class Annotation3DResponse(Annotation3DBase, TimestampSchema):
     id: UUID
     task_id: UUID
     frame_id: UUID
-    taxonomy_id: Optional[UUID] = None
+    taxonomy_id: UUID | None = None
     is_migrated_to_fusion: bool
-    migrated_at: Optional[datetime] = None
-    fusion_annotation_id: Optional[UUID] = None
+    migrated_at: datetime | None = None
+    fusion_annotation_id: UUID | None = None
     is_verified: bool
     is_keyframe: bool = False
     is_static: bool = False
@@ -403,7 +403,7 @@ class Annotation3DResponse(Annotation3DBase, TimestampSchema):
 
 class Annotation2DProjection(BaseSchema):
     """2D projection data for a camera."""
-    bbox: Optional[BBox2D] = None
+    bbox: BBox2D | None = None
     visibility: float = Field(default=1.0, ge=0, le=1)
     occlusion: float = Field(default=0.0, ge=0, le=1)
     truncation: float = Field(default=0.0, ge=0, le=1)
@@ -412,30 +412,30 @@ class Annotation2DProjection(BaseSchema):
 
 class AnnotationFusionBase(BaseSchema):
     """Base schema for Fusion annotations (3D + 2D combined)."""
-    track_id: Optional[UUID] = None
+    track_id: UUID | None = None
     type: str = "cuboid_fusion"
     class_id: str
-    data_3d: Dict[str, Any]
-    data_2d: Dict[str, Annotation2DProjection] = Field(default_factory=dict)
-    attributes: Dict[str, Any] = Field(default_factory=dict)
+    data_3d: dict[str, Any]
+    data_2d: dict[str, Annotation2DProjection] = Field(default_factory=dict)
+    attributes: dict[str, Any] = Field(default_factory=dict)
     source: str = "manual_fusion"
 
 
 class AnnotationFusionCreate(AnnotationFusionBase):
     """Create a Fusion annotation."""
-    id: Optional[UUID] = None
+    id: UUID | None = None
     task_id: UUID
     frame_id: UUID
-    source_3d_annotation_id: Optional[UUID] = None
+    source_3d_annotation_id: UUID | None = None
 
 
 class AnnotationFusionUpdate(BaseSchema):
     """Update a Fusion annotation."""
-    track_id: Optional[UUID] = None
-    class_id: Optional[str] = None
-    data_3d: Optional[Dict[str, Any]] = None
-    data_2d: Optional[Dict[str, Any]] = None
-    attributes: Optional[Dict[str, Any]] = None
+    track_id: UUID | None = None
+    class_id: str | None = None
+    data_3d: dict[str, Any] | None = None
+    data_2d: dict[str, Any] | None = None
+    attributes: dict[str, Any] | None = None
 
 
 class AnnotationFusionResponse(AnnotationFusionBase, TimestampSchema):
@@ -443,60 +443,60 @@ class AnnotationFusionResponse(AnnotationFusionBase, TimestampSchema):
     id: UUID
     task_id: UUID
     frame_id: UUID
-    source_3d_annotation_id: Optional[UUID] = None
+    source_3d_annotation_id: UUID | None = None
     is_verified: bool
 
 
 class Annotation2DBase(BaseSchema):
     """Base schema for 2D camera annotations."""
     camera_id: str
-    track_id: Optional[UUID] = None
+    track_id: UUID | None = None
     type: str
     class_id: str
-    taxonomy_id: Optional[UUID] = None
-    data: Dict[str, Any]
-    attributes: Dict[str, Any] = Field(default_factory=dict)
+    taxonomy_id: UUID | None = None
+    data: dict[str, Any]
+    attributes: dict[str, Any] = Field(default_factory=dict)
     source: str = "manual_2d"
 
 
 class Annotation2DCreate(Annotation2DBase):
     """Create a 2D annotation."""
-    id: Optional[UUID] = None
+    id: UUID | None = None
     task_id: UUID
     frame_id: UUID
 
 
 class Annotation2DUpdate(BaseSchema):
     """Update a 2D annotation."""
-    track_id: Optional[UUID] = None
-    class_id: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
-    attributes: Optional[Dict[str, Any]] = None
+    track_id: UUID | None = None
+    class_id: str | None = None
+    data: dict[str, Any] | None = None
+    attributes: dict[str, Any] | None = None
 
 
 class Annotation2DUpdateBulkItem(BaseSchema):
     """Single item for bulk update."""
     id: UUID
-    track_id: Optional[UUID] = None
-    class_id: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
-    attributes: Optional[Dict[str, Any]] = None
+    track_id: UUID | None = None
+    class_id: str | None = None
+    data: dict[str, Any] | None = None
+    attributes: dict[str, Any] | None = None
 
 
 class BulkAnnotation2DUpdate(BaseSchema):
     """Bulk update 2D annotations."""
-    annotations: List[Annotation2DUpdateBulkItem]
+    annotations: list[Annotation2DUpdateBulkItem]
 
 
 class BulkAnnotation2DDelete(BaseSchema):
     """Bulk delete 2D annotations."""
-    annotation_ids: List[UUID]
+    annotation_ids: list[UUID]
 
 
 class TrackWideUpdate2D(BaseSchema):
     """Update all 2D annotations in a track with specified fields."""
-    class_id: Optional[str] = None
-    attributes: Optional[Dict[str, Any]] = None
+    class_id: str | None = None
+    attributes: dict[str, Any] | None = None
 
 
 class Annotation2DResponse(Annotation2DBase, TimestampSchema):
@@ -511,31 +511,31 @@ class Track2DBase(BaseSchema):
     """Base schema for 2D tracks."""
     camera_id: str
     class_id: str
-    name: Optional[str] = None
-    color: Optional[str] = None
-    start_frame_index: Optional[int] = None
-    end_frame_index: Optional[int] = None
+    name: str | None = None
+    color: str | None = None
+    start_frame_index: int | None = None
+    end_frame_index: int | None = None
     is_interpolated: bool = False
     is_complete: bool = False
-    attributes: Dict[str, Any] = Field(default_factory=dict)
+    attributes: dict[str, Any] = Field(default_factory=dict)
 
 
 class Track2DCreate(Track2DBase):
     """Create a 2D track."""
-    id: Optional[UUID] = None
+    id: UUID | None = None
     task_id: UUID
 
 
 class Track2DUpdate(BaseSchema):
     """Update a 2D track."""
-    name: Optional[str] = None
-    color: Optional[str] = None
-    class_id: Optional[str] = None
-    start_frame_index: Optional[int] = None
-    end_frame_index: Optional[int] = None
-    is_interpolated: Optional[bool] = None
-    is_complete: Optional[bool] = None
-    attributes: Optional[Dict[str, Any]] = None
+    name: str | None = None
+    color: str | None = None
+    class_id: str | None = None
+    start_frame_index: int | None = None
+    end_frame_index: int | None = None
+    is_interpolated: bool | None = None
+    is_complete: bool | None = None
+    attributes: dict[str, Any] | None = None
 
 
 class Track2DResponse(Track2DBase, TimestampSchema):
@@ -546,46 +546,46 @@ class Track2DResponse(Track2DBase, TimestampSchema):
 
 class BulkTrack2DCreate(BaseSchema):
     """Bulk create 2D tracks."""
-    tracks: List[Track2DCreate]
+    tracks: list[Track2DCreate]
 
 
 class Migrate4DTo3DRequest(BaseSchema):
     """Request to migrate 4D annotations to 3D annotations."""
-    annotation_4d_ids: Optional[List[UUID]] = None
+    annotation_4d_ids: list[UUID] | None = None
     preserve_uuids: bool = True
 
 
 class Migrate4DTo3DResponse(BaseSchema):
     """Response for 4D to 3D migration."""
     migrated_count: int
-    created_annotation_ids: List[UUID]
-    track_id_mapping: Dict[str, str] = Field(default_factory=dict)
-    errors: List[Dict[str, Any]] = Field(default_factory=list)
+    created_annotation_ids: list[UUID]
+    track_id_mapping: dict[str, str] = Field(default_factory=dict)
+    errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class Migrate3DToFusionRequest(BaseSchema):
     """Request to migrate 3D annotations to Fusion annotations."""
-    annotation_3d_ids: Optional[List[UUID]] = None
+    annotation_3d_ids: list[UUID] | None = None
     preserve_uuids: bool = True
 
 
 class Migrate3DToFusionResponse(BaseSchema):
     """Response for 3D to Fusion migration."""
     migrated_count: int
-    created_annotation_ids: List[UUID]
-    errors: List[Dict[str, Any]] = Field(default_factory=list)
+    created_annotation_ids: list[UUID]
+    errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class BulkAnnotation3DCreate(BaseSchema):
     """Bulk create 3D annotations."""
-    annotations: List[Annotation3DCreate]
+    annotations: list[Annotation3DCreate]
 
 
 class BulkAnnotationFusionCreate(BaseSchema):
     """Bulk create Fusion annotations."""
-    annotations: List[AnnotationFusionCreate]
+    annotations: list[AnnotationFusionCreate]
 
 
 class BulkAnnotation2DCreate(BaseSchema):
     """Bulk create 2D annotations."""
-    annotations: List[Annotation2DCreate]
+    annotations: list[Annotation2DCreate]

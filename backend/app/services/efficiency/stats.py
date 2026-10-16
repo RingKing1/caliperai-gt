@@ -1,7 +1,6 @@
 """Efficiency analytics: personal stats, live team status, team stats, leaderboard."""
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import String, and_, cast, func, or_, select
@@ -123,7 +122,7 @@ def resolve_active_time(
 async def get_my_stats(
     db: AsyncSession,
     current_user: User,
-    organization_id: Optional[UUID],
+    organization_id: UUID | None,
     days: int,
 ) -> EfficiencyStats:
     """Get personal efficiency statistics for a given period."""
@@ -257,7 +256,7 @@ async def get_my_stats(
 async def get_team_live_status(
     db: AsyncSession,
     current_user: User,
-    organization_id: Optional[UUID],
+    organization_id: UUID | None,
 ) -> list[LiveUserStatus]:
     """Get real-time status of team members."""
     now = datetime.utcnow()
@@ -309,9 +308,9 @@ async def get_team_live_status(
 async def get_team_stats(
     db: AsyncSession,
     current_user: User,
-    organization_id: Optional[UUID],
-    dataset_id: Optional[UUID],
-    campaign_id: Optional[UUID],
+    organization_id: UUID | None,
+    dataset_id: UUID | None,
+    campaign_id: UUID | None,
     period: str,
 ) -> list[TeamMemberStats]:
     """
@@ -621,7 +620,7 @@ async def get_team_stats(
 async def get_leaderboard(
     db: AsyncSession,
     current_user: User,
-    organization_id: Optional[UUID],
+    organization_id: UUID | None,
     period: str,
     limit: int,
 ) -> list[LeaderboardEntry]:

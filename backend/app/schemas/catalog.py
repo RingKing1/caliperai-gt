@@ -1,6 +1,6 @@
 """Catalog API schemas: taxonomies, campaigns, datasets and configs."""
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -21,10 +21,10 @@ if TYPE_CHECKING:
 class AttributeDefinition(BaseSchema):
     """Definition for a class attribute."""
     type: Literal["boolean", "string", "number", "enum"]
-    default: Optional[Any] = None
-    options: Optional[List[str]] = None
+    default: Any | None = None
+    options: list[str] | None = None
     required: bool = False
-    description: Optional[str] = None
+    description: str | None = None
     mutable: bool = True
 
 
@@ -38,12 +38,12 @@ class SharedAttributeDefinition(BaseSchema):
         ..., min_length=1, max_length=100, description="Attribute name/id"
     )
     type: Literal["boolean", "string", "number", "enum"]
-    default: Optional[Any] = None
-    options: Optional[List[str]] = None
+    default: Any | None = None
+    options: list[str] | None = None
     required: bool = False
-    description: Optional[str] = None
+    description: str | None = None
     mutable: bool = True
-    applies_to: List[str] = Field(
+    applies_to: list[str] = Field(
         default_factory=list,
         description=(
             "List of class IDs this attribute applies to. Empty list or "
@@ -56,13 +56,13 @@ class KeypointDefinition(BaseSchema):
     """Definition for a skeleton keypoint."""
     id: str
     name: str
-    color: Optional[str] = None
+    color: str | None = None
 
 
 class SkeletonDefinition(BaseSchema):
     """Definition for a skeleton structure."""
-    keypoints: List[KeypointDefinition]
-    bones: List[List[str]]
+    keypoints: list[KeypointDefinition]
+    bones: list[list[str]]
 
 
 class ClassDefinition(BaseSchema):
@@ -70,12 +70,12 @@ class ClassDefinition(BaseSchema):
     id: str
     name: str
     color: str = Field(..., pattern=r"^#[0-9A-Fa-f]{6}$")
-    type: List[AnnotationType]
-    attributes: Dict[str, AttributeDefinition] = Field(default_factory=dict)
-    skeleton: Optional[str] = None
-    description: Optional[str] = None
-    default_dimensions: Optional[List[float]] = None
-    single_click_placement: Optional[bool] = None
+    type: list[AnnotationType]
+    attributes: dict[str, AttributeDefinition] = Field(default_factory=dict)
+    skeleton: str | None = None
+    description: str | None = None
+    default_dimensions: list[float] | None = None
+    single_click_placement: bool | None = None
 
 
 class AnnotationRules(BaseSchema):
@@ -88,10 +88,10 @@ class AnnotationRules(BaseSchema):
 
 class TaxonomyConfig(BaseSchema):
     """Complete taxonomy configuration for a dataset."""
-    classes: List[ClassDefinition]
-    skeletons: Dict[str, SkeletonDefinition] = Field(default_factory=dict)
+    classes: list[ClassDefinition]
+    skeletons: dict[str, SkeletonDefinition] = Field(default_factory=dict)
     annotation_rules: AnnotationRules = Field(default_factory=AnnotationRules)
-    shared_attributes: List[SharedAttributeDefinition] = Field(
+    shared_attributes: list[SharedAttributeDefinition] = Field(
         default_factory=list,
         description="Shared attributes that can apply to multiple classes"
     )
@@ -110,18 +110,18 @@ class CampaignStats(BaseSchema):
 
 class CampaignConfig(BaseSchema):
     """Configuration for a campaign."""
-    quality_thresholds: Dict[str, float] = Field(default_factory=dict)
-    deadline: Optional[str] = None
+    quality_thresholds: dict[str, float] = Field(default_factory=dict)
+    deadline: str | None = None
     priority: str = "normal"
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class CampaignBase(BaseSchema):
     name: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: str | None = None
     config: CampaignConfig = Field(default_factory=CampaignConfig)
-    custom_metadata: Dict[str, Any] = Field(default_factory=dict)
-    deadline: Optional[datetime] = None
+    custom_metadata: dict[str, Any] = Field(default_factory=dict)
+    deadline: datetime | None = None
 
 
 class CampaignCreate(CampaignBase):
@@ -131,11 +131,11 @@ class CampaignCreate(CampaignBase):
 
 
 class CampaignUpdate(BaseSchema):
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    config: Optional[CampaignConfig] = None
-    custom_metadata: Optional[Dict[str, Any]] = None
-    deadline: Optional[datetime] = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    config: CampaignConfig | None = None
+    custom_metadata: dict[str, Any] | None = None
+    deadline: datetime | None = None
 
 
 class CampaignResponse(CampaignBase, TimestampSchema):
@@ -145,7 +145,7 @@ class CampaignResponse(CampaignBase, TimestampSchema):
 
 
 class CampaignListResponse(BaseSchema):
-    items: List[CampaignResponse]
+    items: list[CampaignResponse]
     total: int
     page: int
     page_size: int
@@ -155,7 +155,7 @@ class CampaignListResponse(BaseSchema):
 class TaxonomyBase(BaseSchema):
     """Base schema for Taxonomy entity."""
     name: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: str | None = None
     version: str = Field(default="1.0.0", max_length=50)
     annotation_mode: TaxonomyAnnotationMode = Field(
         default=TaxonomyAnnotationMode.FUSION_3D,
@@ -164,10 +164,10 @@ class TaxonomyBase(BaseSchema):
             "pure 2D annotations"
         )
     )
-    classes: List[ClassDefinition] = Field(default_factory=list)
-    skeletons: Dict[str, SkeletonDefinition] = Field(default_factory=dict)
+    classes: list[ClassDefinition] = Field(default_factory=list)
+    skeletons: dict[str, SkeletonDefinition] = Field(default_factory=dict)
     annotation_rules: AnnotationRules = Field(default_factory=AnnotationRules)
-    shared_attributes: List[SharedAttributeDefinition] = Field(
+    shared_attributes: list[SharedAttributeDefinition] = Field(
         default_factory=list,
         description="Shared attributes that can apply to multiple classes"
     )
@@ -183,14 +183,14 @@ class TaxonomyCreate(TaxonomyBase):
 
 class TaxonomyUpdate(BaseSchema):
     """Schema for updating a taxonomy."""
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    version: Optional[str] = Field(None, max_length=50)
-    annotation_mode: Optional[TaxonomyAnnotationMode] = None
-    classes: Optional[List[ClassDefinition]] = None
-    skeletons: Optional[Dict[str, SkeletonDefinition]] = None
-    annotation_rules: Optional[AnnotationRules] = None
-    shared_attributes: Optional[List[SharedAttributeDefinition]] = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    version: str | None = Field(None, max_length=50)
+    annotation_mode: TaxonomyAnnotationMode | None = None
+    classes: list[ClassDefinition] | None = None
+    skeletons: dict[str, SkeletonDefinition] | None = None
+    annotation_rules: AnnotationRules | None = None
+    shared_attributes: list[SharedAttributeDefinition] | None = None
 
 
 class TaxonomyResponse(TaxonomyBase, TimestampSchema):
@@ -201,7 +201,7 @@ class TaxonomyResponse(TaxonomyBase, TimestampSchema):
 
 class TaxonomyListResponse(BaseSchema):
     """Paginated list of taxonomies."""
-    items: List[TaxonomyResponse]
+    items: list[TaxonomyResponse]
     total: int
     page: int
     page_size: int
@@ -219,17 +219,17 @@ class TaxonomySummary(BaseSchema):
 
 class SensorConfig(BaseSchema):
     """Sensor configuration for a dataset."""
-    lidar: Optional[Dict[str, Any]] = None
-    cameras: List[Dict[str, Any]] = Field(default_factory=list)
+    lidar: dict[str, Any] | None = None
+    cameras: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class DatasetBase(BaseSchema):
     name: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: str | None = None
     taxonomy: TaxonomyConfig
     sensor_config: SensorConfig = Field(default_factory=SensorConfig)
-    custom_metadata: Dict[str, Any] = Field(default_factory=dict)
-    deadline: Optional[datetime] = None
+    custom_metadata: dict[str, Any] = Field(default_factory=dict)
+    deadline: datetime | None = None
 
 
 class DatasetCreate(DatasetBase):
@@ -237,12 +237,12 @@ class DatasetCreate(DatasetBase):
 
 
 class DatasetUpdate(BaseSchema):
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    taxonomy: Optional[TaxonomyConfig] = None
-    sensor_config: Optional[SensorConfig] = None
-    custom_metadata: Optional[Dict[str, Any]] = None
-    deadline: Optional[datetime] = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    taxonomy: TaxonomyConfig | None = None
+    sensor_config: SensorConfig | None = None
+    custom_metadata: dict[str, Any] | None = None
+    deadline: datetime | None = None
 
 
 class DatasetResponse(DatasetBase, TimestampSchema):
@@ -264,6 +264,6 @@ class DatasetDetailResponse(DatasetBase, TimestampSchema):
     """Complete dataset response with all related data for optimized loading."""
     id: UUID
     campaign_id: UUID
-    taxonomies: List['TaxonomyResponse'] = Field(default_factory=list)
-    scenes: List['SceneResponse'] = Field(default_factory=list)
+    taxonomies: list['TaxonomyResponse'] = Field(default_factory=list)
+    scenes: list['SceneResponse'] = Field(default_factory=list)
     stats: DatasetStats = Field(default_factory=DatasetStats)

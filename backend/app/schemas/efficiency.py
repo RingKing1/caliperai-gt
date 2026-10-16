@@ -1,6 +1,5 @@
 """PM dashboard / annotator analytics response schemas."""
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -49,7 +48,7 @@ class UserDailyStats(BaseModel):
 
 class MyDashboardStats(BaseModel):
     """Personal dashboard statistics for an annotator."""
-    daily_stats: List[UserDailyStats]
+    daily_stats: list[UserDailyStats]
     total_labels_created: int
     total_labels_submitted: int
     acceptance_rate: float
@@ -73,7 +72,7 @@ class MostTimeConsumingTask(BaseModel):
     total_time_seconds: int
     total_time_formatted: str
     frame_count: int
-    annotator_alias: Optional[str] = None
+    annotator_alias: str | None = None
 
 
 class RecentActivity(BaseModel):
@@ -81,7 +80,7 @@ class RecentActivity(BaseModel):
     task_id: str
     task_name: str
     action: str
-    annotator_alias: Optional[str] = None
+    annotator_alias: str | None = None
     timestamp: datetime
 
 
@@ -104,10 +103,10 @@ class PMDashboardStats(BaseModel):
 
     efficiency: EfficiencyMetrics
 
-    top_annotators: List[AnnotatorStats]
+    top_annotators: list[AnnotatorStats]
 
-    most_time_consuming_task: Optional[MostTimeConsumingTask] = None
-    recent_activity: List[RecentActivity]
+    most_time_consuming_task: MostTimeConsumingTask | None = None
+    recent_activity: list[RecentActivity]
 
     overdue_tasks: int
     tasks_due_this_week: int

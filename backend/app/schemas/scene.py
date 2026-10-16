@@ -1,6 +1,6 @@
 """Scene and frame API schemas including calibration and storage metadata."""
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from pydantic import Field, field_validator
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 class RotationMatrix(BaseSchema):
     """3x3 rotation matrix."""
-    matrix: List[List[float]] = Field(..., min_length=3, max_length=3)
+    matrix: list[list[float]] = Field(..., min_length=3, max_length=3)
 
     @field_validator("matrix")
     @classmethod
@@ -27,8 +27,8 @@ class RotationMatrix(BaseSchema):
 
 class ExtrinsicCalibration(BaseSchema):
     """Extrinsic calibration (rotation + translation)."""
-    rotation: List[List[float]]
-    translation: List[float]
+    rotation: list[list[float]]
+    translation: list[float]
 
     @field_validator("translation")
     @classmethod
@@ -44,7 +44,7 @@ class IntrinsicCalibration(BaseSchema):
     fy: float = Field(..., gt=0)
     cx: float = Field(..., gt=0)
     cy: float = Field(..., gt=0)
-    distortion: Optional[List[float]] = None
+    distortion: list[float] | None = None
 
 
 class CameraCalibration(BaseSchema):
@@ -55,40 +55,40 @@ class CameraCalibration(BaseSchema):
 
 class SceneCalibration(BaseSchema):
     """All calibration data for a scene."""
-    lidar_to_cameras: Dict[str, CameraCalibration]
-    ego_to_lidar: Optional[ExtrinsicCalibration] = None
+    lidar_to_cameras: dict[str, CameraCalibration]
+    ego_to_lidar: ExtrinsicCalibration | None = None
 
 
-FlexibleCalibration = Union[Dict[str, Any], SceneCalibration]
+FlexibleCalibration = dict[str, Any] | SceneCalibration
 
 
 
 class SceneMetadata(BaseSchema):
     """Metadata for a scene."""
-    location: Optional[str] = None
-    weather: Optional[str] = None
-    time_of_day: Optional[str] = None
-    recording_date: Optional[str] = None
-    duration_seconds: Optional[float] = None
-    ego_vehicle: Optional[str] = None
+    location: str | None = None
+    weather: str | None = None
+    time_of_day: str | None = None
+    recording_date: str | None = None
+    duration_seconds: float | None = None
+    ego_vehicle: str | None = None
 
 
 class StoragePaths(BaseSchema):
     """Storage paths for scene data."""
     lidar_base: str
-    cameras: Dict[str, str] = Field(default_factory=dict)
-    ego_poses: Optional[str] = None
+    cameras: dict[str, str] = Field(default_factory=dict)
+    ego_poses: str | None = None
 
 
 class SceneBase(BaseSchema):
     name: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: str | None = None
     scene_metadata: SceneMetadata = Field(default_factory=SceneMetadata)
     frame_count: int = Field(..., gt=0)
     fps: float = Field(default=10.0, gt=0)
     calibration: SceneCalibration
     storage_paths: StoragePaths
-    deadline: Optional[datetime] = None
+    deadline: datetime | None = None
 
 
 class SceneCreate(SceneBase):
@@ -96,12 +96,12 @@ class SceneCreate(SceneBase):
 
 
 class SceneUpdate(BaseSchema):
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    scene_metadata: Optional[SceneMetadata] = None
-    calibration: Optional[SceneCalibration] = None
-    deadline: Optional[datetime] = None
-    selected_taxonomy_id: Optional[UUID] = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    scene_metadata: SceneMetadata | None = None
+    calibration: SceneCalibration | None = None
+    deadline: datetime | None = None
+    selected_taxonomy_id: UUID | None = None
 
 
 class SceneResponse(TimestampSchema):
@@ -109,21 +109,21 @@ class SceneResponse(TimestampSchema):
     id: UUID
     dataset_id: UUID
     name: str
-    description: Optional[str] = None
-    scene_metadata: Dict[str, Any] = Field(default_factory=dict)
+    description: str | None = None
+    scene_metadata: dict[str, Any] = Field(default_factory=dict)
     frame_count: int
     fps: float
-    calibration: Optional[Dict[str, Any]] = None
-    storage_paths: Dict[str, Any] = Field(default_factory=dict)
-    deadline: Optional[datetime] = None
-    selected_taxonomy_id: Optional[UUID] = None
-    tasks: List['TaskResponse'] = Field(default_factory=list)
+    calibration: dict[str, Any] | None = None
+    storage_paths: dict[str, Any] = Field(default_factory=dict)
+    deadline: datetime | None = None
+    selected_taxonomy_id: UUID | None = None
+    tasks: list['TaskResponse'] = Field(default_factory=list)
 
 
 class SceneSearchResponse(BaseSchema):
     """Structured scene search response."""
 
-    query: Optional[str] = None
+    query: str | None = None
     classes: list[str] = Field(default_factory=list)
     groups: list[str] = Field(default_factory=list)
     total: int
@@ -136,21 +136,21 @@ class SceneSearchResponse(BaseSchema):
 
 class EgoPose(BaseSchema):
     """Ego vehicle pose at a frame."""
-    position: List[float] = Field(..., min_length=3, max_length=3)
-    rotation: List[float] = Field(..., min_length=4, max_length=4)
-    velocity: Optional[List[float]] = None
+    position: list[float] = Field(..., min_length=3, max_length=3)
+    rotation: list[float] = Field(..., min_length=4, max_length=4)
+    velocity: list[float] | None = None
 
 
 class FrameFilePaths(BaseSchema):
     """File paths for frame data."""
     lidar: str | None = None
-    cameras: Dict[str, str] = Field(default_factory=dict)
+    cameras: dict[str, str] = Field(default_factory=dict)
 
 
 class FrameBase(BaseSchema):
     frame_index: int = Field(..., ge=0)
     timestamp: float = Field(..., ge=0)
-    ego_pose: Optional[EgoPose] = None
+    ego_pose: EgoPose | None = None
     file_paths: FrameFilePaths
 
 

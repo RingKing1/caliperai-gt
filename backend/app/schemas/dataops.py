@@ -1,5 +1,5 @@
 """DataOps API schemas: annotation history, stage snapshots and stats."""
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -11,18 +11,18 @@ class AnnotationHistoryResponse(BaseModel):
     task_id: str
     frame_id: str
     change_type: str
-    annotation_data: Dict[str, Any]
-    previous_data: Optional[Dict[str, Any]] = None
+    annotation_data: dict[str, Any]
+    previous_data: dict[str, Any] | None = None
     task_stage: str
     task_status: str
-    changed_by_id: Optional[str] = None
+    changed_by_id: str | None = None
     version: int
     created_at: str
 
 
 class AnnotationHistoryListResponse(BaseModel):
     """Paginated list of annotation history."""
-    items: List[AnnotationHistoryResponse]
+    items: list[AnnotationHistoryResponse]
     total: int
     limit: int
     offset: int
@@ -38,22 +38,22 @@ class SnapshotSummaryResponse(BaseModel):
     to_status: str
     snapshot_name: str
     total_annotations: int
-    annotations_by_class: Dict[str, int]
-    annotations_by_type: Dict[str, int]
-    triggered_by_id: Optional[str] = None
-    notes: Optional[str] = None
+    annotations_by_class: dict[str, int]
+    annotations_by_type: dict[str, int]
+    triggered_by_id: str | None = None
+    notes: str | None = None
     created_at: str
 
 
 class SnapshotDetailResponse(SnapshotSummaryResponse):
     """Full snapshot including annotation data."""
-    annotations_by_frame: Dict[str, int]
-    annotations_snapshot: Dict[str, Any]
+    annotations_by_frame: dict[str, int]
+    annotations_snapshot: dict[str, Any]
 
 
 class SnapshotListResponse(BaseModel):
     """Paginated list of snapshots."""
-    items: List[SnapshotSummaryResponse]
+    items: list[SnapshotSummaryResponse]
     total: int
     limit: int
     offset: int
@@ -62,18 +62,18 @@ class SnapshotListResponse(BaseModel):
 class TaskDataOpsStats(BaseModel):
     """DataOps statistics for a task."""
     total_changes: int
-    changes_by_type: Dict[str, int]
+    changes_by_type: dict[str, int]
     created_count: int
     updated_count: int
     deleted_count: int
     snapshot_count: int
-    latest_snapshot: Optional[Dict[str, Any]] = None
+    latest_snapshot: dict[str, Any] | None = None
 
 
 class DatasetDataOpsStats(BaseModel):
     """DataOps statistics for a dataset."""
     total_changes: int
-    changes_by_type: Dict[str, int]
+    changes_by_type: dict[str, int]
     total_snapshots: int
     tasks_with_history: int
     total_tasks: int
@@ -81,9 +81,9 @@ class DatasetDataOpsStats(BaseModel):
 
 class SnapshotCompareResponse(BaseModel):
     """Comparison between two snapshots."""
-    snapshot_1: Dict[str, Any]
-    snapshot_2: Dict[str, Any]
-    added: List[Dict[str, Any]]
-    removed: List[Dict[str, Any]]
-    modified: List[Dict[str, Any]]
-    summary: Dict[str, int]
+    snapshot_1: dict[str, Any]
+    snapshot_2: dict[str, Any]
+    added: list[dict[str, Any]]
+    removed: list[dict[str, Any]]
+    modified: list[dict[str, Any]]
+    summary: dict[str, int]

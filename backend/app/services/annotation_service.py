@@ -14,7 +14,7 @@ response models. This module never raises HTTP exceptions.
 """
 from __future__ import annotations
 
-from typing import Any, Optional, Tuple
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -61,7 +61,7 @@ def enum_value(value: Any) -> Any:
 def resolve_is_verified(
     source: Any,
     modality: str,
-    explicit: Optional[bool] = None,
+    explicit: bool | None = None,
 ) -> bool:
     """Resolve the verification flag for a newly created annotation.
 
@@ -81,18 +81,18 @@ class AnnotationService:
         self.db = db
 
     # ------------------------------------------------------------------ loaders
-    async def get_task(self, task_id: UUID) -> Optional[Task]:
+    async def get_task(self, task_id: UUID) -> Task | None:
         """Fetch a task by primary key (soft-deleted tasks included)."""
         return await self.db.get(Task, task_id)
 
-    async def get_active_task(self, task_id: UUID) -> Optional[Task]:
+    async def get_active_task(self, task_id: UUID) -> Task | None:
         """Fetch a task, excluding soft-deleted ones."""
         result = await self.db.execute(
             select(Task).where(Task.id == task_id, Task.is_deleted == False)  # noqa: E712
         )
         return result.scalar_one_or_none()
 
-    async def get_frame(self, frame_id: UUID) -> Optional[Frame]:
+    async def get_frame(self, frame_id: UUID) -> Frame | None:
         """Fetch a frame by primary key."""
         return await self.db.get(Frame, frame_id)
 
@@ -163,7 +163,7 @@ class AnnotationService:
         self,
         items: list[AnnotationCreate],
         changed_by_id: UUID,
-    ) -> Tuple[int, list[dict]]:
+    ) -> tuple[int, list[dict]]:
         """Best-effort bulk insert; per-item failures are collected, not raised."""
         success_count = 0
         errors: list[dict] = []
@@ -189,7 +189,7 @@ class AnnotationService:
         self,
         annotation_id: UUID,
         update: AnnotationUpdate,
-    ) -> Optional[Annotation]:
+    ) -> Annotation | None:
         """Update a generic annotation.
 
         Editing geometry of an auto annotation promotes it to manual.
@@ -215,7 +215,7 @@ class AnnotationService:
     @staticmethod
     def build_3d(
         data: Annotation3DCreate,
-        annotation_id: Optional[UUID] = None,
+        annotation_id: UUID | None = None,
     ) -> Annotation3D:
         return Annotation3D(
             id=annotation_id or data.id or uuid4(),
@@ -268,7 +268,7 @@ class AnnotationService:
     ) -> list[Annotation3D]:
         """Create or overwrite 3D annotations keyed by client-provided id."""
         results: list[Annotation3D] = []
-        transitioned: set[tuple[UUID, Optional[UUID]]] = set()
+        transitioned: set[tuple[UUID, UUID | None]] = set()
 
         for item in items:
             annotation_id = item.id or uuid4()
@@ -298,7 +298,7 @@ class AnnotationService:
         self,
         annotation_id: UUID,
         update: Annotation3DUpdate,
-    ) -> Optional[Annotation3D]:
+    ) -> Annotation3D | None:
         """Update a 3D annotation; geometry edits promote it to manual_3d."""
         annotation = await self.db.get(Annotation3D, annotation_id)
         if annotation is None:
@@ -321,7 +321,7 @@ class AnnotationService:
     @staticmethod
     def build_2d(
         data: Annotation2DCreate,
-        annotation_id: Optional[UUID] = None,
+        annotation_id: UUID | None = None,
     ) -> Annotation2D:
         return Annotation2D(
             id=annotation_id or data.id or uuid4(),
@@ -371,7 +371,7 @@ class AnnotationService:
     ) -> list[Annotation2D]:
         """Create or overwrite 2D annotations keyed by client-provided id."""
         results: list[Annotation2D] = []
-        transitioned: set[tuple[UUID, Optional[UUID]]] = set()
+        transitioned: set[tuple[UUID, UUID | None]] = set()
 
         for item in items:
             annotation_id = item.id or uuid4()
@@ -400,7 +400,7 @@ class AnnotationService:
         self,
         annotation_id: UUID,
         update: Annotation2DUpdate,
-    ) -> Optional[Annotation2D]:
+    ) -> Annotation2D | None:
         annotation = await self.db.get(Annotation2D, annotation_id)
         if annotation is None:
             return None
@@ -415,9 +415,9 @@ class AnnotationService:
     # ==================================================================== 4D
     @staticmethod
     def _normalize_4d(
-        frame_ids: Optional[list[UUID]],
-        frame_data: Optional[dict],
-    ) -> Tuple[list[str], dict]:
+        frame_ids: list[UUID] | None,
+        frame_data: dict | None,
+    ) -> tuple[list[str], dict]:
         frame_ids_str = [str(fid) for fid in frame_ids] if frame_ids else []
         frame_data_str = (
             {str(key): value for key, value in frame_data.items()}
@@ -430,7 +430,7 @@ class AnnotationService:
     def build_4d(
         cls,
         data: Annotation4DCreate,
-        annotation_id: Optional[UUID] = None,
+        annotation_id: UUID | None = None,
     ) -> Annotation4D:
         frame_ids_str, frame_data_str = cls._normalize_4d(
             data.frame_ids, data.frame_data
@@ -484,7 +484,7 @@ class AnnotationService:
         self,
         annotation_id: UUID,
         update: Annotation4DUpdate,
-    ) -> Optional[Annotation4D]:
+    ) -> Annotation4D | None:
         annotation = await self.db.get(Annotation4D, annotation_id)
         if annotation is None:
             return None
@@ -510,7 +510,7 @@ class AnnotationService:
 
     # ================================================================= fusion
     @staticmethod
-    def _normalize_data_2d(raw: Optional[dict]) -> dict:
+    def _normalize_data_2d(raw: dict | None) -> dict:
         data_2d: dict = {}
         if raw:
             for camera_id, projection in raw.items():
@@ -525,7 +525,7 @@ class AnnotationService:
     def build_fusion(
         cls,
         data: AnnotationFusionCreate,
-        annotation_id: Optional[UUID] = None,
+        annotation_id: UUID | None = None,
     ) -> AnnotationFusion:
         return AnnotationFusion(
             id=annotation_id or data.id or uuid4(),
@@ -553,7 +553,7 @@ class AnnotationService:
         self,
         annotation_id: UUID,
         update: AnnotationFusionUpdate,
-    ) -> Optional[AnnotationFusion]:
+    ) -> AnnotationFusion | None:
         """Update a fusion annotation; 3D geometry edits promote it to manual."""
         annotation = await self.db.get(AnnotationFusion, annotation_id)
         if annotation is None:

@@ -1,7 +1,7 @@
 """Organization and membership API schemas."""
 from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from enum import StrEnum
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import EmailStr, Field, model_validator
@@ -10,7 +10,7 @@ from app.schemas.common import BaseSchema, TimestampSchema
 from app.schemas.user import UserResponse
 
 
-class OrganizationRole(str, Enum):
+class OrganizationRole(StrEnum):
     """Roles within an organization."""
     OWNER = "owner"
     ADMIN = "admin"
@@ -26,34 +26,34 @@ class OrganizationBase(BaseSchema):
         max_length=100,
         pattern=r'^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$',
     )
-    description: Optional[str] = None
-    logo_url: Optional[str] = None
+    description: str | None = None
+    logo_url: str | None = None
 
 
 class OrganizationCreate(OrganizationBase):
     """Schema for creating an organization."""
-    settings: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    settings: dict[str, Any] | None = Field(default_factory=dict)
 
 
 class OrganizationUpdate(BaseSchema):
     """Schema for updating an organization."""
-    name: Optional[str] = Field(None, min_length=2, max_length=255)
-    description: Optional[str] = None
-    logo_url: Optional[str] = None
-    settings: Optional[Dict[str, Any]] = None
-    is_active: Optional[bool] = None
+    name: str | None = Field(None, min_length=2, max_length=255)
+    description: str | None = None
+    logo_url: str | None = None
+    settings: dict[str, Any] | None = None
+    is_active: bool | None = None
 
 
 class OrganizationResponse(OrganizationBase, TimestampSchema):
     """Response schema for organization."""
     id: UUID
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
     is_active: bool
 
 
 class OrganizationListResponse(BaseSchema):
     """List response for organizations."""
-    organizations: List[OrganizationResponse]
+    organizations: list[OrganizationResponse]
     total: int
 
 
@@ -65,8 +65,8 @@ class OrganizationMemberBase(BaseSchema):
 
 class OrganizationMemberCreate(BaseSchema):
     """Schema for adding a member to an organization."""
-    user_id: Optional[UUID] = None
-    email: Optional[EmailStr] = None
+    user_id: UUID | None = None
+    email: EmailStr | None = None
     role: OrganizationRole = Field(default=OrganizationRole.MEMBER)
 
     @model_validator(mode='after')
@@ -78,8 +78,8 @@ class OrganizationMemberCreate(BaseSchema):
 
 class OrganizationMemberUpdate(BaseSchema):
     """Schema for updating organization membership."""
-    role: Optional[OrganizationRole] = None
-    is_default: Optional[bool] = None
+    role: OrganizationRole | None = None
+    is_default: bool | None = None
 
 
 class OrganizationMemberResponse(OrganizationMemberBase, TimestampSchema):
@@ -94,16 +94,16 @@ class OrganizationMemberResponse(OrganizationMemberBase, TimestampSchema):
 
 class OrganizationMemberListResponse(BaseSchema):
     """List response for organization members."""
-    members: List[OrganizationMemberResponse]
+    members: list[OrganizationMemberResponse]
     total: int
 
 
 class OrganizationWithMembershipResponse(OrganizationResponse):
     """Organization response with the current user's membership info."""
-    membership: Optional[OrganizationMemberResponse] = None
+    membership: OrganizationMemberResponse | None = None
 
 
 class UserOrganizationsResponse(BaseSchema):
     """Response with all organizations a user belongs to."""
-    organizations: List[OrganizationWithMembershipResponse]
-    default_organization: Optional[OrganizationResponse] = None
+    organizations: list[OrganizationWithMembershipResponse]
+    default_organization: OrganizationResponse | None = None

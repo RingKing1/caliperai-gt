@@ -10,13 +10,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 logger = logging.getLogger(__name__)
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 from jose import jwt
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.models import User, UserRole, Permission, ROLE_PERMISSIONS
+from app.models.models import ROLE_PERMISSIONS, Permission, User, UserRole
 from app.schemas.auth import (
     CurrentUserResponse,
     LoginRequest,
@@ -26,11 +26,10 @@ from app.schemas.auth import (
     TokenUser,
 )
 from app.services.rbac_service import (
-    get_current_user,
     get_all_roles,
+    get_current_user,
     get_role_permissions,
 )
-
 
 router = APIRouter()
 
@@ -52,20 +51,20 @@ def hash_password(password: str) -> str:
 def create_access_token(user_id: str, expires_delta: timedelta | None = None) -> tuple[str, int]:
     """
     Create a JWT access token.
-    
+
     Returns:
         Tuple of (token, expires_in_seconds)
     """
     if expires_delta is None:
         expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+
     expire = datetime.utcnow() + expires_delta
     to_encode = {
         "sub": user_id,
         "exp": expire,
         "iat": datetime.utcnow(),
     }
-    
+
     token = jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
     return token, int(expires_delta.total_seconds())
 
@@ -86,7 +85,7 @@ async def login(
     )
     result = await db.execute(query)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         logger.warning("Login failed: unknown username/email %r", login_data.username)
         raise HTTPException(
@@ -94,7 +93,7 @@ async def login(
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     if not verify_password(login_data.password, user.hashed_password):
         logger.warning("Login failed: wrong password for user %r", user.username)
         raise HTTPException(
@@ -102,7 +101,7 @@ async def login(
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     if not user.is_active:
         logger.warning("Login failed: inactive user %r", user.username)
         raise HTTPException(
@@ -110,9 +109,9 @@ async def login(
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     access_token, expires_in = create_access_token(str(user.id))
-    
+
     return Token(
         access_token=access_token,
         expires_in=expires_in,
@@ -141,7 +140,7 @@ async def login_form(
     query = select(User).where(func.lower(User.email) == form_data.username.lower())
     result = await db.execute(query)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         logger.warning("Login (form) failed: unknown email %r", form_data.username)
         raise HTTPException(
@@ -149,7 +148,7 @@ async def login_form(
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     if not verify_password(form_data.password, user.hashed_password):
         logger.warning("Login (form) failed: wrong password for user %r", user.username)
         raise HTTPException(
@@ -157,7 +156,7 @@ async def login_form(
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     if not user.is_active:
         logger.warning("Login (form) failed: inactive user %r", user.username)
         raise HTTPException(
@@ -165,9 +164,9 @@ async def login_form(
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     access_token, expires_in = create_access_token(str(user.id))
-    
+
     return Token(
         access_token=access_token,
         expires_in=expires_in,
@@ -218,11 +217,11 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect current password",
         )
-    
+
     current_user.hashed_password = hash_password(password_data.new_password)
     current_user.must_change_password = False
     await db.flush()
-    
+
     return {"message": "Password updated successfully"}
 
 
@@ -234,7 +233,7 @@ async def refresh_token(
     Refresh the access token for the current user.
     """
     access_token, expires_in = create_access_token(str(current_user.id))
-    
+
     return Token(
         access_token=access_token,
         expires_in=expires_in,
@@ -274,17 +273,17 @@ async def list_permissions() -> dict:
     Get all available permissions grouped by category.
     """
     permissions_by_category: dict[str, list[dict]] = {}
-    
+
     for perm in Permission:
         category = perm.value.split(":")[0]
         if category not in permissions_by_category:
             permissions_by_category[category] = []
-        
+
         permissions_by_category[category].append({
             "value": perm.value,
             "name": perm.name,
         })
-    
+
     return {
         "categories": permissions_by_category,
         "total": len(Permission),

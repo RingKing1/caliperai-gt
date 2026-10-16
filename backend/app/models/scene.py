@@ -1,7 +1,7 @@
 """Scene and frame ORM models."""
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     DateTime,
@@ -43,7 +43,7 @@ class Scene(Base, TimestampMixin, SoftDeleteMixin):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     scene_metadata: Mapped[dict] = mapped_column(
         JSONB,
@@ -62,7 +62,7 @@ class Scene(Base, TimestampMixin, SoftDeleteMixin):
     }
     """
 
-    deadline: Mapped[Optional[datetime]] = mapped_column(
+    deadline: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -122,7 +122,7 @@ class Scene(Base, TimestampMixin, SoftDeleteMixin):
     }
     """
 
-    selected_taxonomy_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    selected_taxonomy_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("taxonomies.id", ondelete="SET NULL"),
         nullable=True,
@@ -133,12 +133,12 @@ class Scene(Base, TimestampMixin, SoftDeleteMixin):
         "Taxonomy",
         foreign_keys=[selected_taxonomy_id],
     )
-    tasks: Mapped[List["Task"]] = relationship(
+    tasks: Mapped[list["Task"]] = relationship(
         "Task",
         back_populates="scene",
         cascade="all, delete-orphan",
     )
-    frames: Mapped[List["Frame"]] = relationship(
+    frames: Mapped[list["Frame"]] = relationship(
         "Frame",
         back_populates="scene",
         cascade="all, delete-orphan",
@@ -201,7 +201,7 @@ class Frame(Base, TimestampMixin):
     """
 
     scene: Mapped["Scene"] = relationship("Scene", back_populates="frames")
-    annotations: Mapped[List["Annotation"]] = relationship(
+    annotations: Mapped[list["Annotation"]] = relationship(
         "Annotation",
         back_populates="frame",
         cascade="all, delete-orphan",

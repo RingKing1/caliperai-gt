@@ -3,7 +3,7 @@ import io
 import json
 import os
 import zipfile
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -35,7 +35,7 @@ from app.services.dataset_import.constants import SEGMENTATION_ROOT
 from app.services.dataset_import.taxonomy import map_source_class_to_taxonomy
 
 
-def build_empty_import_results() -> Dict[str, Any]:
+def build_empty_import_results() -> dict[str, Any]:
     """Create a blank import results structure compatible with process_zip_annotations output."""
     return {
         "sensors_processed": {},
@@ -52,7 +52,7 @@ def build_empty_import_results() -> Dict[str, Any]:
     }
 
 
-def merge_import_results(base: Dict[str, Any], part: Dict[str, Any], sensor_prefix: Optional[str] = None) -> None:
+def merge_import_results(base: dict[str, Any], part: dict[str, Any], sensor_prefix: str | None = None) -> None:
     """Merge a per-task import result into an aggregated result."""
     for sensor_name, count in (part.get("sensors_processed") or {}).items():
         key = f"{sensor_prefix}/{sensor_name}" if sensor_prefix else sensor_name
@@ -73,7 +73,7 @@ def merge_import_results(base: Dict[str, Any], part: Dict[str, Any], sensor_pref
     base["skipped_duplicates"] += int(part.get("skipped_duplicates", 0))
 
 
-def extract_task_id_from_folder_name(folder_name: str) -> Optional[UUID]:
+def extract_task_id_from_folder_name(folder_name: str) -> UUID | None:
     """Extract a UUID from a task export folder name like 'Task_Name__ab12cd34' when possible."""
     if "__" not in folder_name:
         return None
@@ -84,7 +84,7 @@ def extract_task_id_from_folder_name(folder_name: str) -> Optional[UUID]:
         return None
 
 
-def build_subzip_for_task_folder(zip_content: bytes, task_folder_prefix: str, metadata: Optional[Dict[str, Any]] = None) -> Optional[bytes]:
+def build_subzip_for_task_folder(zip_content: bytes, task_folder_prefix: str, metadata: dict[str, Any] | None = None) -> bytes | None:
     """Create an in-memory ZIP containing just one task folder remapped under annotations/."""
     if not task_folder_prefix:
         return None
@@ -116,13 +116,13 @@ async def process_zip_annotations(
     zip_content: bytes,
     scene: Scene,
     task: Task,
-    frame_id_map: Dict[int, UUID],
+    frame_id_map: dict[int, UUID],
     db: AsyncSession,
-    taxonomy_id: Optional[UUID] = None,
-) -> Dict[str, Any]:
+    taxonomy_id: UUID | None = None,
+) -> dict[str, Any]:
     """
     Process a ZIP file containing per-sensor annotation files.
-    
+
     Expected ZIP structure:
         annotations/
         ├── lidar/
@@ -132,7 +132,7 @@ async def process_zip_annotations(
         ├── camera_front.json  # COCO format
         ├── camera_rear.json
         └── ...
-    
+
     Returns dict with counts per sensor and any errors.
     """
     results = {
@@ -147,13 +147,13 @@ async def process_zip_annotations(
             TaxonomyAnnotationMode.ONLY_2D.value: set(),
         }
     }
-    
+
     dataset_result = await db.execute(
         select(Dataset).where(Dataset.id == scene.dataset_id)
     )
     dataset = dataset_result.scalar_one_or_none()
     taxonomy = dataset.taxonomy if dataset else None
-    
+
     default_camera_id = "default"
     if frame_id_map:
         first_frame_id = list(frame_id_map.values())[0]
@@ -163,10 +163,10 @@ async def process_zip_annotations(
             cameras = first_frame.file_paths.get("cameras", {})
             if cameras:
                 default_camera_id = list(cameras.keys())[0]
-    
+
     existing_2d_fingerprints = set()
     existing_3d_fingerprints = set()
-    
+
     existing_2d_query = select(Annotation2D).where(Annotation2D.task_id == task.id)
     existing_2d_result = await db.execute(existing_2d_query)
     for ann in existing_2d_result.scalars().all():
@@ -177,7 +177,7 @@ async def process_zip_annotations(
             bbox.get("x", 0), bbox.get("y", 0), bbox.get("width", 0), bbox.get("height", 0)
         )
         existing_2d_fingerprints.add(fp)
-    
+
     existing_3d_query = select(Annotation3D).where(Annotation3D.task_id == task.id)
     existing_3d_result = await db.execute(existing_3d_query)
     for ann in existing_3d_result.scalars().all():
@@ -190,18 +190,18 @@ async def process_zip_annotations(
             dims.get("length", 0), dims.get("width", 0), dims.get("height", 0)
         )
         existing_3d_fingerprints.add(fp)
-    
+
     skipped_duplicates = 0
-    
+
     try:
         with zipfile.ZipFile(io.BytesIO(zip_content), 'r') as zf:
             json_files = [
-                f for f in zf.namelist() 
-                if f.endswith('.json') 
-                and '__MACOSX' not in f 
+                f for f in zf.namelist()
+                if f.endswith('.json')
+                and '__MACOSX' not in f
                 and not any(part.startswith('.') for part in f.split('/'))
             ]
-            
+
             lidar_txt_files = [
                 f for f in zf.namelist()
                 if f.endswith('.txt')
@@ -209,14 +209,14 @@ async def process_zip_annotations(
                 and '__MACOSX' not in f
                 and not any(part.startswith('.') for part in f.split('/'))
             ]
-            
+
             for json_file in json_files:
                 file_name = json_file.split('/')[-1]
                 if file_name == 'metadata.json':
                     continue
-                
+
                 sensor_name = file_name.replace('.json', '')
-                
+
                 try:
                     try:
                         content = zf.read(json_file).decode('utf-8')
@@ -226,16 +226,16 @@ async def process_zip_annotations(
                         except:
                             results["errors"].append(f"Encoding error in {json_file}")
                             continue
-                    
+
                     coco_data = json.loads(content)
-                    
+
                     if "categories" in coco_data and isinstance(coco_data["categories"], list):
                         for cat in coco_data["categories"]:
                             if isinstance(cat, dict) and "id" in cat:
                                 results["coco_categories"][cat["id"]] = cat
-                    
+
                     annotations_to_create = []
-                    
+
                     is_lidar = sensor_name.lower() in ['lidar', 'lidar_4d', 'velodyne', 'point_cloud']
                     has_frames = 'frames' in coco_data
                     is_coco_2d = 'images' in coco_data and 'annotations' in coco_data
@@ -267,8 +267,8 @@ async def process_zip_annotations(
                         annotations_to_create = parse_coco_2d_annotations(
                             coco_data, default_camera_id, frame_id_map, taxonomy
                         )
-                    
-                    track_id_remap: Dict[str, UUID] = {}
+
+                    track_id_remap: dict[str, UUID] = {}
                     is_2d_file = not is_cvat_json and not (is_lidar or has_frames)
                     if is_2d_file:
                         for tr in (coco_data.get("tracks") or []):
@@ -298,7 +298,7 @@ async def process_zip_annotations(
                                 frame_id = frame_id_map.get(ann_data["frame_index"])
                                 if not frame_id:
                                     continue
-                                
+
                                 fp = compute_3d_annotation_fingerprint(
                                     frame_id,
                                     ann_data["position_x"], ann_data["position_y"], ann_data["position_z"],
@@ -308,9 +308,9 @@ async def process_zip_annotations(
                                     skipped_duplicates += 1
                                     continue
                                 existing_3d_fingerprints.add(fp)
-                                
+
                                 results["class_ids_by_mode"][TaxonomyAnnotationMode.FUSION_3D.value].add(ann_data["class_id"])
-                                
+
                                 annotation = Annotation3D(
                                     id=uuid4(),
                                     task_id=task.id,
@@ -345,7 +345,7 @@ async def process_zip_annotations(
                                     frame_id = frame_id_map.get(ann_data["frame_index"])
                                 if not frame_id:
                                     continue
-                                
+
                                 results["class_ids_by_mode"][TaxonomyAnnotationMode.ONLY_2D.value].add(ann_data["class_id"])
 
                                 resolved_track_id = None
@@ -483,7 +483,7 @@ async def process_zip_annotations(
                                         skipped_duplicates += 1
                                         continue
                                     existing_2d_fingerprints.add(fp)
-                                    
+
                                     annotation = Annotation2D(
                                         id=uuid4(),
                                         task_id=task.id,
@@ -504,22 +504,22 @@ async def process_zip_annotations(
                                         attributes=ann_data.get("attributes", {}),
                                         source=ann_data.get("source", AnnotationSource.AUTO.value)
                                     )
-                            
+
                             results["unique_class_ids"].add(ann_data["class_id"])
-                            
+
                             db.add(annotation)
                             sensor_count += 1
-                            
+
                         except Exception as e:
                             import traceback
                             error_msg = f"{type(e).__name__}: {str(e)}"
                             if not str(e):
                                 error_msg = f"{type(e).__name__}: {traceback.format_exc()}"
                             results["errors"].append(f"Error creating annotation in {sensor_name}: {error_msg}")
-                    
+
                     results["sensors_processed"][sensor_name] = sensor_count
                     results["total_imported"] += sensor_count
-                    
+
                 except json.JSONDecodeError as e:
                     results["errors"].append(f"Invalid JSON in {json_file}: {str(e)}")
                 except Exception as e:
@@ -528,14 +528,14 @@ async def process_zip_annotations(
                     if not str(e):
                         error_msg = f"{type(e).__name__}: {traceback.format_exc()}"
                     results["errors"].append(f"Error processing {json_file}: {error_msg}")
-            
+
             if lidar_txt_files:
                 sensor_name = "lidar"
                 sensor_count = 0
-                
+
                 try:
                     kitti_annotations = []
-                    
+
                     for txt_file in lidar_txt_files:
                         try:
                             file_name = txt_file.split('/')[-1]
@@ -545,15 +545,15 @@ async def process_zip_annotations(
                             except ValueError:
                                 results["errors"].append(f"Could not parse frame index from {txt_file}")
                                 continue
-                            
+
                             content = zf.read(txt_file).decode('utf-8')
                             kitti_lines = content.strip().split('\n')
-                            
+
                             for line in kitti_lines:
                                 parts = line.strip().split()
                                 if len(parts) < 15:
                                     continue
-                                
+
                                 offset = 0
                                 track_id_from_file = None
                                 if len(parts) >= 17:
@@ -563,29 +563,29 @@ async def process_zip_annotations(
                                         offset = 2
                                     except ValueError:
                                         pass
-                                
+
                                 class_name = parts[0 + offset]
                                 truncated = float(parts[1 + offset])
                                 occluded = int(parts[2 + offset])
                                 alpha = float(parts[3 + offset])
-                                
+
                                 height = float(parts[8 + offset])
                                 width = float(parts[9 + offset])
                                 length = float(parts[10 + offset])
-                                
+
                                 location_x = float(parts[11 + offset])
                                 location_y = float(parts[12 + offset])
                                 location_z = float(parts[13 + offset])
-                                
+
                                 rotation_y = float(parts[14 + offset])
-                                
+
                                 score = float(parts[15 + offset]) if len(parts) > (15 + offset) else 1.0
-                                
+
                                 class_id = map_source_class_to_taxonomy(class_name, taxonomy) if taxonomy else class_name.lower()
-                                
+
                                 if class_name.lower() == 'dontcare':
                                     continue
-                                
+
                                 ann_data = {
                                     "frame_index": frame_index,
                                     "class_id": class_id,
@@ -607,31 +607,31 @@ async def process_zip_annotations(
                                     "source": AnnotationSource.AUTO.value,
                                     "confidence": score
                                 }
-                                
+
                                 kitti_annotations.append(ann_data)
-                        
+
                         except Exception as e:
                             import traceback
                             error_msg = f"{type(e).__name__}: {str(e)}"
                             if not str(e):
                                 error_msg = f"{type(e).__name__}: {traceback.format_exc()}"
                             results["errors"].append(f"Error reading {txt_file}: {error_msg}")
-                    
-                    track_id_mapping: Dict[int, UUID] = {}
-                    
+
+                    track_id_mapping: dict[int, UUID] = {}
+
                     for ann_data in kitti_annotations:
                         try:
                             frame_id = frame_id_map.get(ann_data["frame_index"])
                             if not frame_id:
                                 continue
-                            
+
                             track_uuid = None
                             track_id_num = ann_data.get("track_id_num")
                             if track_id_num is not None:
                                 if track_id_num not in track_id_mapping:
                                     track_id_mapping[track_id_num] = uuid4()
                                 track_uuid = track_id_mapping[track_id_num]
-                            
+
                             annotation = Annotation3D(
                                 id=uuid4(),
                                 task_id=task.id,
@@ -660,23 +660,23 @@ async def process_zip_annotations(
                                 attributes=ann_data.get("attributes", {}),
                                 source=ann_data.get("source", AnnotationSource.AUTO.value),
                             )
-                            
+
                             results["unique_class_ids"].add(ann_data["class_id"])
-                            
+
                             db.add(annotation)
                             sensor_count += 1
-                        
+
                         except Exception as e:
                             import traceback
                             error_msg = f"{type(e).__name__}: {str(e)}"
                             if not str(e):
                                 error_msg = f"{type(e).__name__}: {traceback.format_exc()}"
                             results["errors"].append(f"Error creating 3D annotation from KITTI: {error_msg}")
-                    
+
                     if sensor_count > 0:
                         results["sensors_processed"][sensor_name] = sensor_count
                         results["total_imported"] += sensor_count
-                
+
                 except Exception as e:
                     import traceback
                     error_msg = f"{type(e).__name__}: {str(e)}"
@@ -690,7 +690,7 @@ async def process_zip_annotations(
             if all_label_files:
                 seg_frames_imported = 0
                 try:
-                    int_to_class: Dict[int, str] = {}
+                    int_to_class: dict[int, str] = {}
                     all_names = zf.namelist()
                     for info_path in (
                         "annotations/lidar_segmentation/labels_info.json",
@@ -772,7 +772,7 @@ async def process_zip_annotations(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid ZIP file"
         )
-    
+
     results["skipped_duplicates"] = skipped_duplicates
     return results
 

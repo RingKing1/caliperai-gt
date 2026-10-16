@@ -8,7 +8,7 @@ queries labels cannot express ("堵车", "雨夜路口", "施工路段").
 When no semantic query is supplied this reduces to the structured layer,
 so a single endpoint covers both modes.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,9 +23,9 @@ from app.services.scene_search_service import (
 from app.services.scene_semantic_search_service import search_scenes_semantic
 
 
-def _label_profile(scene: Dict[str, Any]) -> Dict[str, Any]:
+def _label_profile(scene: dict[str, Any]) -> dict[str, Any]:
     """Compact, explainable label statistics for one scene."""
-    groups: Dict[str, Any] = {}
+    groups: dict[str, Any] = {}
     for group_name, stats in scene.get("group_stats", {}).items():
         groups[group_name] = {
             "box_count": stats["box_count"],
@@ -50,13 +50,13 @@ def _label_profile(scene: Dict[str, Any]) -> Dict[str, Any]:
 async def search_scenes_hybrid(
     db: AsyncSession,
     filters: SceneSearchFilters,
-    semantic_query: Optional[str] = None,
-    cameras: Optional[List[str]] = None,
+    semantic_query: str | None = None,
+    cameras: list[str] | None = None,
     min_similarity: float = 0.0,
-    top_k_frames: Optional[int] = None,
-    candidate_pool: Optional[int] = None,
+    top_k_frames: int | None = None,
+    candidate_pool: int | None = None,
     preview_frames: int = 5,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     # --- Layer 1: structured label filter over ALL scenes ---------------
     scenes = await aggregate_scene_annotation_stats(
         db,
@@ -67,7 +67,7 @@ async def search_scenes_hybrid(
         scene["group_stats"] = build_group_stats(scene)
     _populate_group_frame_counts(scenes)
 
-    candidates: Dict[UUID, Dict[str, Any]] = {}
+    candidates: dict[UUID, dict[str, Any]] = {}
     for scene in scenes.values():
         matched, label_score, reasons = _matches_filters(scene, filters)
         if matched:
@@ -80,7 +80,7 @@ async def search_scenes_hybrid(
             scene["matched_reasons"] = reasons
             candidates[scene["scene_id"]] = scene
 
-    base_response: Dict[str, Any] = {
+    base_response: dict[str, Any] = {
         "mode": "hybrid" if semantic_query else "structured",
         "semantic_query": semantic_query,
         "classes": filters.classes,

@@ -759,12 +759,15 @@ pytest -q
   - [x] **print 清理（P3 1/N）**：data/import_data 端点与 dataset_import 域、
     task_service 残留 `print()` 全部改模块 logger（debug/info/warning/error
     分级），`app/` 下无业务 print 调用；373 测试全绿、零行为变更。
-  - [ ] 独立"风格大扫除"提交（与功能重构隔离，便于 review/blame）：`ruff check
-    --fix` 清历史 UP/W 告警——`UP006`/`UP035`（`List/Dict` → `list/dict`）、
-    `UP042`/`UP045`/`UP007`（`Optional/Union` → `X | None`）、`W291`/`W293`
-    （行尾与空行空白），范围含 `app/` 与 `microservices/`；P2 分包期间按
-    "零净增"口径原样保留，不在分包提交里夹带。验收：373 测试全绿 + 在线
-    OpenAPI 规范化 JSON 逐字节一致（Pydantic v2 下两种泛型写法契约等价）；
+  - [x] **UP/W 历史告警风格大扫除（P3 5/N，独立提交）**：`app/` 与
+    `microservices/` 共 104 文件，清 4100+ 处 UP006/UP035（泛型内置类型）、
+    UP042（StrEnum）、UP045/UP007（`X | None` 联合）、W291/W293（空白）；
+    typing 弃用导入逐个 AST 精确清除（含 4 处装饰器/类型别名手工改法），
+    基线 F401 用 noqa 临时保护后由 ruff 只清新增未用导入，无越界改动。
+    验收：373 passed/6 skipped；剩余 ruff 告警与基线同类别同分布（F401
+    76→47、F821 6 个历史 Redis/EmbeddingService 不动）；后端 OpenAPI
+    结构逐字段一致，仅 4 处 description 行尾空白被剥离；两个微服务 OpenAPI
+    逐字节一致。
   - [ ] 推进 OpenAPI → TypeScript 类型生成，消除前端手写类型漂移。
 
 ### 重构一个新业务域的推荐步骤

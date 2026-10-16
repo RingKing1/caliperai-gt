@@ -9,7 +9,7 @@ Provides session tracking, activity logging, and efficiency analytics:
 - Performance alerts
 - Leaderboards and gamification
 """
-from typing import Annotated, List, Optional
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -206,12 +206,12 @@ async def log_activity_batch(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/goals/my", response_model=List[UserGoalResponse])
+@router.get("/goals/my", response_model=list[UserGoalResponse])
 async def get_my_goals(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
     include_completed: bool = Query(False),
-) -> List[UserGoalResponse]:
+) -> list[UserGoalResponse]:
     """Get current user's goals with live progress from annotation counts."""
     return await goal_service.list_my_goals(db, current_user, include_completed)
 
@@ -258,20 +258,20 @@ async def delete_goal(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/achievements/my", response_model=List[AchievementResponse])
+@router.get("/achievements/my", response_model=list[AchievementResponse])
 async def get_my_achievements(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
-) -> List[AchievementResponse]:
+) -> list[AchievementResponse]:
     """Get current user's achievements."""
     return await achievement_service.list_my_achievements(db, current_user)
 
 
-@router.get("/achievements/unseen", response_model=List[AchievementResponse])
+@router.get("/achievements/unseen", response_model=list[AchievementResponse])
 async def get_unseen_achievements(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
-) -> List[AchievementResponse]:
+) -> list[AchievementResponse]:
     """Get current user's unseen achievements for notification purposes."""
     return await achievement_service.list_unseen_achievements(db, current_user)
 
@@ -300,7 +300,7 @@ async def mark_achievement_seen(
 async def get_my_efficiency_stats(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
-    organization_id: Optional[UUID] = Query(None),
+    organization_id: UUID | None = Query(None),
     days: int = Query(
         1, description="Number of days for the period (1=today, 7=week, etc.)"
     ),
@@ -309,43 +309,43 @@ async def get_my_efficiency_stats(
     return await stats_service.get_my_stats(db, current_user, organization_id, days)
 
 
-@router.get("/live/team", response_model=List[LiveUserStatus])
+@router.get("/live/team", response_model=list[LiveUserStatus])
 async def get_team_live_status(
     current_user: Annotated[
         User, Depends(RequirePermissions(Permission.DASHBOARD_VIEW_TEAM))
     ],
     db: AsyncSession = Depends(get_db),
-    organization_id: Optional[UUID] = Query(None),
-) -> List[LiveUserStatus]:
+    organization_id: UUID | None = Query(None),
+) -> list[LiveUserStatus]:
     """Get real-time status of team members."""
     return await stats_service.get_team_live_status(db, current_user, organization_id)
 
 
-@router.get("/team-stats", response_model=List[TeamMemberStats])
+@router.get("/team-stats", response_model=list[TeamMemberStats])
 async def get_team_stats(
     current_user: Annotated[
         User, Depends(RequirePermissions(Permission.DASHBOARD_VIEW_TEAM))
     ],
     db: AsyncSession = Depends(get_db),
-    organization_id: Optional[UUID] = Query(None),
-    dataset_id: Optional[UUID] = Query(None),
-    campaign_id: Optional[UUID] = Query(None),
+    organization_id: UUID | None = Query(None),
+    dataset_id: UUID | None = Query(None),
+    campaign_id: UUID | None = Query(None),
     period: str = Query("today", enum=["today", "week", "month"]),
-) -> List[TeamMemberStats]:
+) -> list[TeamMemberStats]:
     """Get per-member annotation, workflow and quality stats for the team."""
     return await stats_service.get_team_stats(
         db, current_user, organization_id, dataset_id, campaign_id, period
     )
 
 
-@router.get("/leaderboard", response_model=List[LeaderboardEntry])
+@router.get("/leaderboard", response_model=list[LeaderboardEntry])
 async def get_leaderboard(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
-    organization_id: Optional[UUID] = Query(None),
+    organization_id: UUID | None = Query(None),
     period: str = Query("week", enum=["today", "week", "month", "all_time"]),
     limit: int = Query(10, ge=1, le=100),
-) -> List[LeaderboardEntry]:
+) -> list[LeaderboardEntry]:
     """Get leaderboard for the organization."""
     return await stats_service.get_leaderboard(
         db, current_user, organization_id, period, limit
@@ -357,16 +357,16 @@ async def get_leaderboard(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/alerts", response_model=List[PerformanceAlertResponse])
+@router.get("/alerts", response_model=list[PerformanceAlertResponse])
 async def get_performance_alerts(
     current_user: Annotated[
         User, Depends(RequirePermissions(Permission.DASHBOARD_VIEW_TEAM))
     ],
     db: AsyncSession = Depends(get_db),
-    organization_id: Optional[UUID] = Query(None),
+    organization_id: UUID | None = Query(None),
     include_acknowledged: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
-) -> List[PerformanceAlertResponse]:
+) -> list[PerformanceAlertResponse]:
     """Get performance alerts for team."""
     return await alert_service.list_alerts(
         db, current_user, organization_id, include_acknowledged, limit
@@ -393,13 +393,13 @@ async def acknowledge_alert(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/challenges", response_model=List[TeamChallengeResponse])
+@router.get("/challenges", response_model=list[TeamChallengeResponse])
 async def get_challenges(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
-    organization_id: Optional[UUID] = Query(None),
+    organization_id: UUID | None = Query(None),
     include_completed: bool = Query(False),
-) -> List[TeamChallengeResponse]:
+) -> list[TeamChallengeResponse]:
     """Get team challenges with live progress from annotation counts."""
     return await challenge_service.list_challenges(
         db, current_user, organization_id, include_completed
@@ -462,7 +462,7 @@ async def get_team_member_report(
         User, Depends(RequirePermissions(Permission.DASHBOARD_VIEW_GLOBAL))
     ],
     db: AsyncSession = Depends(get_db),
-    organization_id: Optional[UUID] = Query(None),
+    organization_id: UUID | None = Query(None),
     days: int = Query(30, ge=1, le=365),
 ):
     """Return full stats for one team member as a JSON dict for CSV export."""

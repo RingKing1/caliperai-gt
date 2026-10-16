@@ -5,7 +5,6 @@ package owns the contracts. Class names are unchanged, keeping the OpenAPI
 component schemas identical.
 """
 from datetime import datetime
-from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -13,16 +12,16 @@ from pydantic import BaseModel, Field
 
 class ClientInfo(BaseModel):
     """Client browser/device information."""
-    browser: Optional[str] = None
-    os: Optional[str] = None
-    screen_resolution: Optional[str] = None
-    timezone: Optional[str] = None
+    browser: str | None = None
+    os: str | None = None
+    screen_resolution: str | None = None
+    timezone: str | None = None
 
 
 class SessionStartRequest(BaseModel):
     """Request to start a new session."""
     task_id: UUID
-    client_info: Optional[ClientInfo] = None
+    client_info: ClientInfo | None = None
 
 
 class SessionStartResponse(BaseModel):
@@ -36,7 +35,7 @@ class HeartbeatRequest(BaseModel):
     """Heartbeat to keep session alive."""
     session_id: UUID
     is_active: bool = True
-    current_frame: Optional[int] = None
+    current_frame: int | None = None
 
 
 class HeartbeatResponse(BaseModel):
@@ -63,8 +62,8 @@ class SessionEndResponse(BaseModel):
 
 class LoginSessionStartRequest(BaseModel):
     """Request to start a global login session."""
-    organization_id: Optional[UUID] = None
-    client_info: Optional[ClientInfo] = None
+    organization_id: UUID | None = None
+    client_info: ClientInfo | None = None
 
 
 class LoginSessionStartResponse(BaseModel):
@@ -106,10 +105,10 @@ class LoginSessionEndResponse(BaseModel):
 
 class ActivityEventRequest(BaseModel):
     """Request to log an activity event."""
-    session_id: Optional[UUID] = None
-    task_id: Optional[UUID] = None
+    session_id: UUID | None = None
+    task_id: UUID | None = None
     event_type: str
-    metadata: Optional[dict] = Field(default_factory=dict)
+    metadata: dict | None = Field(default_factory=dict)
 
 
 class ActivityEventResponse(BaseModel):
@@ -120,9 +119,9 @@ class ActivityEventResponse(BaseModel):
 
 class BatchActivityRequest(BaseModel):
     """Batch multiple activity events."""
-    session_id: Optional[UUID] = None
-    task_id: Optional[UUID] = None
-    events: List[ActivityEventRequest]
+    session_id: UUID | None = None
+    task_id: UUID | None = None
+    events: list[ActivityEventRequest]
 
 
 class UserGoalCreate(BaseModel):
@@ -142,7 +141,7 @@ class UserGoalResponse(BaseModel):
     period_start: datetime
     period_end: datetime
     is_achieved: bool
-    achieved_at: Optional[datetime]
+    achieved_at: datetime | None
     progress_percentage: float
     is_self_assigned: bool
 
@@ -163,10 +162,10 @@ class LiveUserStatus(BaseModel):
     """Real-time status of a user."""
     user_id: UUID
     display_name: str
-    current_task_id: Optional[UUID] = None
-    current_task_name: Optional[str] = None
+    current_task_id: UUID | None = None
+    current_task_name: str | None = None
     is_active: bool
-    last_activity: Optional[datetime] = None
+    last_activity: datetime | None = None
     session_duration_seconds: int = 0
     labels_today: int = 0
 
@@ -201,14 +200,14 @@ class TeamMemberStats(BaseModel):
     """Team member statistics for efficiency dashboard."""
     user_id: UUID
     display_name: str
-    email: Optional[str] = None
-    role: Optional[str] = None
+    email: str | None = None
+    role: str | None = None
 
     is_online: bool = False
     is_active: bool = False
-    current_task_id: Optional[UUID] = None
-    current_task_name: Optional[str] = None
-    last_activity: Optional[datetime] = None
+    current_task_id: UUID | None = None
+    current_task_name: str | None = None
+    last_activity: datetime | None = None
     session_duration_seconds: int = 0
 
     annotations: AnnotationBreakdown = AnnotationBreakdown()
@@ -221,8 +220,8 @@ class TeamMemberStats(BaseModel):
     labels_per_hour: float = 0.0
     avg_time_per_label_seconds: float = 0.0
 
-    period_start: Optional[datetime] = None
-    period_end: Optional[datetime] = None
+    period_start: datetime | None = None
+    period_end: datetime | None = None
 
 
 class LeaderboardEntry(BaseModel):
@@ -240,7 +239,7 @@ class TeamChallengeResponse(BaseModel):
     """Team challenge details."""
     id: UUID
     title: str
-    description: Optional[str]
+    description: str | None
     goal_type: str
     target_value: float
     current_value: float
@@ -250,18 +249,18 @@ class TeamChallengeResponse(BaseModel):
     is_active: bool
     is_completed: bool
     participant_count: int
-    top_contributors: List[LeaderboardEntry]
+    top_contributors: list[LeaderboardEntry]
 
 
 class CreateChallengeRequest(BaseModel):
     """Request to create a team challenge."""
     title: str
-    description: Optional[str] = None
+    description: str | None = None
     goal_type: str
     target_value: float
     start_date: datetime
     end_date: datetime
-    organization_id: Optional[UUID] = None
+    organization_id: UUID | None = None
 
 
 class PerformanceAlertResponse(BaseModel):
@@ -286,8 +285,8 @@ class EfficiencyStats(BaseModel):
     week_labels: int
     week_active_time_seconds: int
     labels_per_hour: float
-    acceptance_rate: Optional[float] = None
+    acceptance_rate: float | None = None
     current_streak_days: int
-    rank_in_team: Optional[int] = None
+    rank_in_team: int | None = None
     vs_team_avg_percentage: float
 

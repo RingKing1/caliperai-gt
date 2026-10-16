@@ -4,30 +4,30 @@
 These are separate from the legacy 'annotations' table and store
 3D LiDAR cuboid annotations that can be migrated to Fusion mode.
 """
-from datetime import datetime
 import logging
-from typing import Annotated, List, Optional
+from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, and_, text
+from sqlalchemy import and_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Annotation3D, Frame, User, Permission
+from app.models.models import Annotation3D, Frame, Permission, User
 from app.schemas.schemas import (
     Annotation3DCreate,
-    Annotation3DUpdate,
     Annotation3DResponse,
+    Annotation3DUpdate,
     BulkAnnotation3DCreate,
-    BulkAnnotation3DUpdate,
     BulkAnnotation3DDelete,
+    BulkAnnotation3DUpdate,
     BulkOperationResponse,
     TrackWideUpdate3D,
 )
+from app.services.achievement_service import check_achievements_for_user
 from app.services.annotation_service import AnnotationService
 from app.services.rbac_service import RequirePermissions
-from app.services.achievement_service import check_achievements_for_user
 
 router = APIRouter(prefix="/annotations-3d", tags=["annotations-3d"])
 logger = logging.getLogger(__name__)
@@ -56,23 +56,23 @@ async def create_annotation_3d(
         await check_achievements_for_user(db, current_user.id)
     except Exception as e:
         logger.warning("Achievement check failed after 3D create: %s", e)
-    
+
     return db_annotation
 
 
-@router.get("", response_model=List[Annotation3DResponse])
+@router.get("", response_model=list[Annotation3DResponse])
 async def list_annotations_3d(
     task_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
-    frame_id: Optional[UUID] = Query(None, description="Frame ID to filter by"),
-    track_id: Optional[UUID] = Query(None, description="Track ID to filter by"),
-    taxonomy_id: Optional[UUID] = Query(None, description="Taxonomy ID to filter by"),
-    is_migrated: Optional[bool] = Query(None, description="Filter by migration status"),
+    frame_id: UUID | None = Query(None, description="Frame ID to filter by"),
+    track_id: UUID | None = Query(None, description="Track ID to filter by"),
+    taxonomy_id: UUID | None = Query(None, description="Taxonomy ID to filter by"),
+    is_migrated: bool | None = Query(None, description="Filter by migration status"),
     db: AsyncSession = Depends(get_db),
 ):
     """List 3D annotations for a task. Requires ANNOTATIONS_READ permission."""
     query = select(Annotation3D).where(Annotation3D.task_id == task_id)
-    
+
     if frame_id:
         query = query.where(Annotation3D.frame_id == frame_id)
     if track_id:
@@ -82,10 +82,10 @@ async def list_annotations_3d(
         query = query.where(or_(Annotation3D.taxonomy_id == taxonomy_id, Annotation3D.taxonomy_id.is_(None)))
     if is_migrated is not None:
         query = query.where(Annotation3D.is_migrated_to_fusion == is_migrated)
-    
+
     result = await db.execute(query)
     annotations = result.scalars().all()
-    
+
     import logging
     logger = logging.getLogger(__name__)
     with_track_id = [a for a in annotations if a.track_id is not None]
@@ -96,7 +96,7 @@ async def list_annotations_3d(
     )
     if annotations:
         logger.info("[list_annotations_3d] sample annotation track_id: %s", annotations[0].track_id)
-    
+
     return annotations
 
 
@@ -104,7 +104,7 @@ async def list_annotations_3d(
 async def get_annotations_3d_summary(
     task_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
-    taxonomy_id: Optional[UUID] = Query(None),
+    taxonomy_id: UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Lightweight summary — only id, track_id, frame_id, taxonomy_id.
@@ -157,12 +157,12 @@ async def delete_annotation_3d(
     annotation = await db.get(Annotation3D, annotation_id)
     if not annotation:
         raise HTTPException(status_code=404, detail="3D Annotation not found")
-    
+
     await db.delete(annotation)
     await db.commit()
 
 
-@router.post("/bulk", response_model=List[Annotation3DResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/bulk", response_model=list[Annotation3DResponse], status_code=status.HTTP_201_CREATED)
 async def create_annotations_3d_bulk(
     bulk_in: BulkAnnotation3DCreate,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_CREATE))],
@@ -181,7 +181,7 @@ async def create_annotations_3d_bulk(
     return created
 
 
-@router.get("/by-track/{track_id}", response_model=List[Annotation3DResponse])
+@router.get("/by-track/{track_id}", response_model=list[Annotation3DResponse])
 async def get_annotations_3d_by_track(
     track_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
@@ -208,44 +208,44 @@ async def update_annotations_3d_by_track(
     query = select(Annotation3D).where(Annotation3D.track_id == track_id)
     result = await db.execute(query)
     annotations = result.scalars().all()
-    
+
     if not annotations:
         return BulkOperationResponse(
             success_count=0,
             error_count=0,
             errors=[{"error": f"No annotations found for track {track_id}"}]
         )
-    
+
     updated_count = 0
     for annotation in annotations:
         changed = False
-        
+
         if update_data.class_id is not None:
             annotation.class_id = update_data.class_id
             changed = True
-        
+
         if update_data.attributes is not None:
             annotation.attributes = update_data.attributes
             changed = True
-        
+
         if update_data.dimensions is not None:
             current_data = dict(annotation.data) if annotation.data else {}
             current_data['dimensions'] = update_data.dimensions
             annotation.data = current_data
             changed = True
-        
+
         if update_data.is_static is not None:
             current_attrs = annotation.attributes or {}
             current_attrs['is_static'] = update_data.is_static
             annotation.attributes = current_attrs
             changed = True
-        
+
         if changed:
             annotation.updated_at = datetime.utcnow()
             updated_count += 1
-    
+
     await db.commit()
-    
+
     return BulkOperationResponse(
         success_count=updated_count,
         error_count=0,
@@ -253,7 +253,7 @@ async def update_annotations_3d_by_track(
     )
 
 
-@router.post("/bulk-update", response_model=List[Annotation3DResponse])
+@router.post("/bulk-update", response_model=list[Annotation3DResponse])
 async def update_annotations_3d_bulk(
     bulk_in: BulkAnnotation3DUpdate,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_UPDATE))],
@@ -261,23 +261,23 @@ async def update_annotations_3d_bulk(
 ):
     """Bulk update 3D annotations. Requires ANNOTATIONS_UPDATE permission."""
     updated = []
-    
+
     for item in bulk_in.annotations:
         annotation = await db.get(Annotation3D, item.id)
         if not annotation:
             continue
-        
+
         update_data = item.model_dump(exclude={'id'}, exclude_unset=True)
         for key, value in update_data.items():
             setattr(annotation, key, value)
-        
+
         updated.append(annotation)
-    
+
     await db.commit()
-    
+
     for ann in updated:
         await db.refresh(ann)
-    
+
     return updated
 
 
@@ -290,7 +290,7 @@ async def delete_annotations_3d_bulk(
     """Bulk delete 3D annotations. Requires ANNOTATIONS_DELETE permission."""
     deleted_count = 0
     not_found = []
-    
+
     for annotation_id in bulk_in.annotation_ids:
         annotation = await db.get(Annotation3D, annotation_id)
         if annotation:
@@ -298,9 +298,9 @@ async def delete_annotations_3d_bulk(
             deleted_count += 1
         else:
             not_found.append(str(annotation_id))
-    
+
     await db.commit()
-    
+
     return BulkOperationResponse(
         success_count=deleted_count,
         error_count=len(not_found),
@@ -350,14 +350,14 @@ async def delete_annotations_3d_by_track(
     query = select(Annotation3D).where(Annotation3D.track_id == track_id)
     result = await db.execute(query)
     annotations = result.scalars().all()
-    
+
     deleted_count = 0
     for annotation in annotations:
         await db.delete(annotation)
         deleted_count += 1
-    
+
     await db.commit()
-    
+
     return BulkOperationResponse(
         success_count=deleted_count,
         error_count=0,

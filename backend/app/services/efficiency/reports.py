@@ -1,5 +1,4 @@
 """Per-member efficiency report for CSV export."""
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import and_, case, desc, distinct, func, or_, select
@@ -37,7 +36,7 @@ def format_duration(secs) -> str:
 async def get_team_member_report(
     db: AsyncSession,
     user_id: UUID,
-    organization_id: Optional[UUID],
+    organization_id: UUID | None,
     days: int,
 ) -> dict:
     """Return full stats for one team member as a JSON dict for CSV export."""

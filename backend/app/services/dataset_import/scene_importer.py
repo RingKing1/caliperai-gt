@@ -4,7 +4,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from sqlalchemy import select
@@ -20,7 +20,6 @@ from app.models.models import (
     Track2D,
     dataset_taxonomy_association,
 )
-
 from app.services.dataset_import.constants import SEGMENTATION_ROOT
 from app.services.dataset_import.naming import match_folder_to_task
 from app.services.dataset_import.taxonomy import (
@@ -40,54 +39,54 @@ async def import_scene_annotations(
     overwrite: bool = False,
 ) -> tuple[int, int]:
     """Import annotations from a scene directory if they exist.
-    
+
     Looks for:
     - annotations/lidar/*.txt (KITTI format 3D annotations)
     - label_2/*.txt (standard KITTI folder naming)
     - annotations/*.json (COCO format 2D annotations)
     - annotations/tasks/*/*.json (v3 per-task scene export layout)
-    
+
     Also checks parent directory for annotations folder (for structures like scene/data/ and scene/annotations/)
-    
+
     Performs taxonomy sync: maps imported class labels to existing taxonomy classes
     using case-insensitive matching and common naming variations.
-    
+
     Args:
         db: Database session
         scene: Scene to import annotations for
         scene_dir: Path to scene directory
         task: Task to associate annotations with
         overwrite: If True, delete existing annotations for this task before importing
-    
+
     Returns:
         Tuple of (annotations_3d_count, annotations_2d_count)
     """
     from sqlalchemy import delete
-    
+
     logger.debug(f"[DEBUG] import_scene_annotations called for scene {scene.name} at {scene_dir}")
-    
+
     if overwrite:
         deleted_3d = await db.execute(delete(Annotation3D).where(Annotation3D.task_id == task.id))
         deleted_2d = await db.execute(delete(Annotation2D).where(Annotation2D.task_id == task.id))
         await db.execute(delete(Track2D).where(Track2D.task_id == task.id))
         logger.info(f"[IMPORT] Overwrite mode: Deleted {deleted_3d.rowcount} 3D and {deleted_2d.rowcount} 2D existing annotations")
-    
+
     annotations_dir = scene_dir / "annotations"
     logger.debug(f"[DEBUG] Checking annotations_dir: {annotations_dir}, exists: {annotations_dir.exists()}")
-    
+
     if not annotations_dir.exists():
         parent_annotations_dir = scene_dir.parent / "annotations"
         logger.debug(f"[DEBUG] Checking parent annotations_dir: {parent_annotations_dir}, exists: {parent_annotations_dir.exists()}")
         if parent_annotations_dir.exists():
             annotations_dir = parent_annotations_dir
-    
+
     if not annotations_dir.exists():
         logger.debug(f"[DEBUG] No annotations directory found, returning 0,0")
 
         return 0, 0
-    
+
     class_mapping = {}
-    class_info_by_id: Dict[str, Dict[str, Any]] = {}
+    class_info_by_id: dict[str, dict[str, Any]] = {}
     if scene.dataset_id:
         taxonomy_result = await db.execute(
             select(Taxonomy)
@@ -106,17 +105,17 @@ async def import_scene_annotations(
                     if cid:
                         class_info_by_id[cid] = {"name": cls.get("name") or cid, "color": cls.get("color")}
                 logger.debug(f"[DEBUG] Loaded {len(taxonomy.classes)} classes from taxonomy '{taxonomy.name}'")
-    
+
     if class_mapping:
         logger.debug(f"[DEBUG] Built class mapping with {len(class_mapping)} entries")
     else:
         logger.debug(f"[DEBUG] No taxonomy found for dataset, using raw class labels")
-    
+
     annotations_3d_count = 0
     annotations_2d_count = 0
 
-    imported_tracks_2d: Dict[uuid.UUID, Dict[str, Any]] = {}
-    track_meta_overrides: Dict[uuid.UUID, Dict[str, Any]] = {}
+    imported_tracks_2d: dict[uuid.UUID, dict[str, Any]] = {}
+    track_meta_overrides: dict[uuid.UUID, dict[str, Any]] = {}
 
     default_camera_id = "default"
     frames_result = await db.execute(
@@ -136,7 +135,7 @@ async def import_scene_annotations(
         .where(Task.scene_id == scene.id, Task.is_deleted == False)
         .order_by(Task.created_at.asc())
     )
-    tasks_with_taxonomy: List[Tuple[Task, Optional[str]]] = [
+    tasks_with_taxonomy: list[tuple[Task, str | None]] = [
         (t, tx.name if tx else None) for t, tx in task_taxonomy_result.all()
     ]
     logger.debug(f"[DEBUG] Loaded {len(tasks_with_taxonomy)} tasks for multi-taxonomy routing")
@@ -153,17 +152,17 @@ async def import_scene_annotations(
                 frame_index = int(txt_file.stem)
             except ValueError:
                 continue
-            
+
             frame = frame_by_index.get(frame_index)
             if not frame:
                 continue
-            
+
             with open(txt_file, "r") as f:
                 for line in f:
                     parts = line.strip().split()
                     if len(parts) < 15:
                         continue
-                    
+
                     track_id_val = None
                     if len(parts) >= 17 and parts[0].isdigit() and parts[1].isdigit():
                         class_label = parts[2]
@@ -195,9 +194,9 @@ async def import_scene_annotations(
                             rotation_y = float(parts[14])
                         except (ValueError, IndexError):
                             continue
-                    
+
                     mapped_class_id = map_class_to_taxonomy(class_label, class_mapping) if class_mapping else class_label
-                    
+
                     annotation_3d = Annotation3D(
                         task_id=task.id,
                         frame_id=frame.id,
@@ -214,7 +213,7 @@ async def import_scene_annotations(
                     )
                     db.add(annotation_3d)
                     annotations_3d_count += 1
-    
+
     json_files = sorted(
         [
             f for f in annotations_dir.rglob("*.json")
@@ -233,7 +232,7 @@ async def import_scene_annotations(
                 logger.debug(f"[DEBUG] No task match for folder '{json_file.parent.name}', using default task")
 
         camera_name = json_file.stem
-        
+
         try:
             with open(json_file, "r") as f:
                 coco_data = json.load(f)
@@ -246,7 +245,7 @@ async def import_scene_annotations(
                     camera_name = extracted_camera
             elif camera_name.lower() in {"default", "images", "camera"}:
                 camera_name = default_camera_id
-            
+
             if "annotations" not in coco_data or "images" not in coco_data:
                 continue
 
@@ -259,7 +258,7 @@ async def import_scene_annotations(
                 except (ValueError, AttributeError, TypeError):
                     continue
                 track_meta_overrides[tid] = tr
-            
+
             image_id_to_frame = {}
             for img in coco_data.get("images", []):
                 frame_index = img.get("frame_index")
@@ -273,17 +272,17 @@ async def import_scene_annotations(
                     image_id_to_frame[img["id"]] = parsed_index
                 except (ValueError, KeyError, TypeError):
                     continue
-            
+
             for ann in coco_data.get("annotations", []):
                 image_id = ann.get("image_id")
                 frame_index = image_id_to_frame.get(image_id)
                 if frame_index is None:
                     continue
-                
+
                 frame = frame_by_index.get(frame_index)
                 if not frame:
                     continue
-                
+
                 category_id = ann.get("category_id")
                 class_label = None
                 for cat in coco_data.get("categories", []):
@@ -294,7 +293,7 @@ async def import_scene_annotations(
                     class_label = ann.get("class")
                 if not class_label:
                     class_label = str(category_id)
-                
+
                 mapped_class_id = map_class_to_taxonomy(class_label, class_mapping) if class_mapping else class_label
 
                 ann_type = ann.get("type", "box2d").lower()
@@ -382,7 +381,7 @@ async def import_scene_annotations(
                     ann_db_type = "box2d"
                     ann_db_data = {"bbox": {"x": bbox[0], "y": bbox[1], "width": bbox[2], "height": bbox[3]}}
 
-                source_track_uuid: Optional[uuid.UUID] = None
+                source_track_uuid: uuid.UUID | None = None
                 raw_track_id = ann.get("track_id")
                 if raw_track_id:
                     try:
@@ -390,7 +389,7 @@ async def import_scene_annotations(
                     except (ValueError, AttributeError, TypeError):
                         source_track_uuid = None
 
-                new_track_uuid: Optional[uuid.UUID] = None
+                new_track_uuid: uuid.UUID | None = None
                 if source_track_uuid is not None:
                     track_meta = imported_tracks_2d.get(source_track_uuid)
                     if track_meta is None:

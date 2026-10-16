@@ -10,8 +10,8 @@ identical apart from *when* the HTTP response is returned.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

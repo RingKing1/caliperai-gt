@@ -5,12 +5,11 @@ class-presence queries ("car scenes", "two-wheeler scenes") by aggregating
 ``annotations_3d`` through tasks to scenes.
 """
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
 
 CLASS_GROUPS = {
     "vehicle": [
@@ -97,7 +96,7 @@ def normalize_class_name(value: str) -> str:
     return value.strip().lower().replace(" ", "_").replace("-", "_")
 
 
-def resolve_group(value: str) -> Optional[str]:
+def resolve_group(value: str) -> str | None:
     return GROUP_ALIASES.get(normalize_class_name(value))
 
 
@@ -114,10 +113,10 @@ def resolve_term(value: str) -> tuple[str, str]:
 
 @dataclass
 class SceneSearchFilters:
-    dataset_id: Optional[UUID] = None
-    classes: List[str] = field(default_factory=list)
-    groups: List[str] = field(default_factory=list)
-    name_contains: Optional[str] = None
+    dataset_id: UUID | None = None
+    classes: list[str] = field(default_factory=list)
+    groups: list[str] = field(default_factory=list)
+    name_contains: str | None = None
     min_objects: int = 0
     min_class_ratio: float = 0.0
     min_group_ratio: float = 0.0
@@ -128,12 +127,12 @@ class SceneSearchFilters:
 
 async def aggregate_scene_annotation_stats(
     db: AsyncSession,
-    dataset_id: Optional[UUID] = None,
-    name_contains: Optional[str] = None,
-) -> Dict[UUID, Dict[str, Any]]:
+    dataset_id: UUID | None = None,
+    name_contains: str | None = None,
+) -> dict[UUID, dict[str, Any]]:
     """Return per-scene per-class box/track/frame counts."""
     where_clauses = ["s.is_deleted = FALSE"]
-    params: Dict[str, Any] = {}
+    params: dict[str, Any] = {}
     if dataset_id is not None:
         where_clauses.append("s.dataset_id = :dataset_id")
         params["dataset_id"] = dataset_id
@@ -161,7 +160,7 @@ async def aggregate_scene_annotation_stats(
     )
     result = await db.execute(sql, params)
 
-    scenes: Dict[UUID, Dict[str, Any]] = {}
+    scenes: dict[UUID, dict[str, Any]] = {}
     for row in result.mappings():
         scene_id = row["scene_id"]
         scene = scenes.setdefault(
@@ -186,7 +185,7 @@ async def aggregate_scene_annotation_stats(
     return scenes
 
 
-def build_group_stats(scene_stats: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
+def build_group_stats(scene_stats: dict[str, Any]) -> dict[str, dict[str, float]]:
     total_objects = scene_stats["total_objects"]
     group_stats = {}
     for group_name, members in CLASS_GROUPS.items():
@@ -207,7 +206,7 @@ def build_group_stats(scene_stats: Dict[str, Any]) -> Dict[str, Dict[str, float]
 
 
 def _populate_group_frame_counts(
-    scenes: Dict[UUID, Dict[str, Any]],
+    scenes: dict[UUID, dict[str, Any]],
 ) -> None:
     # Frame presence for a class group cannot be summed because one frame may
     # contain several member classes. The box-level aggregate does not carry
@@ -227,9 +226,9 @@ def _populate_group_frame_counts(
 
 
 def _matches_filters(
-    scene_stats: Dict[str, Any],
+    scene_stats: dict[str, Any],
     filters: SceneSearchFilters,
-) -> tuple[bool, float, List[str]]:
+) -> tuple[bool, float, list[str]]:
     total_objects = scene_stats["total_objects"]
     if total_objects < filters.min_objects:
         return False, 0.0, []
@@ -262,7 +261,7 @@ def _matches_filters(
 async def search_scenes(
     db: AsyncSession,
     filters: SceneSearchFilters,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     scenes = await aggregate_scene_annotation_stats(
         db,
         dataset_id=filters.dataset_id,

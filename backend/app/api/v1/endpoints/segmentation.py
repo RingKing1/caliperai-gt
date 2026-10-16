@@ -8,20 +8,20 @@ Provides:
 """
 import asyncio
 import fcntl
+import io
 import os
 import struct
-import io
-from typing import Annotated, Optional, List, Dict, Tuple
+from typing import Annotated
 from uuid import UUID
 
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-import numpy as np
 
 from app.core.database import get_db
-from app.models.models import User, Permission, Task, Frame, Scene
+from app.models.models import Frame, Permission, Scene, Task, User
 from app.schemas.segmentation import (
     SegmentationExportRequest,
     SegmentationLabelsCreate,
@@ -62,7 +62,7 @@ def ensure_segmentation_dir(scene_id: UUID) -> str:
 
 
 
-_frame_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
+_frame_locks: dict[tuple[str, str], asyncio.Lock] = {}
 _frame_locks_guard = asyncio.Lock()
 
 
@@ -220,7 +220,7 @@ async def save_segmentation_labels(
     unique, counts = np.unique(labels_array[labels_array >= 0], return_counts=True)
     class_distribution = {int(k): int(v) for k, v in zip(unique, counts)}
 
-    instance_ids_out: Optional[List[int]] = None
+    instance_ids_out: list[int] | None = None
     instance_count = 0
     if instance_array is not None:
         instance_ids_out = instance_array.tolist()
@@ -245,7 +245,7 @@ async def get_segmentation_stats(
 ):
     """
     Get segmentation statistics for a task.
-    
+
     Returns progress metrics across all frames.
     """
     task_query = select(Task).where(
@@ -256,17 +256,17 @@ async def get_segmentation_stats(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    
+
     frames_query = select(Frame).where(Frame.scene_id == task.scene_id).order_by(Frame.frame_index)
     result = await db.execute(frames_query)
     frames = result.scalars().all()
-    
+
     scene_query = select(Scene).where(Scene.id == task.scene_id)
     result = await db.execute(scene_query)
     scene = result.scalar_one_or_none()
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
-    
+
     total_frames = len(frames)
     labeled_frames = 0
     total_points = 0
@@ -446,11 +446,11 @@ async def propagate_segmentation(
     source_frame_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_CREATE))],
     db: AsyncSession = Depends(get_db),
-    target_frame_ids: List[UUID] = Query(...),
+    target_frame_ids: list[UUID] = Query(...),
 ):
     """
     Propagate segmentation labels from source frame to target frames.
-    
+
     Uses nearest-neighbor matching to transfer labels based on point positions.
     This is a basic implementation - for production, consider using
     optical flow or registration-based methods.
@@ -463,27 +463,27 @@ async def propagate_segmentation(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    
+
     scene_query = select(Scene).where(Scene.id == task.scene_id)
     result = await db.execute(scene_query)
     scene = result.scalar_one_or_none()
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
-    
+
     source_labels_path = get_segmentation_path(scene.id, source_frame_id)
     if not os.path.exists(source_labels_path):
         raise HTTPException(status_code=404, detail="Source frame has no segmentation labels")
-    
+
     source_labels = np.load(source_labels_path)
-    
+
     propagated = []
     for target_frame_id in target_frame_ids:
         target_labels_path = get_segmentation_path(scene.id, target_frame_id)
         ensure_segmentation_dir(scene.id)
-        
+
         np.save(target_labels_path, source_labels)
         propagated.append(str(target_frame_id))
-    
+
     return {
         "success": True,
         "propagated_frames": propagated,
@@ -499,12 +499,12 @@ async def clear_all_segmentation_labels(
 ):
     """
     Clear all segmentation labels for a task.
-    
+
     Deletes all segmentation and instance label files for all frames in the task's scene.
     """
-    import shutil
     import glob
-    
+    import shutil
+
     task_query = select(Task).where(
         Task.id == task_id,
         Task.is_deleted == False,
@@ -513,15 +513,15 @@ async def clear_all_segmentation_labels(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    
+
     scene_query = select(Scene).where(Scene.id == task.scene_id)
     result = await db.execute(scene_query)
     scene = result.scalar_one_or_none()
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
-    
+
     seg_dir = os.path.join(SEGMENTATION_ROOT, str(scene.id))
-    
+
     deleted_count = 0
     if os.path.exists(seg_dir):
         for npy_file in glob.glob(os.path.join(seg_dir, "*.npy")):
@@ -530,7 +530,7 @@ async def clear_all_segmentation_labels(
                 deleted_count += 1
             except OSError:
                 pass
-    
+
     return {
         "success": True,
         "deleted_files": deleted_count,

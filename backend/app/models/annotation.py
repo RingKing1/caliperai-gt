@@ -1,8 +1,8 @@
 """Annotation ORM models across all modalities plus change history."""
 import uuid
 from datetime import datetime
-from enum import Enum
-from typing import TYPE_CHECKING, List, Optional
+from enum import StrEnum
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     Boolean,
@@ -52,7 +52,7 @@ class Annotation(Base, TimestampMixin):
         nullable=False,
     )
 
-    track_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    track_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
     )
@@ -141,7 +141,7 @@ class Annotation(Base, TimestampMixin):
     }
     """
 
-    taxonomy_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    taxonomy_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("taxonomies.id", ondelete="SET NULL"),
         nullable=True,
@@ -155,12 +155,12 @@ class Annotation(Base, TimestampMixin):
     )
 
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    verified_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    verified_at: Mapped[Optional[datetime]] = mapped_column(
+    verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -211,7 +211,7 @@ class SegmentationBlob(Base, TimestampMixin):
 
     blob_data: Mapped[bytes] = mapped_column(BYTEA, nullable=True)
 
-    blob_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    blob_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     compression: Mapped[str] = mapped_column(String(20), default="zlib")
     point_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -248,7 +248,7 @@ class Annotation3D(Base, TimestampMixin):
         nullable=False,
     )
 
-    track_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    track_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
     )
@@ -288,17 +288,17 @@ class Annotation3D(Base, TimestampMixin):
     )
 
     is_migrated_to_fusion: Mapped[bool] = mapped_column(Boolean, default=False)
-    migrated_at: Mapped[Optional[datetime]] = mapped_column(
+    migrated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
-    fusion_annotation_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    fusion_annotation_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
     )
 
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    verified_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
@@ -308,7 +308,7 @@ class Annotation3D(Base, TimestampMixin):
 
     is_static: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    taxonomy_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    taxonomy_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("taxonomies.id", ondelete="SET NULL"),
         nullable=True,
@@ -358,7 +358,7 @@ class AnnotationFusion(Base, TimestampMixin):
         nullable=False,
     )
 
-    track_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    track_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
     )
@@ -419,13 +419,13 @@ class AnnotationFusion(Base, TimestampMixin):
         nullable=False,
     )
 
-    source_3d_annotation_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    source_3d_annotation_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
     )
 
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    verified_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
@@ -470,11 +470,11 @@ class Track2D(Base, TimestampMixin):
 
     class_id: Mapped[str] = mapped_column(String(100), nullable=False)
 
-    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    color: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    color: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
-    start_frame_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    end_frame_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    start_frame_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_frame_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     is_interpolated: Mapped[bool] = mapped_column(Boolean, default=False)
     is_complete: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -486,7 +486,7 @@ class Track2D(Base, TimestampMixin):
     )
 
     task: Mapped["Task"] = relationship("Task")
-    annotations: Mapped[List["Annotation2D"]] = relationship(
+    annotations: Mapped[list["Annotation2D"]] = relationship(
         "Annotation2D",
         primaryjoin="Track2D.id == foreign(Annotation2D.track_id)",
         viewonly=True,
@@ -526,7 +526,7 @@ class Annotation2D(Base, TimestampMixin):
 
     camera_id: Mapped[str] = mapped_column(String(100), nullable=False)
 
-    track_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    track_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
     )
@@ -538,7 +538,7 @@ class Annotation2D(Base, TimestampMixin):
 
     class_id: Mapped[str] = mapped_column(String(100), nullable=False)
 
-    taxonomy_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    taxonomy_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("taxonomies.id", ondelete="SET NULL"),
         nullable=True,
@@ -588,7 +588,7 @@ class Annotation2D(Base, TimestampMixin):
     )
 
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    verified_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
@@ -705,7 +705,7 @@ class Annotation4D(Base, TimestampMixin):
     )
 
     is_migrated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    migrated_at: Mapped[Optional[datetime]] = mapped_column(
+    migrated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -728,7 +728,7 @@ class Annotation4D(Base, TimestampMixin):
     )
 
 
-class AnnotationChangeType(str, Enum):
+class AnnotationChangeType(StrEnum):
     """Types of annotation changes."""
     CREATED = "created"
     UPDATED = "updated"
@@ -769,12 +769,12 @@ class AnnotationHistory(Base):
 
     annotation_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
-    previous_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    previous_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     task_stage: Mapped[str] = mapped_column(String(50), nullable=False)
     task_status: Mapped[str] = mapped_column(String(50), nullable=False)
 
-    changed_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    changed_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,

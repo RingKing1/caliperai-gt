@@ -13,7 +13,7 @@ import uuid
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import (
@@ -123,7 +123,7 @@ async def browse_folders(
                 detail=f"Path is not a directory: {path}",
             )
 
-        items: List[FolderItem] = []
+        items: list[FolderItem] = []
 
         try:
             for entry in sorted(folder_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
@@ -185,7 +185,7 @@ async def check_scene_names(
     current_user: User = Depends(get_current_user),
 ) -> SceneNameCheckResponse:
     """Check which scene folder names already exist in the dataset before uploading."""
-    conflicts: List[SceneConflict] = []
+    conflicts: list[SceneConflict] = []
     for i, folder_name in enumerate(request.folder_names):
         scene_name = folder_name if request.preserve_folder_names else generate_smart_scene_name(folder_name, i + 1)
         result = await db.execute(
@@ -205,7 +205,7 @@ async def check_scene_names(
 async def upload_and_import_dataset(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_IMPORT))],
     dataset_id: str = Form(...),
-    files: List[UploadFile] = File(...),
+    files: list[UploadFile] = File(...),
     derive_taxonomy: bool = Form(False),
     overwrite_annotations: bool = Form(False),
     preserve_folder_names: bool = Form(True),
@@ -214,10 +214,10 @@ async def upload_and_import_dataset(
     """
     Upload files from user's browser and import them as a dataset.
     Requires DATASETS_IMPORT permission.
-    
+
     Files should be uploaded with their relative paths preserved.
     Files are stored permanently in /uploads/{dataset_id}/{scene_name}/
-    
+
     Args:
         dataset_id: ID of the dataset to import into
         files: List of files to upload
@@ -228,18 +228,18 @@ async def upload_and_import_dataset(
     query = select(Dataset).options(selectinload(Dataset.campaign)).where(Dataset.id == UUID(dataset_id))
     result = await db.execute(query)
     dataset = result.scalar_one_or_none()
-    
+
     if not dataset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Dataset not found: {dataset_id}"
         )
-    
+
     dataset_upload_dir = UPLOAD_DIR / dataset_id
     dataset_upload_dir.mkdir(parents=True, exist_ok=True)
-    
+
     temp_dir = tempfile.mkdtemp(prefix="dataset_upload_")
-    
+
     try:
         for file in files:
             raw_path = file.filename or "unknown"
@@ -301,10 +301,10 @@ async def upload_zip_and_import_dataset(
     """
     Upload a ZIP file containing a dataset and import it.
     Requires DATASETS_IMPORT permission.
-    
+
     Use this endpoint when you have more than 1000 files (browser limitation).
     The ZIP file should contain the dataset folder structure.
-    
+
     Args:
         dataset_id: ID of the dataset to import into
         file: ZIP file containing the dataset
@@ -313,7 +313,7 @@ async def upload_zip_and_import_dataset(
         preserve_folder_names: If True, keep original folder names; if False, apply smart naming
     """
     log.info(f"[ZIP IMPORT] Received upload request: dataset_id={dataset_id}, filename={file.filename}, content_type={file.content_type}")
-    
+
     if not file.filename or not file.filename.lower().endswith('.zip'):
         log.error(f"[ZIP IMPORT] Invalid file extension: {file.filename}")
         raise HTTPException(
@@ -321,28 +321,28 @@ async def upload_zip_and_import_dataset(
             detail="File must be a ZIP archive (.zip)"
         )
     validate_upload_path(file.filename)
-    
+
     query = select(Dataset).options(selectinload(Dataset.campaign)).where(Dataset.id == UUID(dataset_id))
     result = await db.execute(query)
     dataset = result.scalar_one_or_none()
-    
+
     if not dataset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Dataset not found: {dataset_id}"
         )
-    
+
     dataset_upload_dir = UPLOAD_DIR / dataset_id
     dataset_upload_dir.mkdir(parents=True, exist_ok=True)
-    
+
     temp_dir = tempfile.mkdtemp(prefix="dataset_zip_upload_")
     zip_path = Path(temp_dir) / "upload.zip"
-    
+
     try:
         log.info("[ZIP IMPORT] Receiving uploaded ZIP file...")
         file_size = 0
         chunk_size = 1024 * 1024 * 10
-        
+
         with open(zip_path, "wb") as f:
             while True:
                 chunk = await file.read(chunk_size)
@@ -352,12 +352,12 @@ async def upload_zip_and_import_dataset(
                 file_size += len(chunk)
                 if file_size % (chunk_size * 10) == 0:
                     log.info("[ZIP IMPORT] Received %.1f MB...", file_size / (1024*1024))
-        
+
         log.info("[ZIP IMPORT] Uploaded file size: %.1f MB", file_size / (1024*1024))
         log.info("[ZIP IMPORT] Extracting ZIP file...")
         extract_dir = Path(temp_dir) / "extracted"
         extract_dir.mkdir(parents=True, exist_ok=True)
-        
+
         zip_magic = zip_path.read_bytes()[:4]
         if zip_magic != b"PK\x03\x04":
             raise HTTPException(
@@ -373,14 +373,14 @@ async def upload_zip_and_import_dataset(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid or corrupted ZIP file"
             )
-        
+
         try:
-            name_overrides_dict: Dict[str, str] = json.loads(name_overrides)
+            name_overrides_dict: dict[str, str] = json.loads(name_overrides)
         except Exception:
             name_overrides_dict = {}
 
         try:
-            scene_descriptions_dict: Dict[str, str] = json.loads(scene_descriptions)
+            scene_descriptions_dict: dict[str, str] = json.loads(scene_descriptions)
         except Exception:
             scene_descriptions_dict = {}
 
@@ -417,7 +417,7 @@ async def upload_zip_and_import_dataset(
 async def start_folder_import_job(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_IMPORT))],
     dataset_id: str = Form(...),
-    files: List[UploadFile] = File(...),
+    files: list[UploadFile] = File(...),
     derive_taxonomy: bool = Form(False),
     overwrite_annotations: bool = Form(False),
     preserve_folder_names: bool = Form(True),
@@ -538,12 +538,12 @@ async def start_zip_import_job(
     return job
 
 
-@router.get("/jobs", response_model=List[ImportJobResponse])
+@router.get("/jobs", response_model=list[ImportJobResponse])
 async def list_dataset_import_jobs(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_READ))],
     dataset_id: str = Query(...),
     db: AsyncSession = Depends(get_db),
-) -> List[ImportJob]:
+) -> list[ImportJob]:
     """Recent background import jobs for a dataset (newest first)."""
     return await list_import_jobs(db, dataset_id=dataset_id)
 
@@ -583,8 +583,8 @@ async def upload_video_and_import_dataset(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_IMPORT))],
     dataset_id: str = Form(...),
     file: UploadFile = File(..., description="Video file (MP4, AVI, MOV, MKV, WebM)"),
-    extraction_fps: Optional[float] = Form(None, description="FPS to extract frames at (default: auto-detect)"),
-    max_frames: Optional[int] = Form(None, description="Maximum number of frames to extract"),
+    extraction_fps: float | None = Form(None, description="FPS to extract frames at (default: auto-detect)"),
+    max_frames: int | None = Form(None, description="Maximum number of frames to extract"),
     image_format: str = Form("jpg", description="Output image format (jpg, png, webp)"),
     preserve_folder_names: bool = Form(True),
     db: AsyncSession = Depends(get_db),
@@ -592,11 +592,11 @@ async def upload_video_and_import_dataset(
     """
     Upload a video file and extract frames to create a scene with a task.
     Requires DATASETS_IMPORT permission.
-    
+
     The video will be processed to extract frames at the specified FPS.
     Each video becomes a scene with extracted frames as camera images.
     A task is automatically created for annotation.
-    
+
     Args:
         dataset_id: ID of the dataset to import into
         file: Video file to upload (MP4, AVI, MOV, MKV, WebM)
@@ -612,41 +612,41 @@ async def upload_video_and_import_dataset(
         is_ffmpeg_available,
         validate_video_magic_bytes,
     )
-    
+
     if not is_ffmpeg_available():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Video processing is not available. Please install ffmpeg on the server."
         )
-    
+
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Filename is required"
         )
-    
+
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in ALLOWED_VIDEO_EXT:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid video format. Supported formats: {', '.join(ALLOWED_VIDEO_EXT)}"
         )
-    
+
     validate_upload_path(file.filename)
-    
+
     query = select(Dataset).options(selectinload(Dataset.campaign)).where(Dataset.id == UUID(dataset_id))
     result = await db.execute(query)
     dataset = result.scalar_one_or_none()
-    
+
     if not dataset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Dataset not found: {dataset_id}"
         )
-    
+
     dataset_upload_dir = UPLOAD_DIR / dataset_id
     dataset_upload_dir.mkdir(parents=True, exist_ok=True)
-    
+
     temp_dir = tempfile.mkdtemp(prefix="video_upload_")
     video_path = Path(temp_dir) / f"video{file_ext}"
     permanent_scene_dir = None
@@ -655,7 +655,7 @@ async def upload_video_and_import_dataset(
         log.info(f"[VIDEO IMPORT] Receiving video file: {file.filename}")
         file_size = 0
         chunk_size = 1024 * 1024 * 10
-        
+
         with open(video_path, "wb") as f:
             while True:
                 chunk = await file.read(chunk_size)
@@ -663,33 +663,33 @@ async def upload_video_and_import_dataset(
                     break
                 f.write(chunk)
                 file_size += len(chunk)
-        
+
         log.info(f"[VIDEO IMPORT] Video file size: {file_size / (1024*1024):.1f} MB")
-        
+
         with open(video_path, "rb") as f:
             header = f.read(16)
-        
+
         if not validate_video_magic_bytes(header, file_ext):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"File content does not match expected {file_ext.upper()[1:]} format"
             )
-        
+
         metadata = get_video_metadata(video_path)
         if not metadata or metadata.get("duration", 0) <= 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not read video metadata. The file may be corrupted."
             )
-        
+
         log.info(f"[VIDEO IMPORT] Video metadata: {metadata}")
-        
+
         video_name = Path(file.filename).stem
         if preserve_folder_names and video_name.lower() not in GENERIC_FOLDER_NAMES:
             scene_name = video_name
         else:
             scene_name = generate_smart_scene_name(video_name, 1)
-        
+
         existing_scene_query = select(Scene).where(
             Scene.dataset_id == dataset.id,
             Scene.name == scene_name,
@@ -701,12 +701,12 @@ async def upload_video_and_import_dataset(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"A scene with the name '{scene_name}' already exists in this dataset",
             )
-        
+
         scene_id = uuid.uuid4()
         permanent_scene_dir = dataset_upload_dir / str(scene_id)
         frames_dir = permanent_scene_dir / "cameras" / "video"
         frames_dir.mkdir(parents=True, exist_ok=True)
-        
+
         log.info(f"[VIDEO IMPORT] Extracting frames at {extraction_fps or 'native'} FPS...")
         frame_paths, extraction_metadata = await extract_frames_async(
             video_path=video_path,
@@ -715,26 +715,26 @@ async def upload_video_and_import_dataset(
             max_frames=max_frames,
             image_format=image_format,
         )
-        
+
         frame_count = len(frame_paths)
         log.info(f"[VIDEO IMPORT] Extracted {frame_count} frames")
-        
+
         if frame_count == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No frames could be extracted from the video"
             )
-        
+
         uuid_rename_map = rename_data_files_to_uuid(permanent_scene_dir, DATA_EXTENSIONS)
-        
+
         org_id_val = dataset.campaign.organization_id
         schedule_scene_mirror(
             org_id_val, dataset.id, scene_id, permanent_scene_dir,
         )
-        
+
         relative_path_base = f"uploads/{dataset.id}/{scene_id}"
         cameras_storage_paths = {"video": f"{relative_path_base}/cameras/video"}
-        
+
         video_scene_metadata = {
             "source": "video_upload",
             "original_filename": file.filename,
@@ -745,7 +745,7 @@ async def upload_video_and_import_dataset(
             "extraction_fps": extraction_metadata.get("extraction_fps"),
             "frames_extracted": frame_count,
         }
-        
+
         scene = Scene(
             id=scene_id,
             dataset_id=dataset.id,
@@ -767,7 +767,7 @@ async def upload_video_and_import_dataset(
 
         permanent_frame_files = sorted(frames_dir.glob(f"*.{image_format}"), key=lambda x: x.name)
         timestamps = extraction_metadata.get("timestamps", [])
-        
+
         for frame_idx, frame_file in enumerate(permanent_frame_files):
             frame_file_paths = {
                 "cameras": {"video": frame_file.name},
@@ -779,9 +779,9 @@ async def upload_video_and_import_dataset(
                     ).get("original_name") or frame_file.name,
                 },
             }
-            
+
             frame_timestamp = timestamps[frame_idx] if frame_idx < len(timestamps) else frame_idx / scene.fps
-            
+
             frame = Frame(
                 scene_id=scene.id,
                 frame_index=frame_idx,
@@ -790,7 +790,7 @@ async def upload_video_and_import_dataset(
                 ego_pose=None,
             )
             db.add(frame)
-        
+
         await db.flush()
 
         task = await get_or_create_scene_import_task(
@@ -801,9 +801,9 @@ async def upload_video_and_import_dataset(
             description=f"Auto-created for video {file.filename} ({frame_count} frames)",
         )
         log.info(f"[VIDEO IMPORT] Using task: {task.name}")
-        
+
         await db.commit()
-        
+
         return ImportResponse(
             success=True,
             message=f"Imported video as scene '{scene_name}' with {frame_count} frames",
@@ -814,7 +814,7 @@ async def upload_video_and_import_dataset(
                 f"Extracted {frame_count} frames at {extraction_metadata.get('extraction_fps'):.1f} fps",
             ],
         )
-        
+
     except HTTPException:
         raise
     except IntegrityError:
@@ -860,7 +860,7 @@ async def import_dataset(
     """
     Import scenes and frames from a local dataset folder structure.
     Requires DATASETS_IMPORT permission.
-    
+
     Expected folder structure:
     ```
     root_path/
@@ -883,54 +883,54 @@ async def import_dataset(
     ```
     """
     root_path = Path(request.root_path)
-    
+
     if not root_path.exists():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Path does not exist: {root_path}"
         )
-    
+
     dataset_query = select(Dataset).where(
         Dataset.id == request.dataset_id,
         Dataset.is_deleted == False,
     )
     result = await db.execute(dataset_query)
     dataset = result.scalar_one_or_none()
-    
+
     if not dataset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Dataset {request.dataset_id} not found"
         )
-    
+
     errors = []
-    renamed_scenes: List[RenamedScene] = []
+    renamed_scenes: list[RenamedScene] = []
     scenes_imported = 0
     frames_imported = 0
-    
+
     metadata_file = root_path / "metadata.json"
     sensor_config = {}
     if metadata_file.exists():
         with open(metadata_file, 'r') as f:
             metadata = json.load(f)
             sensor_config = metadata.get("sensors", {})
-    
+
     calibration_path = root_path / "calibration"
     default_calibration = {}
     if calibration_path.exists():
         default_calibration = parse_calibration_file(calibration_path)
-    
+
     scenes_path = root_path / "scenes"
     if not scenes_path.exists():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"No 'scenes' folder found in {root_path}"
         )
-    
+
     for scene_dir in sorted(scenes_path.iterdir()):
         if not scene_dir.is_dir():
             continue
-        
+
         try:
             scene_metadata_file = scene_dir / "scene_metadata.json"
             if scene_metadata_file.exists():
@@ -945,7 +945,7 @@ async def import_dataset(
                     "frame_count": frame_count,
                     "fps": 10.0
                 }
-            
+
             scene_calibration = default_calibration.copy()
             scene_ego_poses = load_ego_poses(scene_dir)
             scene_calib_file = scene_dir / "calibration.json"
@@ -954,9 +954,9 @@ async def import_dataset(
                 scene_calibration = parse_calibration_file(scene_calib_file, scene_ego_poses)
             elif scene_calib_path.exists():
                 scene_calibration = parse_calibration_file(scene_calib_path, scene_ego_poses)
-            
+
             storage_paths = get_storage_paths(scene_dir, root_path)
-            
+
             scene_id = uuid.uuid4()
             scene_name = scene_meta.get("name") or scene_dir.name
             existing_scene_query = select(Scene).where(
@@ -1004,14 +1004,14 @@ async def import_dataset(
                 )
                 db.add(frame)
                 frames_imported += 1
-            
+
             scenes_imported += 1
-            
+
         except Exception as e:
             errors.append(f"Error importing scene {scene_dir.name}: {str(e)}")
-    
+
     await db.commit()
-    
+
     return ImportResponse(
         success=len(errors) == 0,
         message=f"Imported {scenes_imported} scenes with {frames_imported} frames",
@@ -1022,22 +1022,22 @@ async def import_dataset(
     )
 
 
-@router.post("/validate", response_model=Dict[str, Any])
+@router.post("/validate", response_model=dict[str, Any])
 async def validate_dataset_structure(
     root_path: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Validate a dataset folder structure without importing.
     Returns information about what would be imported.
     """
     path = Path(root_path)
-    
+
     if not path.exists():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Path does not exist: {root_path}"
         )
-    
+
     result = {
         "valid": True,
         "metadata_found": False,
@@ -1048,7 +1048,7 @@ async def validate_dataset_structure(
         "warnings": [],
         "errors": []
     }
-    
+
     metadata_file = path / "metadata.json"
     if metadata_file.exists():
         result["metadata_found"] = True
@@ -1061,7 +1061,7 @@ async def validate_dataset_structure(
                 result["sensors_detected"].append(f"Camera: {cam.get('sensor_id', 'unknown')}")
     else:
         result["warnings"].append("No metadata.json found - sensor config will be inferred")
-    
+
     calibration_path = path / "calibration"
     if calibration_path.exists():
         result["calibration_found"] = True
@@ -1070,17 +1070,17 @@ async def validate_dataset_structure(
             result["warnings"].append("No extrinsics.json found in calibration folder")
     else:
         result["warnings"].append("No calibration folder found - 3D-to-2D projection may not work")
-    
+
     scenes_path = path / "scenes"
     if not scenes_path.exists():
         result["valid"] = False
         result["errors"].append("No 'scenes' folder found")
         return result
-    
+
     for scene_dir in sorted(scenes_path.iterdir()):
         if not scene_dir.is_dir():
             continue
-        
+
         scene_info = {
             "name": scene_dir.name,
             "has_metadata": (scene_dir / "scene_metadata.json").exists(),
@@ -1091,20 +1091,20 @@ async def validate_dataset_structure(
             "frame_count": 0,
             "cameras": []
         }
-        
+
         lidar_path = scene_dir / "lidar"
         if lidar_path.exists():
             scene_info["frame_count"] = len(list(lidar_path.glob("*.pcd"))) + len(list(lidar_path.glob("*.bin")))
-        
+
         cameras_path = scene_dir / "cameras"
         if cameras_path.exists():
             scene_info["cameras"] = [d.name for d in cameras_path.iterdir() if d.is_dir()]
-        
+
         result["scenes"].append(scene_info)
         result["total_frames"] += scene_info["frame_count"]
-    
+
     if len(result["scenes"]) == 0:
         result["valid"] = False
         result["errors"].append("No scene folders found in 'scenes' directory")
-    
+
     return result

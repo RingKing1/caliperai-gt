@@ -6,27 +6,26 @@ Performance optimizations:
 - Binary response format option (3-4x smaller than JSON)
 - Gzip compression for binary responses (additional 2-3x reduction)
 """
+import gzip as gzip_module
+import hashlib
+import logging
 import os
 import struct
-import hashlib
 import time
-import gzip as gzip_module
-import logging
-from pathlib import Path
-from typing import Annotated, List, Optional, Dict, Tuple
 from collections import OrderedDict
+from pathlib import Path
 from threading import Lock
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
-from fastapi.concurrency import run_in_threadpool
 import numpy as np
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
-from app.models.models import User, Permission
+from app.core.redis_cache import redis_gzip_cache, redis_pcd_cache
+from app.models.models import Permission, User
 from app.services.rbac_service import RequirePermissions, RequirePermissionsWithQuery
-
-from app.services.storage_service import get_storage_service, StorageService
-from app.core.redis_cache import redis_pcd_cache, redis_gzip_cache
+from app.services.storage_service import StorageService, get_storage_service
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +44,14 @@ class PointCloudCache:
     def __init__(self, max_size: int = 100, ttl_seconds: int = 600):
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
-        self._cache: OrderedDict[str, Tuple[bytes, bytes, int, float]] = OrderedDict()
+        self._cache: OrderedDict[str, tuple[bytes, bytes, int, float]] = OrderedDict()
         self._lock = Lock()
-    
+
     def _make_key(self, file_path: str, mtime: float) -> str:
         """Create cache key from file path and modification time."""
         return f"{file_path}:{mtime}"
-    
-    def get(self, file_path: str) -> Optional[Tuple[bytes, bytes, int]]:
+
+    def get(self, file_path: str) -> tuple[bytes, bytes, int] | None:
         """
         Get cached data if available and not expired.
         Returns (positions_bytes, intensities_bytes, point_count) or None.
@@ -61,43 +60,43 @@ class PointCloudCache:
             mtime = os.path.getmtime(file_path)
         except OSError:
             return None
-        
+
         key = self._make_key(file_path, mtime)
-        
+
         with self._lock:
             if key in self._cache:
                 positions, intensities, count, cached_time = self._cache[key]
-                
+
                 if time.time() - cached_time > self.ttl_seconds:
                     del self._cache[key]
                     return None
-                
+
                 self._cache.move_to_end(key)
                 return (positions, intensities, count)
-        
+
         return None
-    
+
     def set(self, file_path: str, positions: bytes, intensities: bytes, count: int):
         """Cache parsed point cloud data."""
         try:
             mtime = os.path.getmtime(file_path)
         except OSError:
             return
-        
+
         key = self._make_key(file_path, mtime)
-        
+
         with self._lock:
             while len(self._cache) >= self.max_size:
                 self._cache.popitem(last=False)
-            
+
             self._cache[key] = (positions, intensities, count, time.time())
-    
+
     def clear(self):
         """Clear all cached data."""
         with self._lock:
             self._cache.clear()
-    
-    def stats(self) -> Dict:
+
+    def stats(self) -> dict:
         """Get cache statistics."""
         with self._lock:
             return {
@@ -108,7 +107,7 @@ class PointCloudCache:
 
 
 
-async def get_cached_gzip(cache_key: str) -> Optional[bytes]:
+async def get_cached_gzip(cache_key: str) -> bytes | None:
     """Get cached gzip-compressed data if available from Redis."""
     try:
         parts = cache_key.rsplit(':', 1)
@@ -137,7 +136,7 @@ def parse_pcd_file(file_path: str) -> dict:
     """Parse a PCD file and return points as a dictionary with numpy arrays converted to lists."""
     points = []
     intensities = []
-    
+
     with open(file_path, 'rb') as f:
         header_lines = []
         while True:
@@ -145,14 +144,14 @@ def parse_pcd_file(file_path: str) -> dict:
             header_lines.append(line)
             if line.startswith('DATA'):
                 break
-        
+
         fields = []
         sizes = []
         types = []
         counts = []
         point_count = 0
         is_binary = False
-        
+
         for line in header_lines:
             if line.startswith('FIELDS'):
                 fields = line.split()[1:]
@@ -166,11 +165,11 @@ def parse_pcd_file(file_path: str) -> dict:
                 point_count = int(line.split()[1])
             elif line.startswith('DATA'):
                 is_binary = 'binary' in line.lower()
-        
+
         if is_binary:
             point_size = sum(s * c for s, c in zip(sizes, counts))
             data = f.read(point_count * point_size)
-            
+
             offset = 0
             for i in range(point_count):
                 point = {}
@@ -188,12 +187,12 @@ def parse_pcd_file(file_path: str) -> dict:
                         values = struct.unpack_from(f'<{count}{fmt}', data, offset)
                         point[field] = values[0] if count == 1 else list(values)
                     offset += size * count
-                
+
                 x = point.get('x', 0)
                 y = point.get('y', 0)
                 z = point.get('z', 0)
                 intensity = point.get('intensity', point.get('i', 0.5))
-                
+
                 points.append([x, y, z])
                 intensities.append(intensity if isinstance(intensity, (int, float)) else 0.5)
         else:
@@ -207,7 +206,7 @@ def parse_pcd_file(file_path: str) -> dict:
                         intensities.append(intensity)
                     except ValueError:
                         continue
-    
+
     return {
         "pointCount": len(points),
         "positions": points,
@@ -223,8 +222,8 @@ def _maybe_subsample(
     positions: np.ndarray,
     intensities: np.ndarray,
     point_count: int,
-    colors: Optional[np.ndarray] = None,
-) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], int, bool]:
+    colors: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, int, bool]:
     """
     Random-subsample to _MAX_DISPLAY_POINTS when the cloud is bigger than the
     browser GPU can comfortably render. Fixed seed → deterministic across
@@ -254,7 +253,7 @@ def _maybe_subsample(
 
 def _extract_pcd_colors(
     structured_arr: np.ndarray, point_count: int
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """
     Extract per-point RGB from a parsed PCD structured array.
 
@@ -303,7 +302,7 @@ def _extract_pcd_colors(
 
 def _maybe_center(
     positions: np.ndarray, point_count: int
-) -> Tuple[np.ndarray, Optional[List[float]]]:
+) -> tuple[np.ndarray, list[float] | None]:
     """
     If any axis has |centroid| > _CENTER_THRESHOLD, subtract the integer floor
     of the centroid so the cloud is near origin.
@@ -334,7 +333,7 @@ def _maybe_center(
     return centered_f32.reshape(-1), [float(offset[0]), float(offset[1]), float(offset[2])]
 
 
-def parse_pcd_to_binary(file_path: str) -> Tuple[bytes, bytes, Optional[bytes], int, dict]:
+def parse_pcd_to_binary(file_path: str) -> tuple[bytes, bytes, bytes | None, int, dict]:
     """
     Parse a PCD file and return binary data ready for caching/transmission.
     Returns (positions_bytes, intensities_bytes, colors_bytes_or_None, point_count, metadata).
@@ -358,14 +357,14 @@ def parse_pcd_to_binary(file_path: str) -> Tuple[bytes, bytes, Optional[bytes], 
             header_lines.append(line)
             if line.startswith('DATA'):
                 break
-        
+
         fields = []
         sizes = []
         types = []
         counts = []
         point_count = 0
         is_binary = False
-        
+
         for line in header_lines:
             if line.startswith('FIELDS'):
                 fields = line.split()[1:]
@@ -379,11 +378,11 @@ def parse_pcd_to_binary(file_path: str) -> Tuple[bytes, bytes, Optional[bytes], 
                 point_count = int(line.split()[1])
             elif line.startswith('DATA'):
                 is_binary = 'binary' in line.lower()
-        
+
         if is_binary:
             point_size = sum(s * c for s, c in zip(sizes, counts))
             data = f.read(point_count * point_size)
-            
+
             dtype_map = {
                 ('F', 4): np.float32,
                 ('F', 8): np.float64,
@@ -394,7 +393,7 @@ def parse_pcd_to_binary(file_path: str) -> Tuple[bytes, bytes, Optional[bytes], 
                 ('U', 2): np.uint16,
                 ('U', 4): np.uint32,
             }
-            
+
             dtype_list = []
             for field, size, ftype, count in zip(fields, sizes, types, counts):
                 np_type = dtype_map.get((ftype, size), np.float32)
@@ -402,9 +401,9 @@ def parse_pcd_to_binary(file_path: str) -> Tuple[bytes, bytes, Optional[bytes], 
                     dtype_list.append((field, np_type))
                 else:
                     dtype_list.append((field, np_type, (count,)))
-            
+
             structured_arr = np.frombuffer(data, dtype=np.dtype(dtype_list), count=point_count)
-            
+
             if 'x' in structured_arr.dtype.names:
                 x = structured_arr['x'].astype(np.float32)
                 y = structured_arr['y'].astype(np.float32)
@@ -412,7 +411,7 @@ def parse_pcd_to_binary(file_path: str) -> Tuple[bytes, bytes, Optional[bytes], 
                 positions = np.column_stack((x, y, z)).flatten()
             else:
                 positions = np.zeros(point_count * 3, dtype=np.float32)
-            
+
             if 'intensity' in structured_arr.dtype.names:
                 intensities = structured_arr['intensity'].astype(np.float32)
             elif 'i' in structured_arr.dtype.names:
@@ -460,7 +459,7 @@ def parse_pcd_to_binary(file_path: str) -> Tuple[bytes, bytes, Optional[bytes], 
             return (positions_arr.tobytes(), intensities_arr.tobytes(), None, pc, meta)
 
 
-def parse_bin_to_binary(file_path: str) -> Tuple[bytes, bytes, Optional[bytes], int, dict]:
+def parse_bin_to_binary(file_path: str) -> tuple[bytes, bytes, bytes | None, int, dict]:
     """
     Parse nuScenes .bin file and return binary data.
     Returns (positions_bytes, intensities_bytes, colors_bytes_or_None, point_count, metadata).
@@ -481,7 +480,7 @@ def parse_bin_to_binary(file_path: str) -> Tuple[bytes, bytes, Optional[bytes], 
 
 async def get_cached_pointcloud_async(
     file_path: str,
-) -> Tuple[bytes, bytes, Optional[bytes], int, dict]:
+) -> tuple[bytes, bytes, bytes | None, int, dict]:
     """
     Async version: get point cloud data with Redis caching.
     Awaits Redis properly and offloads sync parsing to a thread pool so the
@@ -554,14 +553,14 @@ async def get_lidar_data(
 ):
     """
     Get LiDAR point cloud data. Requires DATASETS_READ permission.
-    
+
     The file_path should be relative to the DATA_ROOT, or prefixed with 'uploads/' for uploaded data.
-    
+
     Format options:
     - json: Returns JSON with positions and intensities arrays (backward compatible)
     - binary: Returns optimized binary format (3-4x smaller, faster parsing)
     - raw: Returns the original file as-is
-    
+
     Binary format structure (v3):
     - bytes  0..4 : point count            (uint32, little-endian)
     - bytes  4..8 : has_colors flag        (uint32, 0 or 1) — sized as uint32
@@ -574,7 +573,7 @@ async def get_lidar_data(
     """
     accept_encoding = request.headers.get("Accept-Encoding", "")
     supports_gzip = "gzip" in accept_encoding.lower()
-    
+
     if file_path.startswith("uploads/"):
         relative_path = file_path[8:]
         full_path = Path(UPLOAD_ROOT) / relative_path
@@ -582,20 +581,20 @@ async def get_lidar_data(
     else:
         full_path = Path(DATA_ROOT) / file_path
         root_path = Path(DATA_ROOT).resolve()
-    
+
     try:
         full_path = full_path.resolve()
         if not str(full_path).startswith(str(root_path)):
             raise HTTPException(status_code=403, detail="Access denied")
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid path")
-    
+
     if not full_path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-    
+
     if format == "raw":
         return FileResponse(full_path, media_type="application/octet-stream")
-    
+
     try:
         positions_bytes, intensities_bytes, colors_bytes, point_count, meta = (
             await get_cached_pointcloud_async(str(full_path))
@@ -619,7 +618,7 @@ async def get_lidar_data(
         if if_none_match and if_none_match.strip() == etag:
             return Response(status_code=304, headers={"ETag": etag})
 
-        meta_headers: Dict[str, str] = {
+        meta_headers: dict[str, str] = {
             "X-Point-Count": str(point_count),
             "X-Original-Point-Count": str(original_count),
             "X-Subsampled": "1" if original_count > point_count else "0",
@@ -693,7 +692,7 @@ async def get_lidar_data(
             positions = np.frombuffer(positions_bytes, dtype=np.float32)
             intensities = np.frombuffer(intensities_bytes, dtype=np.float32)
 
-            payload: Dict = {
+            payload: dict = {
                 "pointCount": point_count,
                 "originalPointCount": original_count,
                 "subsampled": original_count > point_count,
@@ -716,16 +715,16 @@ async def get_lidar_data(
 async def get_image(
     file_path: str,
     current_user: Annotated[User, Depends(RequirePermissionsWithQuery(Permission.DATASETS_READ))],
-    width: Optional[int] = Query(None, description="Resize width (maintains aspect ratio)", gt=0, le=4096),
-    height: Optional[int] = Query(None, description="Resize height (maintains aspect ratio)", gt=0, le=4096),
+    width: int | None = Query(None, description="Resize width (maintains aspect ratio)", gt=0, le=4096),
+    height: int | None = Query(None, description="Resize height (maintains aspect ratio)", gt=0, le=4096),
     quality: int = Query(85, description="JPEG quality (1-100)", ge=1, le=100),
 ):
     """
     Get camera image file with optional resizing for thumbnails/previews.
     Requires DATASETS_READ permission.
-    
+
     The file_path should be relative to the DATA_ROOT, or prefixed with 'uploads/' for uploaded data.
-    
+
     **Performance Optimization for 4K Images:**
     - Use `width=800` or `width=1920` for preview/annotation views
     - Use `width=400&height=225` for thumbnails in camera lists
@@ -739,17 +738,17 @@ async def get_image(
     else:
         full_path = Path(DATA_ROOT) / file_path
         root_path = Path(DATA_ROOT).resolve()
-    
+
     try:
         full_path = full_path.resolve()
         if not str(full_path).startswith(str(root_path)):
             raise HTTPException(status_code=403, detail="Access denied")
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid path")
-    
+
     if not full_path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-    
+
     ext = full_path.suffix.lower()
     media_types = {
         '.jpg': 'image/jpeg',
@@ -758,23 +757,24 @@ async def get_image(
         '.webp': 'image/webp',
     }
     media_type = media_types.get(ext, 'application/octet-stream')
-    
+
     if width is None and height is None:
         return FileResponse(full_path, media_type=media_type)
-    
+
     try:
-        from PIL import Image
         from io import BytesIO
-        
+
+        from PIL import Image
+
         img = Image.open(full_path)
-        
+
         if img.mode == 'RGBA' and ext in ['.jpg', '.jpeg']:
             background = Image.new('RGB', img.size, (255, 255, 255))
             background.paste(img, mask=img.split()[3])
             img = background
-        
+
         orig_width, orig_height = img.size
-        
+
         if width and height:
             img.thumbnail((width, height), Image.Resampling.LANCZOS)
         elif width:
@@ -783,9 +783,9 @@ async def get_image(
         elif height:
             new_width = int(orig_width * (height / orig_height))
             img = img.resize((new_width, height), Image.Resampling.LANCZOS)
-        
+
         buffer = BytesIO()
-        
+
         if ext in ['.jpg', '.jpeg']:
             img.save(buffer, format='JPEG', quality=quality, optimize=True)
             media_type = 'image/jpeg'
@@ -797,9 +797,9 @@ async def get_image(
             media_type = 'image/webp'
         else:
             return FileResponse(full_path, media_type=media_type)
-        
+
         buffer.seek(0)
-        
+
         from fastapi.responses import StreamingResponse
         return StreamingResponse(
             buffer,
@@ -827,11 +827,11 @@ async def get_uploaded_file(
 ):
     """
     Get file from uploaded datasets. Requires DATASETS_READ permission.
-    
+
     The file_path should be relative to /uploads.
     """
     full_path = Path(UPLOAD_ROOT) / file_path
-    
+
     try:
         full_path = full_path.resolve()
         upload_root = Path(UPLOAD_ROOT).resolve()
@@ -839,10 +839,10 @@ async def get_uploaded_file(
             raise HTTPException(status_code=403, detail="Access denied")
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid path")
-    
+
     if not full_path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-    
+
     ext = full_path.suffix.lower()
     media_types = {
         '.jpg': 'image/jpeg',
@@ -854,7 +854,7 @@ async def get_uploaded_file(
         '.ply': 'application/octet-stream',
     }
     media_type = media_types.get(ext, 'application/octet-stream')
-    
+
     return FileResponse(full_path, media_type=media_type)
 
 
@@ -866,12 +866,12 @@ async def get_uploaded_lidar_data(
 ):
     """
     Get LiDAR point cloud data from uploaded datasets. Requires DATASETS_READ permission.
-    
+
     The file_path should be relative to /uploads.
     Returns point cloud data as JSON with positions and intensities.
     """
     full_path = Path(UPLOAD_ROOT) / file_path
-    
+
     try:
         full_path = full_path.resolve()
         upload_root = Path(UPLOAD_ROOT).resolve()
@@ -879,20 +879,20 @@ async def get_uploaded_lidar_data(
             raise HTTPException(status_code=403, detail="Access denied")
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid path")
-    
+
     if not full_path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-    
+
     if format == "raw":
         return FileResponse(full_path, media_type="application/octet-stream")
-    
+
     try:
         if full_path.suffix.lower() == '.pcd':
             data = parse_pcd_file(str(full_path))
             positions_flat = []
             for p in data["positions"]:
                 positions_flat.extend(p)
-            
+
             return JSONResponse({
                 "pointCount": data["pointCount"],
                 "positions": positions_flat,

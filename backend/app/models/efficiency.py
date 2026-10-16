@@ -1,7 +1,7 @@
 """ORM models for the efficiency/gamification sub-domain."""
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     Boolean,
@@ -58,7 +58,7 @@ class TimeSession(Base):
         server_default=func.now(),
         nullable=False,
     )
-    session_end: Mapped[Optional[datetime]] = mapped_column(
+    session_end: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -78,7 +78,7 @@ class TimeSession(Base):
         server_default=func.now(),
         nullable=False,
     )
-    last_action_at: Mapped[Optional[datetime]] = mapped_column(
+    last_action_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -98,7 +98,7 @@ class TimeSession(Base):
 
     user: Mapped["User"] = relationship("User", back_populates="time_sessions")
     task: Mapped["Task"] = relationship("Task", back_populates="time_sessions")
-    activity_events: Mapped[List["ActivityEvent"]] = relationship(
+    activity_events: Mapped[list["ActivityEvent"]] = relationship(
         "ActivityEvent",
         back_populates="session",
         cascade="all, delete-orphan",
@@ -137,7 +137,7 @@ class UserLoginSession(Base):
         nullable=False,
     )
 
-    organization_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("organizations.id", ondelete="SET NULL"),
         nullable=True,
@@ -148,7 +148,7 @@ class UserLoginSession(Base):
         server_default=func.now(),
         nullable=False,
     )
-    session_end: Mapped[Optional[datetime]] = mapped_column(
+    session_end: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -161,7 +161,7 @@ class UserLoginSession(Base):
         server_default=func.now(),
         nullable=False,
     )
-    last_active_at: Mapped[Optional[datetime]] = mapped_column(
+    last_active_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -212,13 +212,13 @@ class ActivityEvent(Base):
         nullable=False,
     )
 
-    task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=True,
     )
 
-    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("time_sessions.id", ondelete="SET NULL"),
         nullable=True,
@@ -292,13 +292,13 @@ class UserGoal(Base):
     )
 
     is_achieved: Mapped[bool] = mapped_column(Boolean, default=False)
-    achieved_at: Mapped[Optional[datetime]] = mapped_column(
+    achieved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
     is_self_assigned: Mapped[bool] = mapped_column(Boolean, default=True)
-    assigned_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    assigned_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
@@ -370,7 +370,7 @@ class Achievement(Base):
     """
 
     is_seen: Mapped[bool] = mapped_column(Boolean, default=False)
-    seen_at: Mapped[Optional[datetime]] = mapped_column(
+    seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -404,7 +404,7 @@ class PerformanceAlert(Base):
         nullable=False,
     )
 
-    task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=True,
@@ -431,22 +431,22 @@ class PerformanceAlert(Base):
     """
 
     is_acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
-    acknowledged_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    acknowledged_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(
+    acknowledged_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
     is_resolved: Mapped[bool] = mapped_column(Boolean, default=False)
-    resolved_at: Mapped[Optional[datetime]] = mapped_column(
+    resolved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
-    resolution_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -561,7 +561,7 @@ class TeamChallenge(Base):
     )
 
     title: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     goal_type: Mapped[str] = mapped_column(String(50), nullable=False)
     target_value: Mapped[float] = mapped_column(Float, nullable=False)
@@ -578,7 +578,7 @@ class TeamChallenge(Base):
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(
+    completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -605,7 +605,7 @@ class TeamChallenge(Base):
         "Organization", back_populates="challenges"
     )
     created_by: Mapped[Optional["User"]] = relationship("User")
-    participants: Mapped[List["ChallengeParticipant"]] = relationship(
+    participants: Mapped[list["ChallengeParticipant"]] = relationship(
         "ChallengeParticipant",
         back_populates="challenge",
         cascade="all, delete-orphan",
@@ -644,14 +644,14 @@ class ChallengeParticipant(Base):
     )
 
     contribution_value: Mapped[float] = mapped_column(Float, default=0)
-    rank: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
     )
-    last_contribution_at: Mapped[Optional[datetime]] = mapped_column(
+    last_contribution_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )

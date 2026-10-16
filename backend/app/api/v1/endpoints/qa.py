@@ -11,7 +11,7 @@ Business logic lives in ``app.services.qa_service``; this module only handles
 authentication/authorization dependencies and HTTP status mapping.
 """
 import uuid
-from typing import Annotated, List, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,23 +79,23 @@ async def get_qa_review(
         raise _http_for_qa_error(exc)
 
 
-@router.get("/tasks/{task_id}/reviews", response_model=List[QAReviewResponse])
+@router.get("/tasks/{task_id}/reviews", response_model=list[QAReviewResponse])
 async def get_task_reviews(
     task_id: uuid.UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.QA_ISSUES_READ))],
-    status: Optional[str] = None,
+    status: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Get all QA reviews for a task. Requires QA_ISSUES_READ permission."""
     return await qa_service.list_task_reviews(db, task_id, status_filter=status)
 
 
-@router.get("/tasks/{task_id}/active-review", response_model=Optional[QAReviewResponse])
+@router.get("/tasks/{task_id}/active-review", response_model=QAReviewResponse | None)
 async def get_active_review(
     task_id: uuid.UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.QA_ISSUES_READ))],
     db: AsyncSession = Depends(get_db),
-    review_stage: Optional[str] = None,
+    review_stage: str | None = None,
 ):
     """Get the active QA review for a task, if any. Requires QA_ISSUES_READ permission.
 
@@ -187,18 +187,18 @@ async def bulk_review_annotations(
         raise _http_for_qa_error(exc)
 
 
-@router.get("/reviews/{review_id}/annotations", response_model=List[AnnotationReviewResponse])
+@router.get("/reviews/{review_id}/annotations", response_model=list[AnnotationReviewResponse])
 async def get_annotation_reviews(
     review_id: uuid.UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.QA_ISSUES_READ))],
-    verdict: Optional[str] = None,
+    verdict: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Get all annotation reviews for a QA review session. Requires QA_ISSUES_READ permission."""
     return await qa_service.list_annotation_reviews(db, review_id, verdict)
 
 
-@router.get("/annotations/{annotation_id}/review", response_model=Optional[AnnotationReviewResponse])
+@router.get("/annotations/{annotation_id}/review", response_model=AnnotationReviewResponse | None)
 async def get_annotation_review_status(
     annotation_id: str,
     qa_review_id: uuid.UUID,
@@ -245,7 +245,7 @@ async def create_comment(
     return await qa_service.create_comment(db, comment_data)
 
 
-@router.get("/annotations/{annotation_id}/comments", response_model=List[AnnotationCommentResponse])
+@router.get("/annotations/{annotation_id}/comments", response_model=list[AnnotationCommentResponse])
 async def get_annotation_comments(
     annotation_id: str,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.QA_ISSUES_READ))],
@@ -299,13 +299,13 @@ async def resolve_comment(
         raise _http_for_qa_error(exc)
 
 
-@router.get("/tasks/{task_id}/suggestions", response_model=List[QASuggestionResponse])
+@router.get("/tasks/{task_id}/suggestions", response_model=list[QASuggestionResponse])
 async def get_task_suggestions(
     task_id: uuid.UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.QA_ISSUES_READ))],
     include_dismissed: bool = False,
-    severity: Optional[str] = None,
-    suggestion_type: Optional[str] = None,
+    severity: str | None = None,
+    suggestion_type: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Get AI suggestions for a task. Requires QA_ISSUES_READ permission."""

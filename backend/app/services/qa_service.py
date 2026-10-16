@@ -7,7 +7,7 @@ Extracted from ``app/api/v1/endpoints/qa.py`` so endpoints stay thin
 """
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,8 +73,8 @@ SUGGESTION_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
 def next_stage_after_qa(
-    current_stage: Optional[str], skip_customer_qa: bool
-) -> tuple[Optional[str], Optional[str]]:
+    current_stage: str | None, skip_customer_qa: bool
+) -> tuple[str | None, str | None]:
     """Return ``(next_stage, next_status)`` when a QA review completes.
 
     Returns ``(None, None)`` when the task is in an unexpected stage (the
@@ -341,7 +341,7 @@ async def get_review(
 
 
 async def list_task_reviews(
-    db: AsyncSession, task_id: uuid.UUID, status_filter: Optional[str] = None
+    db: AsyncSession, task_id: uuid.UUID, status_filter: str | None = None
 ) -> list[QAReviewResponse]:
     query = select(QAReview).where(QAReview.task_id == task_id)
     if status_filter:
@@ -353,8 +353,8 @@ async def list_task_reviews(
 
 
 async def get_active_review(
-    db: AsyncSession, task_id: uuid.UUID, review_stage: Optional[str] = None
-) -> Optional[QAReviewResponse]:
+    db: AsyncSession, task_id: uuid.UUID, review_stage: str | None = None
+) -> QAReviewResponse | None:
     query = select(QAReview).where(
         QAReview.task_id == task_id,
         QAReview.status == QAReviewStatus.IN_PROGRESS.value,
@@ -618,7 +618,7 @@ async def bulk_review_annotations(
 
 
 async def list_annotation_reviews(
-    db: AsyncSession, review_id: uuid.UUID, verdict: Optional[str] = None
+    db: AsyncSession, review_id: uuid.UUID, verdict: str | None = None
 ) -> list[AnnotationReviewResponse]:
     query = select(AnnotationReview).where(
         AnnotationReview.qa_review_id == review_id
@@ -632,7 +632,7 @@ async def list_annotation_reviews(
 
 async def get_annotation_review_status(
     db: AsyncSession, annotation_id: str, qa_review_id: uuid.UUID
-) -> Optional[AnnotationReviewResponse]:
+) -> AnnotationReviewResponse | None:
     result = await db.execute(
         select(AnnotationReview).where(
             AnnotationReview.qa_review_id == qa_review_id,
@@ -761,8 +761,8 @@ async def list_task_suggestions(
     db: AsyncSession,
     task_id: uuid.UUID,
     include_dismissed: bool = False,
-    severity: Optional[str] = None,
-    suggestion_type: Optional[str] = None,
+    severity: str | None = None,
+    suggestion_type: str | None = None,
 ) -> list[QASuggestionResponse]:
     query = select(QASuggestion).where(QASuggestion.task_id == task_id)
     if not include_dismissed:

@@ -1,6 +1,5 @@
 """Team challenges with live label-count progress."""
 from datetime import datetime, timezone
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import String, and_, cast, desc, func, select
@@ -96,7 +95,7 @@ async def compute_challenge_progress(
 async def list_challenges(
     db: AsyncSession,
     current_user: User,
-    organization_id: Optional[UUID] = None,
+    organization_id: UUID | None = None,
     include_completed: bool = False,
 ) -> list[TeamChallengeResponse]:
     """Team challenges with live progress from annotation counts."""

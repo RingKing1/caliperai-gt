@@ -4,7 +4,7 @@ Task endpoints - Core workflow management with RBAC protection.
 Business logic lives in ``app.services.task_service``; this module only
 handles authentication/authorization dependencies and HTTP status mapping.
 """
-from typing import Annotated, Optional
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -74,13 +74,13 @@ async def create_task(
 @router.get("", response_model=list[TaskResponse])
 async def list_tasks(
     current_user: Annotated[User, Depends(get_current_user)],
-    scene_id: Optional[UUID] = None,
-    taxonomy_id: Optional[UUID] = Query(None, description="Filter by taxonomy"),
-    status: Optional[str] = None,
-    assignee_id: Optional[UUID] = None,
-    reviewer_id: Optional[UUID] = None,
+    scene_id: UUID | None = None,
+    taxonomy_id: UUID | None = Query(None, description="Filter by taxonomy"),
+    status: str | None = None,
+    assignee_id: UUID | None = None,
+    reviewer_id: UUID | None = None,
     my_tasks: bool = Query(False, description="Return tasks where I am assignee/reviewer"),
-    organization_id: Optional[UUID] = Query(None, description="Filter by organization"),
+    organization_id: UUID | None = Query(None, description="Filter by organization"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -108,7 +108,7 @@ async def list_tasks(
 async def get_tasks_stats(
     current_user: Annotated[User, Depends(get_current_user)],
     task_ids: str = Query(..., description="Comma-separated task IDs"),
-    taxonomy_id: Optional[UUID] = Query(None, description="Filter counts by taxonomy"),
+    taxonomy_id: UUID | None = Query(None, description="Filter counts by taxonomy"),
     db: AsyncSession = Depends(get_db),
 ):
     """Per-task label count, frames visited, and total frames."""

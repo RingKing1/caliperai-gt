@@ -1,7 +1,7 @@
 """Organization and membership ORM models."""
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     Boolean,
@@ -42,8 +42,8 @@ class Organization(Base, TimestampMixin, SoftDeleteMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     settings: Mapped[dict] = mapped_column(
         JSONB,
@@ -66,20 +66,20 @@ class Organization(Base, TimestampMixin, SoftDeleteMixin):
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    members: Mapped[List["OrganizationMember"]] = relationship(
+    members: Mapped[list["OrganizationMember"]] = relationship(
         "OrganizationMember",
         back_populates="organization",
         cascade="all, delete-orphan",
     )
-    campaigns: Mapped[List["Campaign"]] = relationship(
+    campaigns: Mapped[list["Campaign"]] = relationship(
         "Campaign",
         back_populates="organization",
     )
-    taxonomies: Mapped[List["Taxonomy"]] = relationship(
+    taxonomies: Mapped[list["Taxonomy"]] = relationship(
         "Taxonomy",
         back_populates="organization",
     )
-    challenges: Mapped[List["TeamChallenge"]] = relationship(
+    challenges: Mapped[list["TeamChallenge"]] = relationship(
         "TeamChallenge",
         back_populates="organization",
         cascade="all, delete-orphan",
@@ -123,12 +123,12 @@ class OrganizationMember(Base, TimestampMixin):
 
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    invited_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    invited_at: Mapped[Optional[datetime]] = mapped_column(
+    invited_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )

@@ -7,7 +7,7 @@ Provides:
 - Contextual suggestions
 - Message feedback
 """
-from typing import Annotated, Optional
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -17,16 +17,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.models import User
 from app.schemas.chat import (
-    SendMessageRequest,
-    FeedbackRequest,
+    ChatContext,
     ChatHistoryResponse,
     ChatSessionListResponse,
+    FeedbackRequest,
+    SendMessageRequest,
     SuggestionResponse,
-    ChatContext,
 )
-from app.services.rbac_service import get_current_user
 from app.services.chat_service import ChatService
 from app.services.llm_service import get_llm_service
+from app.services.rbac_service import get_current_user
 
 router = APIRouter()
 
@@ -48,21 +48,21 @@ async def send_message(
 ):
     """
     Send a message to the AI assistant and receive a streaming response.
-    
+
     Returns Server-Sent Events (SSE) for real-time streaming.
-    
+
     Events:
     - `token`: Streamed token from the AI response
     - `complete`: Final event with message IDs and metrics
     - `error`: Error event if something goes wrong
-    
+
     Example usage with EventSource:
     ```javascript
     const eventSource = new EventSource('/api/v1/chat/message', {
         method: 'POST',
         body: JSON.stringify({ message: 'How do I draw a 3D box?' })
     });
-    
+
     eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === 'token') {
@@ -91,7 +91,7 @@ async def send_message(
 
 @router.get("/history", response_model=ChatHistoryResponse)
 async def get_chat_history(
-    session_id: Optional[UUID] = Query(
+    session_id: UUID | None = Query(
         None,
         description="Session ID to get history for. If not provided, returns most recent session."
     ),
@@ -106,7 +106,7 @@ async def get_chat_history(
 ) -> ChatHistoryResponse:
     """
     Get chat history for current user.
-    
+
     If session_id is not provided, returns the most recent session.
     Returns empty messages list if no sessions exist.
     """
@@ -115,7 +115,7 @@ async def get_chat_history(
         session_id=session_id,
         limit=limit,
     )
-    
+
     if not history:
         from datetime import datetime
         from uuid import uuid4
@@ -125,7 +125,7 @@ async def get_chat_history(
             messages=[],
             created_at=datetime.utcnow(),
         )
-    
+
     return history
 
 
@@ -147,7 +147,7 @@ async def list_sessions(
 ) -> ChatSessionListResponse:
     """
     List all chat sessions for current user.
-    
+
     Sessions are returned in reverse chronological order (most recent first).
     """
     return await chat_service.list_sessions(
@@ -159,7 +159,7 @@ async def list_sessions(
 
 @router.delete("/history")
 async def clear_history(
-    session_id: Optional[UUID] = Query(
+    session_id: UUID | None = Query(
         None,
         description="Session ID to clear. If not provided, clears all sessions."
     ),
@@ -168,7 +168,7 @@ async def clear_history(
 ):
     """
     Clear chat history.
-    
+
     If session_id is provided, clears only that session.
     Otherwise, clears all sessions for the current user.
     """
@@ -176,7 +176,7 @@ async def clear_history(
         user_id=current_user.id,
         session_id=session_id,
     )
-    
+
     return {
         "status": "cleared" if success else "no_history",
         "session_id": str(session_id) if session_id else "all",
@@ -192,9 +192,9 @@ async def submit_feedback(
 ):
     """
     Submit feedback on an assistant response.
-    
+
     Feedback helps improve the AI assistant's responses.
-    
+
     Values:
     - `helpful`: The response was useful
     - `not_helpful`: The response was not useful
@@ -204,27 +204,27 @@ async def submit_feedback(
         user_id=current_user.id,
         feedback=request.feedback.value,
     )
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Message not found or you don't have permission to access it",
         )
-    
+
     return {"status": "saved", "message_id": str(message_id)}
 
 
 @router.get("/suggestions", response_model=SuggestionResponse)
 async def get_suggestions(
-    page: Optional[str] = Query(None, description="Current page path"),
-    view: Optional[str] = Query(None, description="Current view mode (3d, 2d, bev)"),
-    active_tool: Optional[str] = Query(None, description="Currently active tool"),
+    page: str | None = Query(None, description="Current page path"),
+    view: str | None = Query(None, description="Current view mode (3d, 2d, bev)"),
+    active_tool: str | None = Query(None, description="Currently active tool"),
     current_user: Annotated[User, Depends(get_current_user)] = None,
     chat_service: ChatService = Depends(get_chat_service),
 ) -> SuggestionResponse:
     """
     Get contextual question suggestions based on current page/tool.
-    
+
     Returns a list of suggested questions relevant to the user's
     current context in the application.
     """
@@ -233,9 +233,9 @@ async def get_suggestions(
         view=view,
         active_tool=active_tool,
     )
-    
+
     suggestions = await chat_service.get_contextual_suggestions(context)
-    
+
     return SuggestionResponse(suggestions=suggestions)
 
 
@@ -246,20 +246,20 @@ async def get_chat_status(
 ):
     """
     Get AI chat service status.
-    
+
     Returns the health of the LLM service and available models.
     """
     llm_service = get_llm_service()
-    
+
     is_healthy = await llm_service.health_check()
-    
+
     models = []
     if is_healthy:
         try:
             models = await llm_service.list_models()
         except Exception:
             pass
-    
+
     return {
         "status": "online" if is_healthy else "offline",
         "provider": llm_service.provider.value,

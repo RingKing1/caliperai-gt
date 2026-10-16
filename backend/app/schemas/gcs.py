@@ -1,5 +1,5 @@
 """Google Cloud Storage browsing/discovery/import API schemas."""
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -8,22 +8,22 @@ from pydantic import BaseModel, Field
 class GCSCredentialsRequest(BaseModel):
     """Request to set GCS credentials."""
     credentials_json: str = Field(..., description="Service account JSON as string")
-    project_id: Optional[str] = Field(None, description="GCS project ID (optional if in credentials)")
+    project_id: str | None = Field(None, description="GCS project ID (optional if in credentials)")
 
 
 class GCSConnectionTest(BaseModel):
     """Response from connection test."""
     success: bool
     message: str
-    project_id: Optional[str] = None
+    project_id: str | None = None
 
 
 class GCSBucketResponse(BaseModel):
     """GCS bucket info."""
     name: str
-    location: Optional[str] = None
-    storage_class: Optional[str] = None
-    created: Optional[str] = None
+    location: str | None = None
+    storage_class: str | None = None
+    created: str | None = None
 
 
 class GCSObjectResponse(BaseModel):
@@ -32,8 +32,8 @@ class GCSObjectResponse(BaseModel):
     path: str
     is_folder: bool = False
     size: int = 0
-    updated: Optional[str] = None
-    content_type: Optional[str] = None
+    updated: str | None = None
+    content_type: str | None = None
 
 
 class GCSSceneResponse(BaseModel):
@@ -43,26 +43,26 @@ class GCSSceneResponse(BaseModel):
     bucket: str
     prefix: str
     frame_count: int = 0
-    sensors: List[str] = []
+    sensors: list[str] = []
     has_calibration: bool = False
     has_annotations: bool = False
     has_metadata: bool = False
-    metadata: Dict[str, Any] = {}
+    metadata: dict[str, Any] = {}
 
 
 class GCSListObjectsResponse(BaseModel):
     """Response from listing objects."""
     bucket: str
     prefix: str
-    objects: List[GCSObjectResponse]
-    folders: List[str]
+    objects: list[GCSObjectResponse]
+    folders: list[str]
 
 
 class GCSDiscoverScenesResponse(BaseModel):
     """Response from scene discovery."""
     bucket: str
     prefix: str
-    scenes: List[GCSSceneResponse]
+    scenes: list[GCSSceneResponse]
 
 
 class GCSImportRequest(BaseModel):
@@ -70,7 +70,7 @@ class GCSImportRequest(BaseModel):
     bucket: str = Field(..., description="GCS bucket name")
     prefix: str = Field(..., description="Scene prefix path in bucket")
     dataset_id: UUID = Field(..., description="Target dataset ID")
-    credentials_json: Optional[str] = Field(None, description="Optional credentials override")
+    credentials_json: str | None = Field(None, description="Optional credentials override")
     derive_taxonomy: bool = Field(True, description="Derive taxonomy from annotations")
     overwrite_annotations: bool = Field(False, description="Overwrite existing annotations")
 
@@ -79,6 +79,6 @@ class GCSImportResponse(BaseModel):
     """Response from scene import."""
     success: bool
     message: str
-    scene_id: Optional[str] = None
+    scene_id: str | None = None
     frames_imported: int = 0
-    errors: List[str] = []
+    errors: list[str] = []

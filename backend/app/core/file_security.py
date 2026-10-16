@@ -19,7 +19,6 @@ import os
 import uuid
 import zipfile
 from pathlib import Path, PurePosixPath
-from typing import Dict, Tuple
 
 from fastapi import HTTPException, status
 
@@ -177,9 +176,9 @@ def validate_magic_bytes(content: bytes, filename: str) -> None:
 
     elif ext in (".mp4", ".m4v", ".mov"):
         is_valid = (
-            content[4:8] == b"ftyp" or 
+            content[4:8] == b"ftyp" or
             content[0:4] == b"ftyp" or
-            content[4:8] == b"moov" or 
+            content[4:8] == b"moov" or
             content[4:8] == b"free"
         )
         if not is_valid:
@@ -187,14 +186,14 @@ def validate_magic_bytes(content: bytes, filename: str) -> None:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"File content does not match the expected {ext.upper()[1:]} video format.",
             )
-    
+
     elif ext == ".avi":
         if not (content[:4] == b"RIFF" and content[8:12] == b"AVI "):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="File content does not match the expected AVI format.",
             )
-    
+
     elif ext in (".mkv", ".webm"):
         if content[:4] != b"\x1a\x45\xdf\xa3":
             raise HTTPException(
@@ -205,7 +204,7 @@ def validate_magic_bytes(content: bytes, filename: str) -> None:
 
 
 
-def uuid_data_filename(original_filename: str, index: int | None = None) -> Tuple[str, str]:
+def uuid_data_filename(original_filename: str, index: int | None = None) -> tuple[str, str]:
     """Generate a UUID-based storage name for a data file.
 
     Parameters
@@ -234,7 +233,7 @@ def uuid_data_filename(original_filename: str, index: int | None = None) -> Tupl
 def rename_data_files_to_uuid(
     directory: Path,
     data_extensions: frozenset[str] = DATA_EXTENSIONS,
-) -> Dict[str, Dict[str, str]]:
+) -> dict[str, dict[str, str]]:
     """Walk *directory* and rename every data file to a UUID-based name.
 
     Data files are sorted by their original name **within each directory**
@@ -249,7 +248,7 @@ def rename_data_files_to_uuid(
     mapping : dict[original_relative_path, {"uuid_name": ..., "original_name": ...}]
         Keys are paths relative to *directory* (using ``/`` separators).
     """
-    mapping: Dict[str, Dict[str, str]] = {}
+    mapping: dict[str, dict[str, str]] = {}
 
     for dirpath_str, _dirs, filenames in os.walk(directory):
         dirpath = Path(dirpath_str)

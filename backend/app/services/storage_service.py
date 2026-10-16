@@ -46,7 +46,6 @@ import logging
 import uuid
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional, Union
 
 import boto3
 from botocore.client import Config
@@ -60,7 +59,7 @@ log = logging.getLogger(__name__)
 _MINIO_PREFIX = "minio:"
 
 
-def _bucket_name(org_id: Union[str, uuid.UUID]) -> str:
+def _bucket_name(org_id: str | uuid.UUID) -> str:
     """Return the bucket name for an organisation.
 
     Format: ``org-{32 hex chars}`` — always lowercase, always < 63 chars,
@@ -112,11 +111,11 @@ class StorageService:
         return path.startswith(_MINIO_PREFIX)
 
     @staticmethod
-    def bucket_name(org_id: Union[str, uuid.UUID]) -> str:
+    def bucket_name(org_id: str | uuid.UUID) -> str:
         return _bucket_name(org_id)
 
 
-    def ensure_bucket(self, org_id: Union[str, uuid.UUID]) -> str:
+    def ensure_bucket(self, org_id: str | uuid.UUID) -> str:
         """Create the org bucket if it does not exist (idempotent).
 
         Also enforces:
@@ -168,7 +167,7 @@ class StorageService:
 
     def upload(
         self,
-        org_id: Union[str, uuid.UUID],
+        org_id: str | uuid.UUID,
         object_key: str,
         data: bytes,
         content_type: str = "application/octet-stream",
@@ -188,9 +187,9 @@ class StorageService:
 
     def upload_file(
         self,
-        org_id: Union[str, uuid.UUID],
+        org_id: str | uuid.UUID,
         object_key: str,
-        file_path: Union[str, Path],
+        file_path: str | Path,
         content_type: str = "application/octet-stream",
     ) -> str:
         """Upload a file on disk to the org bucket.
@@ -210,7 +209,7 @@ class StorageService:
         return _make_ref(bucket, object_key)
 
 
-    def presign(self, ref: str, ttl: Optional[int] = None) -> str:
+    def presign(self, ref: str, ttl: int | None = None) -> str:
         """Generate a pre-signed GET URL from a ``minio:{bucket}/{key}`` ref.
 
         The URL expires after *ttl* seconds (default: ``OBJECT_STORAGE_PRESIGN_TTL``).
@@ -224,7 +223,7 @@ class StorageService:
         )
 
     def presign_bucket_key(
-        self, bucket: str, key: str, ttl: Optional[int] = None
+        self, bucket: str, key: str, ttl: int | None = None
     ) -> str:
         """Generate a pre-signed URL directly from bucket + key."""
         return self._client.generate_presigned_url(

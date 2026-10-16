@@ -1,7 +1,7 @@
 """Catalog domain: taxonomies, campaigns, datasets and their association."""
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -77,7 +77,7 @@ class Taxonomy(Base, TimestampMixin, SoftDeleteMixin):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[str] = mapped_column(String(50), default="1.0.0", nullable=False)
 
     annotation_mode: Mapped[str] = mapped_column(
@@ -149,7 +149,7 @@ class Taxonomy(Base, TimestampMixin, SoftDeleteMixin):
         "Organization",
         back_populates="taxonomies",
     )
-    datasets: Mapped[List["Dataset"]] = relationship(
+    datasets: Mapped[list["Dataset"]] = relationship(
         "Dataset",
         secondary=dataset_taxonomy_association,
         back_populates="taxonomies",
@@ -182,7 +182,7 @@ class Campaign(Base, TimestampMixin, SoftDeleteMixin):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     config: Mapped[dict] = mapped_column(
         JSONB,
@@ -234,7 +234,7 @@ class Campaign(Base, TimestampMixin, SoftDeleteMixin):
     }
     """
 
-    deadline: Mapped[Optional[datetime]] = mapped_column(
+    deadline: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -243,7 +243,7 @@ class Campaign(Base, TimestampMixin, SoftDeleteMixin):
         "Organization",
         back_populates="campaigns",
     )
-    datasets: Mapped[List["Dataset"]] = relationship(
+    datasets: Mapped[list["Dataset"]] = relationship(
         "Dataset",
         back_populates="campaign",
         cascade="all, delete-orphan",
@@ -275,7 +275,7 @@ class Dataset(Base, TimestampMixin, SoftDeleteMixin):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     taxonomy: Mapped[dict] = mapped_column(
         JSONB,
@@ -357,7 +357,7 @@ class Dataset(Base, TimestampMixin, SoftDeleteMixin):
     }
     """
 
-    deadline: Mapped[Optional[datetime]] = mapped_column(
+    deadline: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -406,12 +406,12 @@ class Dataset(Base, TimestampMixin, SoftDeleteMixin):
     """
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="datasets")
-    scenes: Mapped[List["Scene"]] = relationship(
+    scenes: Mapped[list["Scene"]] = relationship(
         "Scene",
         back_populates="dataset",
         cascade="all, delete-orphan",
     )
-    taxonomies: Mapped[List["Taxonomy"]] = relationship(
+    taxonomies: Mapped[list["Taxonomy"]] = relationship(
         "Taxonomy",
         secondary=dataset_taxonomy_association,
         back_populates="datasets",
@@ -444,17 +444,17 @@ class ImportJob(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
-    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
     job_type: Mapped[str] = mapped_column(String(16), nullable=False)
-    source_filename: Mapped[Optional[str]] = mapped_column(
+    source_filename: Mapped[str | None] = mapped_column(
         String(512), nullable=True
     )
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
-    phase: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    phase: Mapped[str | None] = mapped_column(String(32), nullable=True)
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     total_scenes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -462,18 +462,18 @@ class ImportJob(Base, TimestampMixin):
     scenes_imported: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     frames_imported: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
     options: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
-    staged_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    result: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    staged_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    started_at: Mapped[Optional[datetime]] = mapped_column(
+    started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    finished_at: Mapped[Optional[datetime]] = mapped_column(
+    finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    heartbeat_at: Mapped[Optional[datetime]] = mapped_column(
+    heartbeat_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

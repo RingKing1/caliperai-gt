@@ -13,16 +13,21 @@ import secrets
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 from redis import asyncio as aioredis
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.models import Organization, OrganizationMember, User, UserRole, UserSSOIdentity
+from app.models.models import (
+    Organization,
+    OrganizationMember,
+    User,
+    UserSSOIdentity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +135,7 @@ async def fetch_discovery_document(discovery_url: str) -> dict[str, Any]:
 
 
 
-async def _get_redis() -> Optional[aioredis.Redis]:
+async def _get_redis() -> aioredis.Redis | None:
     """Import lazily to avoid import-time initialisation issues."""
     from app.core.redis_cache import get_redis
     return await get_redis()
@@ -150,7 +155,7 @@ async def save_state(
 async def consume_state(
     redis: aioredis.Redis,
     state: str,
-) -> Optional[dict[str, str]]:
+) -> dict[str, str] | None:
     """
     Retrieve and *delete* the state entry from Redis.
 
@@ -283,9 +288,9 @@ async def get_or_create_sso_user(
     5. If not, create a new ``User`` + ``UserSSOIdentity``.
     6. Optionally add the user to an organisation based on email domain.
     """
-    sub: Optional[str] = claims.get("sub")
-    email: Optional[str] = claims.get("email")
-    name: Optional[str] = claims.get("name")
+    sub: str | None = claims.get("sub")
+    email: str | None = claims.get("email")
+    name: str | None = claims.get("name")
 
     if not sub:
         raise ValueError("OIDC claims do not contain 'sub'")

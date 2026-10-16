@@ -1,7 +1,7 @@
 """User account and SSO identity ORM models."""
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -50,7 +50,7 @@ class User(Base, TimestampMixin):
     )
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -60,71 +60,71 @@ class User(Base, TimestampMixin):
         nullable=False,
     )
 
-    assigned_tasks: Mapped[List["Task"]] = relationship(
+    assigned_tasks: Mapped[list["Task"]] = relationship(
         "Task",
         back_populates="assignee",
         foreign_keys="Task.assignee_id",
     )
-    reviewed_tasks: Mapped[List["Task"]] = relationship(
+    reviewed_tasks: Mapped[list["Task"]] = relationship(
         "Task",
         back_populates="reviewer",
         foreign_keys="Task.reviewer_id",
     )
-    organization_memberships: Mapped[List["OrganizationMember"]] = relationship(
+    organization_memberships: Mapped[list["OrganizationMember"]] = relationship(
         "OrganizationMember",
         back_populates="user",
         foreign_keys="OrganizationMember.user_id",
         cascade="all, delete-orphan",
     )
 
-    time_sessions: Mapped[List["TimeSession"]] = relationship(
+    time_sessions: Mapped[list["TimeSession"]] = relationship(
         "TimeSession",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    login_sessions: Mapped[List["UserLoginSession"]] = relationship(
+    login_sessions: Mapped[list["UserLoginSession"]] = relationship(
         "UserLoginSession",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    activity_events: Mapped[List["ActivityEvent"]] = relationship(
+    activity_events: Mapped[list["ActivityEvent"]] = relationship(
         "ActivityEvent",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    goals: Mapped[List["UserGoal"]] = relationship(
+    goals: Mapped[list["UserGoal"]] = relationship(
         "UserGoal",
         back_populates="user",
         foreign_keys="UserGoal.user_id",
         cascade="all, delete-orphan",
     )
-    achievements: Mapped[List["Achievement"]] = relationship(
+    achievements: Mapped[list["Achievement"]] = relationship(
         "Achievement",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    daily_stats: Mapped[List["DailyUserStats"]] = relationship(
+    daily_stats: Mapped[list["DailyUserStats"]] = relationship(
         "DailyUserStats",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    performance_alerts: Mapped[List["PerformanceAlert"]] = relationship(
+    performance_alerts: Mapped[list["PerformanceAlert"]] = relationship(
         "PerformanceAlert",
         back_populates="user",
         foreign_keys="PerformanceAlert.user_id",
         cascade="all, delete-orphan",
     )
-    challenge_participations: Mapped[List["ChallengeParticipant"]] = relationship(
+    challenge_participations: Mapped[list["ChallengeParticipant"]] = relationship(
         "ChallengeParticipant",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    chat_sessions: Mapped[List["ChatSession"]] = relationship(
+    chat_sessions: Mapped[list["ChatSession"]] = relationship(
         "ChatSession",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    sso_identities: Mapped[List["UserSSOIdentity"]] = relationship(
+    sso_identities: Mapped[list["UserSSOIdentity"]] = relationship(
         "UserSSOIdentity",
         back_populates="user",
         cascade="all, delete-orphan",
@@ -181,9 +181,9 @@ class UserSSOIdentity(Base, TimestampMixin):
     )
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     provider_subject: Mapped[str] = mapped_column(String(512), nullable=False)
-    provider_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    provider_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     provider_claims: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
-    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+    last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
@@ -214,7 +214,7 @@ class AuditLog(Base):
         server_default=func.now(),
         nullable=False,
     )
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
@@ -224,11 +224,11 @@ class AuditLog(Base):
     entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     action: Mapped[str] = mapped_column(String(20), nullable=False)
 
-    old_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    new_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    old_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    new_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
-    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
-    user_agent: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     __table_args__ = (
         Index("ix_audit_logs_timestamp", "timestamp"),

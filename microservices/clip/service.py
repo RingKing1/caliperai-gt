@@ -14,13 +14,12 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from typing import List
 
 import numpy as np
+from app.schemas.clip import EmbedResponse, TextEmbedRequest
 from fastapi import FastAPI, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
-from app.schemas.clip import EmbedResponse, TextEmbedRequest
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -65,13 +64,13 @@ class _ClipModel:
         logger.info("Chinese-CLIP ready")
 
     @staticmethod
-    def _normalize(features) -> List[List[float]]:
+    def _normalize(features) -> list[list[float]]:
         import torch
 
         features = features / features.norm(dim=-1, keepdim=True)
         return features.detach().cpu().numpy().astype(np.float32).tolist()
 
-    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
         import torch
         from cn_clip.clip import tokenize
 
@@ -80,7 +79,7 @@ class _ClipModel:
             features = self.model.encode_text(tokens)
         return self._normalize(features)
 
-    def embed_images(self, image_bytes_list: List[bytes]) -> List[List[float]]:
+    def embed_images(self, image_bytes_list: list[bytes]) -> list[list[float]]:
         import torch
 
         images = []
@@ -91,7 +90,7 @@ class _ClipModel:
                 raise ValueError(f"invalid image: {exc}") from exc
             images.append(self.preprocess(image))
 
-        vectors: List[List[float]] = []
+        vectors: list[list[float]] = []
         with torch.no_grad():
             for start in range(0, len(images), MAX_BATCH):
                 batch = torch.stack(images[start : start + MAX_BATCH]).to(self.device)
@@ -145,7 +144,7 @@ async def embed_text(request: TextEmbedRequest) -> EmbedResponse:
 
 
 @app.post("/embed/images", response_model=EmbedResponse)
-async def embed_images(images: List[bytes] = File(...)) -> EmbedResponse:
+async def embed_images(images: list[bytes] = File(...)) -> EmbedResponse:
     if not images:
         raise HTTPException(status_code=400, detail="no images uploaded")
     try:

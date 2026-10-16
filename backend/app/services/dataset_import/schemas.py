@@ -1,45 +1,47 @@
 """Request/response models for dataset import endpoints."""
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+
 class SensorInfo(BaseModel):
     """Sensor information from metadata."""
     sensor_id: str
-    type: Optional[str] = None
+    type: str | None = None
     format: str
-    resolution: Optional[List[int]] = None
-    fps: Optional[float] = None
-    coordinate_system: Optional[str] = None
+    resolution: list[int] | None = None
+    fps: float | None = None
+    coordinate_system: str | None = None
 
 
 class DatasetMetadata(BaseModel):
     """Dataset-level metadata from metadata.json."""
     name: str
-    version: Optional[str] = "1.0.0"
-    sensors: Dict[str, Any] = Field(default_factory=dict)
+    version: str | None = "1.0.0"
+    sensors: dict[str, Any] = Field(default_factory=dict)
 
 
 class SceneMetadata(BaseModel):
     """Scene-level metadata from scene_metadata.json."""
     scene_id: str
-    name: Optional[str] = None
-    location: Optional[str] = None
-    weather: Optional[str] = None
-    time_of_day: Optional[str] = None
-    recording_date: Optional[str] = None
-    duration_seconds: Optional[float] = None
+    name: str | None = None
+    location: str | None = None
+    weather: str | None = None
+    time_of_day: str | None = None
+    recording_date: str | None = None
+    duration_seconds: float | None = None
     frame_count: int
     fps: float = 10.0
-    ego_vehicle: Optional[str] = None
+    ego_vehicle: str | None = None
 
 
 class ImportRequest(BaseModel):
     """Request to import a dataset from a local path."""
     dataset_id: UUID
     root_path: str = Field(..., description="Absolute path to dataset root folder")
-    
+
 
 class ImportProgress(BaseModel):
     """Progress information for import job."""
@@ -48,7 +50,7 @@ class ImportProgress(BaseModel):
     processed_scenes: int = 0
     total_frames: int = 0
     processed_frames: int = 0
-    errors: List[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
     message: str = ""
 
 
@@ -64,8 +66,8 @@ class ImportResponse(BaseModel):
     message: str
     scenes_imported: int = 0
     frames_imported: int = 0
-    errors: List[str] = Field(default_factory=list)
-    renamed_scenes: List[RenamedScene] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    renamed_scenes: list[RenamedScene] = Field(default_factory=list)
 
 
 class SceneConflict(BaseModel):
@@ -75,12 +77,12 @@ class SceneConflict(BaseModel):
 
 class SceneNameCheckRequest(BaseModel):
     dataset_id: UUID
-    folder_names: List[str]
+    folder_names: list[str]
     preserve_folder_names: bool = True
 
 
 class SceneNameCheckResponse(BaseModel):
-    conflicts: List[SceneConflict]
+    conflicts: list[SceneConflict]
 
 
 
@@ -90,14 +92,14 @@ class FolderItem(BaseModel):
     name: str
     path: str
     is_directory: bool
-    size: Optional[int] = None
+    size: int | None = None
 
 
 class BrowseFolderResponse(BaseModel):
     """Response from folder browsing endpoint."""
     current_path: str
-    parent_path: Optional[str] = None
-    items: List[FolderItem] = Field(default_factory=list)
+    parent_path: str | None = None
+    items: list[FolderItem] = Field(default_factory=list)
 
 
 
@@ -110,19 +112,19 @@ class ImportJobResponse(BaseModel):
 
     id: UUID
     dataset_id: UUID
-    created_by: Optional[UUID] = None
+    created_by: UUID | None = None
     job_type: str
-    source_filename: Optional[str] = None
+    source_filename: str | None = None
     status: str
-    phase: Optional[str] = None
+    phase: str | None = None
     progress: int = 0
     total_scenes: int = 0
     processed_scenes: int = 0
     scenes_imported: int = 0
     frames_imported: int = 0
-    message: Optional[str] = None
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    message: str | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime | None = None

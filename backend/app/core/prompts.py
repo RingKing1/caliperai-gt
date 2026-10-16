@@ -126,7 +126,7 @@ The user is using the **3D Cuboid/Box Tool**. Key tips:
 - Check the height matches the object
 - Ensure the box is tight but covers the full object
 """,
-    
+
     "polygon": """
 The user is using the **Polygon Tool**. Key tips:
 - Click to add vertices
@@ -134,7 +134,7 @@ The user is using the **Polygon Tool**. Key tips:
 - Useful for irregular shapes
 - Can be used for segmentation masks
 """,
-    
+
     "ai_segment": """
 The user is using the **AI Segmentation Tool (SAM2)**. Key tips:
 - Click on the object to generate an automatic mask
@@ -142,7 +142,7 @@ The user is using the **AI Segmentation Tool (SAM2)**. Key tips:
 - Add negative clicks (right-click) to exclude regions
 - Refine the mask with additional clicks
 """,
-    
+
     "ai_polygon": """
 The user is using the **AI Polygon Tool**. Key tips:
 - Click around the object boundary
@@ -150,7 +150,7 @@ The user is using the **AI Polygon Tool**. Key tips:
 - Adjust vertices as needed
 - Good for semi-automatic annotation
 """,
-    
+
     "interpolation": """
 The user is working with **Interpolation**. Key tips:
 - Annotate keyframes, let the system interpolate between
@@ -201,19 +201,19 @@ def build_system_prompt(
 ) -> str:
     """
     Build a complete system prompt with context additions.
-    
+
     Args:
         context_page: Current page path
         context_view: Current view mode (3d, 2d, bev)
         context_tool: Currently active tool
         user_role: User's role in the platform
         rag_context: Retrieved knowledge base context from RAG
-        
+
     Returns:
         Complete system prompt string
     """
     prompt_parts = [SYSTEM_PROMPT]
-    
+
     if rag_context:
         rag_section = """
 ## Relevant Knowledge Base Information
@@ -227,7 +227,7 @@ The following information from the CaliperGT documentation is relevant to the us
 Use this information to answer the user's question accurately. If the information doesn't fully address their question, provide your best guidance and mention any limitations.
 """.format(rag_context)
         prompt_parts.append(rag_section)
-    
+
     if context_view:
         view_lower = context_view.lower()
         if view_lower == "3d" or "3d" in str(context_page or "").lower():
@@ -236,13 +236,13 @@ Use this information to answer the user's question accurately. If the informatio
             prompt_parts.append(CONTEXT_PROMPT_2D_EDITOR)
         elif view_lower == "bev":
             prompt_parts.append(CONTEXT_PROMPT_BEV)
-    
+
     if context_page and "task" in context_page.lower():
         prompt_parts.append(CONTEXT_PROMPT_TASKS)
-    
+
     if context_tool and context_tool.lower() in TOOL_PROMPTS:
         prompt_parts.append(TOOL_PROMPTS[context_tool.lower()])
-    
+
     return "\n\n".join(prompt_parts)
 
 
@@ -253,12 +253,12 @@ def get_suggestions(
 ) -> list[str]:
     """
     Get contextual question suggestions.
-    
+
     Args:
         context_page: Current page path
         context_view: Current view mode
         context_tool: Currently active tool
-        
+
     Returns:
         List of suggested questions
     """
@@ -268,8 +268,8 @@ def get_suggestions(
             return SUGGESTIONS_3D_EDITOR
         elif view_lower == "2d":
             return SUGGESTIONS_2D_EDITOR
-    
+
     if context_page and "task" in context_page.lower():
         return SUGGESTIONS_TASKS
-    
+
     return SUGGESTIONS_DEFAULT

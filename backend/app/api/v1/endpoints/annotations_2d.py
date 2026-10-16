@@ -5,28 +5,28 @@ These store annotations that are camera-specific (2D bounding boxes, polygons, e
 without any 3D LiDAR component.
 """
 from datetime import datetime
-from typing import Annotated, List, Optional
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Annotation2D, Task, Frame, User, Permission
+from app.models.models import Annotation2D, Frame, Permission, Task, User
 from app.schemas.schemas import (
     Annotation2DCreate,
-    Annotation2DUpdate,
     Annotation2DResponse,
+    Annotation2DUpdate,
     BulkAnnotation2DCreate,
-    BulkAnnotation2DUpdate,
     BulkAnnotation2DDelete,
+    BulkAnnotation2DUpdate,
     BulkOperationResponse,
     TrackWideUpdate2D,
 )
+from app.services.achievement_service import check_achievements_for_user
 from app.services.annotation_service import AnnotationService
 from app.services.rbac_service import RequirePermissions
-from app.services.achievement_service import check_achievements_for_user
 
 router = APIRouter(prefix="/annotations-2d", tags=["annotations-2d"])
 
@@ -55,20 +55,20 @@ async def create_annotation_2d(
     return db_annotation
 
 
-@router.get("", response_model=List[Annotation2DResponse])
+@router.get("", response_model=list[Annotation2DResponse])
 async def list_annotations_2d(
     task_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
-    frame_id: Optional[UUID] = Query(None, description="Frame ID to filter by"),
-    camera_id: Optional[str] = Query(None, description="Camera ID to filter by"),
-    track_id: Optional[UUID] = Query(None, description="Track ID to filter by"),
-    taxonomy_id: Optional[UUID] = Query(None, description="Taxonomy ID to filter by"),
-    type: Optional[str] = Query(None, description="Annotation type to filter by"),
+    frame_id: UUID | None = Query(None, description="Frame ID to filter by"),
+    camera_id: str | None = Query(None, description="Camera ID to filter by"),
+    track_id: UUID | None = Query(None, description="Track ID to filter by"),
+    taxonomy_id: UUID | None = Query(None, description="Taxonomy ID to filter by"),
+    type: str | None = Query(None, description="Annotation type to filter by"),
     db: AsyncSession = Depends(get_db),
 ):
     """List 2D annotations for a task. Requires ANNOTATIONS_READ permission."""
     query = select(Annotation2D).where(Annotation2D.task_id == task_id)
-    
+
     if frame_id:
         query = query.where(Annotation2D.frame_id == frame_id)
     if camera_id:
@@ -79,7 +79,7 @@ async def list_annotations_2d(
         query = query.where(Annotation2D.taxonomy_id == taxonomy_id)
     if type:
         query = query.where(Annotation2D.type == type)
-    
+
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -122,12 +122,12 @@ async def delete_annotation_2d(
     annotation = await db.get(Annotation2D, annotation_id)
     if not annotation:
         raise HTTPException(status_code=404, detail="2D Annotation not found")
-    
+
     await db.delete(annotation)
     await db.commit()
 
 
-@router.post("/bulk", response_model=List[Annotation2DResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/bulk", response_model=list[Annotation2DResponse], status_code=status.HTTP_201_CREATED)
 async def create_annotations_2d_bulk(
     bulk_in: BulkAnnotation2DCreate,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_CREATE))],
@@ -143,7 +143,7 @@ async def create_annotations_2d_bulk(
     return results
 
 
-@router.get("/by-track/{track_id}", response_model=List[Annotation2DResponse])
+@router.get("/by-track/{track_id}", response_model=list[Annotation2DResponse])
 async def get_annotations_2d_by_track(
     track_id: UUID,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
@@ -167,36 +167,36 @@ async def update_annotations_2d_by_track(
     Only updates the fields that are provided (non-None).
     Requires ANNOTATIONS_UPDATE permission.
     """
-    
+
     query = select(Annotation2D).where(Annotation2D.track_id == track_id)
     result = await db.execute(query)
     annotations = result.scalars().all()
-    
+
     if not annotations:
         return BulkOperationResponse(
             success_count=0,
             error_count=0,
             errors=[{"error": f"No annotations found for track {track_id}"}]
         )
-    
+
     updated_count = 0
     for annotation in annotations:
         changed = False
-        
+
         if update_data.class_id is not None:
             annotation.class_id = update_data.class_id
             changed = True
-        
+
         if update_data.attributes is not None:
             annotation.attributes = update_data.attributes
             changed = True
-        
+
         if changed:
             annotation.updated_at = datetime.utcnow()
             updated_count += 1
-    
+
     await db.commit()
-    
+
     return BulkOperationResponse(
         success_count=updated_count,
         error_count=0,
@@ -204,7 +204,7 @@ async def update_annotations_2d_by_track(
     )
 
 
-@router.post("/bulk-update", response_model=List[Annotation2DResponse])
+@router.post("/bulk-update", response_model=list[Annotation2DResponse])
 async def update_annotations_2d_bulk(
     bulk_in: BulkAnnotation2DUpdate,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_UPDATE))],
@@ -212,23 +212,23 @@ async def update_annotations_2d_bulk(
 ):
     """Bulk update 2D annotations. Requires ANNOTATIONS_UPDATE permission."""
     updated = []
-    
+
     for item in bulk_in.annotations:
         annotation = await db.get(Annotation2D, item.id)
         if not annotation:
             continue
-        
+
         update_data = item.model_dump(exclude={'id'}, exclude_unset=True)
         for key, value in update_data.items():
             setattr(annotation, key, value)
-        
+
         updated.append(annotation)
-    
+
     await db.commit()
-    
+
     for ann in updated:
         await db.refresh(ann)
-    
+
     return updated
 
 
@@ -241,7 +241,7 @@ async def delete_annotations_2d_bulk(
     """Bulk delete 2D annotations. Requires ANNOTATIONS_DELETE permission."""
     deleted_count = 0
     not_found = []
-    
+
     for annotation_id in bulk_in.annotation_ids:
         annotation = await db.get(Annotation2D, annotation_id)
         if annotation:
@@ -249,9 +249,9 @@ async def delete_annotations_2d_bulk(
             deleted_count += 1
         else:
             not_found.append(str(annotation_id))
-    
+
     await db.commit()
-    
+
     return BulkOperationResponse(
         success_count=deleted_count,
         error_count=len(not_found),
@@ -259,12 +259,12 @@ async def delete_annotations_2d_bulk(
     )
 
 
-@router.get("/by-camera/{camera_id}", response_model=List[Annotation2DResponse])
+@router.get("/by-camera/{camera_id}", response_model=list[Annotation2DResponse])
 async def get_annotations_2d_by_camera(
     camera_id: str,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
     task_id: UUID = Query(..., description="Task ID to filter by"),
-    frame_id: Optional[UUID] = Query(None, description="Frame ID to filter by"),
+    frame_id: UUID | None = Query(None, description="Frame ID to filter by"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all 2D annotations for a specific camera. Requires ANNOTATIONS_READ permission."""
@@ -274,10 +274,10 @@ async def get_annotations_2d_by_camera(
             Annotation2D.task_id == task_id,
         )
     )
-    
+
     if frame_id:
         query = query.where(Annotation2D.frame_id == frame_id)
-    
+
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -292,18 +292,18 @@ async def delete_annotations_2d_by_task(
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     count_query = select(Annotation2D).where(Annotation2D.task_id == task_id)
     count_result = await db.execute(count_query)
     count = len(count_result.scalars().all())
-    
+
     query = select(Annotation2D).where(Annotation2D.task_id == task_id)
     result = await db.execute(query)
     for ann in result.scalars():
         await db.delete(ann)
-    
+
     await db.commit()
-    
+
     return {"deleted_count": count, "task_id": str(task_id)}
 
 
@@ -313,25 +313,25 @@ async def delete_annotations_2d_by_frame(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_DELETE))],
     db: AsyncSession = Depends(get_db),
     task_id: UUID = Query(..., description="Task ID to filter by"),
-    camera_id: Optional[str] = Query(None, description="Camera ID to filter by (optional)"),
+    camera_id: str | None = Query(None, description="Camera ID to filter by (optional)"),
 ):
     """Delete all 2D annotations for a specific frame. Requires ANNOTATIONS_DELETE permission."""
     frame = await db.get(Frame, frame_id)
     if not frame:
         raise HTTPException(status_code=404, detail="Frame not found")
-    
+
     conditions = [Annotation2D.frame_id == frame_id, Annotation2D.task_id == task_id]
     if camera_id:
         conditions.append(Annotation2D.camera_id == camera_id)
-    
+
     query = select(Annotation2D).where(and_(*conditions))
     result = await db.execute(query)
     annotations = result.scalars().all()
     count = len(annotations)
-    
+
     for ann in annotations:
         await db.delete(ann)
-    
+
     await db.commit()
-    
+
     return {"deleted_count": count, "frame_id": str(frame_id), "camera_id": camera_id}

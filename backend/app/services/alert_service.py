@@ -18,26 +18,23 @@ Alert types covered
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, cast, String, exists
+from sqlalchemy import String, and_, cast, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
 from app.models.models import (
-    PerformanceAlert,
-    AlertType,
     AlertSeverity,
-    User,
+    AlertType,
+    Annotation3D,
+    OrganizationMember,
+    PerformanceAlert,
     Task,
     TaskStatus,
     TimeSession,
-    Annotation3D,
-    Annotation2D,
-    AnnotationFusion,
+    User,
     UserGoal,
-    OrganizationMember,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,7 +86,7 @@ async def _create_alert(
     title: str,
     message: str,
     metrics: dict,
-    task_id: Optional[UUID] = None,
+    task_id: UUID | None = None,
 ) -> None:
     alert = PerformanceAlert(
         user_id=user_id,

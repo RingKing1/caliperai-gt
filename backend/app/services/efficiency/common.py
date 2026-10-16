@@ -1,7 +1,6 @@
 """Shared helpers for the efficiency domain: identities and daily rollups."""
 import uuid as uuid_lib
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import and_, select
@@ -21,7 +20,7 @@ async def get_display_name(
     db: AsyncSession,
     user: User,
     requesting_user: User,
-    organization_id: Optional[UUID] = None,
+    organization_id: UUID | None = None,
 ) -> str:
     """Get display name based on organization settings."""
     if user.id == requesting_user.id:

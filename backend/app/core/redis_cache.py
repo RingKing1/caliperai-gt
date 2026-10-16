@@ -1,16 +1,16 @@
 """Redis cache for point cloud data - shared across all workers."""
 import hashlib
-import time
-from typing import Optional, Tuple
-from redis import asyncio as aioredis
 import logging
+import time
+
+from redis import asyncio as aioredis
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-_redis_client: Optional[aioredis.Redis] = None
+_redis_client: aioredis.Redis | None = None
 
 
 async def init_redis():
@@ -42,15 +42,15 @@ async def close_redis():
         logger.info("Redis cache closed")
 
 
-def get_redis_client() -> Optional[aioredis.Redis]:
+def get_redis_client() -> aioredis.Redis | None:
     """Get Redis client instance."""
     return _redis_client
 
 
-async def get_redis() -> Optional[aioredis.Redis]:
+async def get_redis() -> aioredis.Redis | None:
     """
     Async function to get Redis client instance.
-    
+
     Use this when you need to get the Redis client in an async context.
     If Redis is not initialized, returns None.
     """
@@ -82,7 +82,7 @@ class RedisPointCloudCache:
 
     async def get(
         self, file_path: str, mtime: float
-    ) -> Optional[Tuple[bytes, bytes, Optional[bytes], int, dict]]:
+    ) -> tuple[bytes, bytes, bytes | None, int, dict] | None:
         """
         Get cached data if available and not expired.
         Returns (positions_bytes, intensities_bytes, colors_bytes_or_None,
@@ -131,8 +131,8 @@ class RedisPointCloudCache:
         positions: bytes,
         intensities: bytes,
         count: int,
-        metadata: Optional[dict] = None,
-        colors: Optional[bytes] = None,
+        metadata: dict | None = None,
+        colors: bytes | None = None,
     ):
         """Cache parsed point cloud data with TTL.
 
@@ -159,12 +159,12 @@ class RedisPointCloudCache:
 
         except Exception as e:
             logger.warning(f"Redis cache set error: {e}")
-    
+
     async def clear(self):
         """Clear all cached data with this prefix."""
         if not _redis_client:
             return
-        
+
         try:
             async for key in _redis_client.scan_iter(match=f"{self.prefix}*"):
                 await _redis_client.delete(key)
@@ -174,22 +174,22 @@ class RedisPointCloudCache:
 
 class RedisGzipCache:
     """Redis-based cache for pre-compressed gzip responses."""
-    
+
     def __init__(self, prefix: str = "gzip:", ttl_seconds: int = 600):
         self.prefix = prefix
         self.ttl_seconds = ttl_seconds
-    
+
     def _make_key(self, file_path: str, point_count: int) -> str:
         """Create cache key from file path and point count."""
         key_data = f"{file_path}:{point_count}"
         key_hash = hashlib.md5(key_data.encode()).hexdigest()
         return f"{self.prefix}{key_hash}"
-    
-    async def get(self, file_path: str, point_count: int) -> Optional[bytes]:
+
+    async def get(self, file_path: str, point_count: int) -> bytes | None:
         """Get cached gzip data."""
         if not _redis_client:
             return None
-        
+
         try:
             key = self._make_key(file_path, point_count)
             result = await _redis_client.get(key)
@@ -197,12 +197,12 @@ class RedisGzipCache:
         except Exception as e:
             logger.warning(f"Redis gzip cache get error: {e}")
             return None
-    
+
     async def set(self, file_path: str, point_count: int, compressed_data: bytes):
         """Cache gzip-compressed data with TTL."""
         if not _redis_client:
             return
-        
+
         try:
             key = self._make_key(file_path, point_count)
             await _redis_client.setex(key, self.ttl_seconds, compressed_data)

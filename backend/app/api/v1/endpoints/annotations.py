@@ -2,7 +2,7 @@
 Annotation endpoints with RBAC protection - CRUD and verification.
 """
 from datetime import datetime
-from typing import Annotated, Optional, List
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,21 +10,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Annotation, User, Permission
+from app.models.models import Annotation, Permission, User
 from app.schemas.schemas import (
     AnnotationCreate,
-    AnnotationUpdate,
     AnnotationResponse,
+    AnnotationSource,
+    AnnotationUpdate,
     AnnotationVerify,
     BulkAnnotationCreate,
     BulkOperationResponse,
-    AnnotationSource,
 )
+from app.services.achievement_service import check_achievements_for_user
 from app.services.annotation_service import AnnotationService
 from app.services.rbac_service import (
     RequirePermissions,
 )
-from app.services.achievement_service import check_achievements_for_user
 
 router = APIRouter()
 
@@ -82,21 +82,21 @@ async def create_annotations_bulk(
 @router.get("", response_model=list[AnnotationResponse])
 async def list_annotations(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_READ))],
-    task_id: Optional[UUID] = None,
-    frame_id: Optional[UUID] = None,
-    type: Optional[str] = None,
-    class_id: Optional[str] = None,
-    source: Optional[str] = None,
-    is_verified: Optional[bool] = None,
-    track_id: Optional[UUID] = None,
-    taxonomy_id: Optional[UUID] = None,
+    task_id: UUID | None = None,
+    frame_id: UUID | None = None,
+    type: str | None = None,
+    class_id: str | None = None,
+    source: str | None = None,
+    is_verified: bool | None = None,
+    track_id: UUID | None = None,
+    taxonomy_id: UUID | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ) -> list[Annotation]:
     """List annotations with filters. Requires ANNOTATIONS_READ permission."""
     query = select(Annotation)
-    
+
     if task_id:
         query = query.where(Annotation.task_id == task_id)
     if frame_id:
@@ -113,10 +113,10 @@ async def list_annotations(
         query = query.where(Annotation.track_id == track_id)
     if taxonomy_id:
         query = query.where(Annotation.taxonomy_id == taxonomy_id)
-    
+
     query = query.order_by(Annotation.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
-    
+
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -131,13 +131,13 @@ async def get_annotation(
     query = select(Annotation).where(Annotation.id == annotation_id)
     result = await db.execute(query)
     annotation = result.scalar_one_or_none()
-    
+
     if not annotation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Annotation {annotation_id} not found",
         )
-    
+
     return annotation
 
 
@@ -150,7 +150,7 @@ async def update_annotation(
 ) -> Annotation:
     """
     Update an annotation. Requires ANNOTATIONS_UPDATE permission.
-    
+
     When modifying an auto-annotation, it automatically becomes 'manual'.
     """
     annotation = await AnnotationService(db).update_generic(
@@ -175,36 +175,36 @@ async def verify_annotation(
 ) -> Annotation:
     """
     Verify an auto-annotation. Requires ANNOTATIONS_UPDATE permission.
-    
+
     This marks the annotation as human-verified, optionally applying modifications.
     """
     query = select(Annotation).where(Annotation.id == annotation_id)
     result = await db.execute(query)
     annotation = result.scalar_one_or_none()
-    
+
     if not annotation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Annotation {annotation_id} not found",
         )
-    
+
     if annotation.source == AnnotationSource.MANUAL.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Manual annotations don't need verification",
         )
-    
+
     if verification.modifications:
         for field, value in verification.modifications.items():
             if field in ["data", "attributes", "class_id"]:
                 setattr(annotation, field, value)
-    
+
     annotation.is_verified = verification.is_verified
     annotation.verified_at = datetime.utcnow()
-    
+
     if verification.modifications:
         annotation.source = AnnotationSource.MANUAL.value
-    
+
     await db.flush()
     await db.refresh(annotation)
     return annotation
@@ -220,13 +220,13 @@ async def delete_annotation(
     query = select(Annotation).where(Annotation.id == annotation_id)
     result = await db.execute(query)
     annotation = result.scalar_one_or_none()
-    
+
     if not annotation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Annotation {annotation_id} not found",
         )
-    
+
     await db.delete(annotation)
     await db.flush()
 

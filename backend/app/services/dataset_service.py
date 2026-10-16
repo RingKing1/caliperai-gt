@@ -4,7 +4,7 @@ Extracted from ``app/api/v1/endpoints/datasets.py`` so endpoints stay thin
 (auth + HTTP mapping). Functions raise plain domain exceptions instead of
 ``HTTPException``; the endpoints translate them.
 """
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from asyncpg import Range as PgRange
@@ -174,7 +174,7 @@ async def create_dataset(db: AsyncSession, dataset_in: DatasetCreate) -> Dataset
 
 async def list_datasets(
     db: AsyncSession,
-    campaign_id: Optional[UUID] = None,
+    campaign_id: UUID | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> list[Dataset]:

@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from asyncpg import Range as PgRange
@@ -110,7 +110,7 @@ def revision_reset_reason(
     new_stage: str | None,
     update_data: dict[str, Any],
     stage_changing: bool,
-) -> Optional[str]:
+) -> str | None:
     """Decide which revision/QA reset rule a PATCH hits.
 
     Returns ``"stage_change"`` / ``"same_stage_annotation"`` /
@@ -170,13 +170,13 @@ async def list_tasks(
     db: AsyncSession,
     user: User,
     *,
-    scene_id: Optional[UUID] = None,
-    taxonomy_id: Optional[UUID] = None,
-    status_filter: Optional[str] = None,
-    assignee_id: Optional[UUID] = None,
-    reviewer_id: Optional[UUID] = None,
+    scene_id: UUID | None = None,
+    taxonomy_id: UUID | None = None,
+    status_filter: str | None = None,
+    assignee_id: UUID | None = None,
+    reviewer_id: UUID | None = None,
     my_tasks: bool = False,
-    organization_id: Optional[UUID] = None,
+    organization_id: UUID | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> list[Task]:
@@ -268,7 +268,7 @@ async def list_tasks(
 async def get_tasks_stats(
     db: AsyncSession,
     task_ids: list[UUID],
-    taxonomy_id: Optional[UUID] = None,
+    taxonomy_id: UUID | None = None,
 ) -> list[dict]:
     """Per-task label count, frames visited and total frames."""
     ids = task_ids
@@ -375,7 +375,7 @@ async def get_editor_context(db: AsyncSession, task_id: UUID, user: User) -> dic
 
     taxonomies = [t for t in dataset.taxonomies if not t.is_deleted]
 
-    primary_taxonomies: dict[str, Optional[Taxonomy]] = {}
+    primary_taxonomies: dict[str, Taxonomy | None] = {}
     for mode in ("fusion_3d", "2d_only"):
         primary_result = await db.execute(
             select(Taxonomy)

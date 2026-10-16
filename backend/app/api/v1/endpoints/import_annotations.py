@@ -22,7 +22,7 @@ import io
 import json
 import zipfile
 from datetime import datetime
-from typing import Annotated, Any, Dict, List, Optional, Set
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -64,17 +64,17 @@ async def import_annotations(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_CREATE))],
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(..., description="ZIP file containing annotations folder with COCO JSON or KITTI TXT files"),
-    task_id: Optional[UUID] = Form(None, description="Optional task ID to associate annotations with"),
+    task_id: UUID | None = Form(None, description="Optional task ID to associate annotations with"),
     overwrite: bool = Form(False, description="If true, delete existing annotations before importing"),
     sync_taxonomy: bool = Form(True, description="If true, derive and merge taxonomy from annotation classes"),
 ):
     """
     Import annotations from a ZIP file containing the annotations folder.
-    
+
     Requires ANNOTATIONS_CREATE permission.
-    
+
     **Supported Folder Structures:**
-    
+
     Format 1: All COCO
     ```
     annotations/
@@ -82,7 +82,7 @@ async def import_annotations(
     ├── front_camera.json       # COCO 2D
     └── ...
     ```
-    
+
     Format 2: KITTI LiDAR + COCO Cameras (Hybrid)
     ```
     annotations/
@@ -92,16 +92,16 @@ async def import_annotations(
     ├── front_camera.json       # COCO 2D
     └── ...
     ```
-    
+
     **Auto-detection:**
     - lidar.json → COCO 3D cuboids
     - lidar/*.txt → KITTI 3D per-frame
     - *_camera.json or other *.json → COCO 2D bboxes
-    
+
     **Parameters:**
     - **overwrite**: If true, delete all existing annotations for this scene before importing
     - **sync_taxonomy**: If true, discover class labels and merge into dataset taxonomy
-    
+
     Returns:
         - success: boolean
         - imported_count: number of annotations created
@@ -112,7 +112,7 @@ async def import_annotations(
     scene_query = select(Scene).where(Scene.id == scene_id, Scene.is_deleted == False)
     result = await db.execute(scene_query)
     scene = result.scalar_one_or_none()
-    
+
     if not scene:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -133,10 +133,10 @@ async def import_annotations(
             detail=f"Failed to read file: {str(e)}"
         )
 
-    zip_metadata: Dict[str, Any] = {}
-    zip_names: List[str] = []
-    embedded_task_id: Optional[str] = None
-    task_exports_meta: List[Dict[str, Any]] = []
+    zip_metadata: dict[str, Any] = {}
+    zip_names: list[str] = []
+    embedded_task_id: str | None = None
+    task_exports_meta: list[dict[str, Any]] = []
     is_per_task_layout = False
     try:
         with zipfile.ZipFile(io.BytesIO(content), 'r') as _zf:
@@ -188,17 +188,17 @@ async def import_annotations(
         ).order_by(Task.created_at.desc()).limit(1)
         result = await db.execute(task_query)
         task = result.scalar_one_or_none()
-        
+
         if not task:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No tasks found for scene {scene_id}. Create a task first."
             )
-    
+
     frames_query = select(Frame).where(Frame.scene_id == scene.id).order_by(Frame.frame_index)
     frames_result = await db.execute(frames_query)
     frame_id_map = {frame.frame_index: frame.id for frame in frames_result.scalars().all()}
-    
+
     derived_classes = []
 
     async def _delete_annotations_for_task(target_task_id: UUID) -> None:
@@ -212,7 +212,7 @@ async def import_annotations(
         scene_tasks = list(scene_tasks_result.scalars().all())
         scene_tasks_by_id = {str(t.id): t for t in scene_tasks}
 
-        folder_entries: List[Dict[str, Any]] = []
+        folder_entries: list[dict[str, Any]] = []
         for entry in task_exports_meta:
             folder = str(entry.get("folder") or "").strip("/")
             if folder.startswith("annotations/tasks/"):
@@ -240,8 +240,8 @@ async def import_annotations(
             zip_results = await process_zip_annotations(content, scene, task, frame_id_map, db, taxonomy_id=scene.selected_taxonomy_id)
         else:
             zip_results = build_empty_import_results()
-            routed_task_ids: Set[str] = set()
-            overwritten_tasks: Set[str] = set()
+            routed_task_ids: set[str] = set()
+            overwritten_tasks: set[str] = set()
 
             for entry in folder_entries:
                 folder = str(entry.get("folder") or "").strip("/")
@@ -249,7 +249,7 @@ async def import_annotations(
                 task_taxonomy_id = entry.get("task_taxonomy_id")
                 frame_range = entry.get("frame_range") or {}
 
-                target_task: Optional[Task] = None
+                target_task: Task | None = None
                 explicit_task_id = entry.get("task_id")
                 if explicit_task_id and str(explicit_task_id) in scene_tasks_by_id:
                     target_task = scene_tasks_by_id[str(explicit_task_id)]
@@ -330,7 +330,7 @@ async def import_annotations(
                 )
 
         zip_results = await process_zip_annotations(content, scene, task, frame_id_map, db, taxonomy_id=scene.selected_taxonomy_id)
-    
+
     try:
         await db.commit()
     except Exception as e:
@@ -339,14 +339,14 @@ async def import_annotations(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save annotations: {str(e)}"
         )
-    
+
     if sync_taxonomy and zip_results["unique_class_ids"]:
         try:
             dataset_result = await db.execute(
                 select(Dataset).where(Dataset.id == scene.dataset_id)
             )
             dataset = dataset_result.scalar_one_or_none()
-            
+
             if dataset:
                 derived_classes = await derive_and_merge_taxonomy_for_scene(
                     db, dataset,
@@ -356,7 +356,7 @@ async def import_annotations(
                 )
         except Exception as e:
             zip_results["errors"].append(f"Failed to sync taxonomy: {str(e)}")
-    
+
     return {
         "success": True,
         "imported_count": zip_results["total_imported"],
@@ -374,7 +374,7 @@ async def import_annotations_zip(
     current_user: Annotated[User, Depends(RequirePermissions(Permission.ANNOTATIONS_CREATE))],
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(..., description="ZIP file containing per-sensor annotation files"),
-    task_id: Optional[UUID] = Form(None, description="Optional task ID to associate annotations with"),
+    task_id: UUID | None = Form(None, description="Optional task ID to associate annotations with"),
     overwrite: bool = Form(False, description="If true, delete existing annotations before importing"),
     sync_taxonomy: bool = Form(True, description="If true, derive and merge taxonomy from annotation classes"),
 ):
@@ -403,29 +403,29 @@ async def import_annotations_for_task(
 ):
     """
     Import annotations directly to a specific task.
-    
+
     Requires ANNOTATIONS_CREATE permission.
     """
     task_query = select(Task).where(Task.id == task_id, Task.is_deleted == False)
     result = await db.execute(task_query)
     task = result.scalar_one_or_none()
-    
+
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Task {task_id} not found"
         )
-    
+
     scene_query = select(Scene).where(Scene.id == task.scene_id)
     result = await db.execute(scene_query)
     scene = result.scalar_one_or_none()
-    
+
     if not scene:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Scene not found for task {task_id}"
         )
-    
+
     return await import_annotations(
         scene_id=scene.id,
         file=file,
@@ -451,13 +451,13 @@ async def import_dataset_annotations(
 ):
     """
     Import annotations for an entire dataset with optional taxonomy derivation.
-    
+
     This endpoint:
     1. Accepts a ZIP file with per-sensor annotation files
     2. Optionally derives a taxonomy from the annotation classes
     3. Creates annotations for all matching scenes/frames
     4. Links the derived taxonomy to the dataset
-    
+
     Expected ZIP structure:
         annotations.zip/
         ├── scene_001/
@@ -469,61 +469,61 @@ async def import_dataset_annotations(
         └── (or flat structure for single scene)
             ├── lidar.json
             └── camera_front.json
-    
+
     Requires DATASETS_IMPORT permission.
     """
     dataset_query = select(Dataset).where(Dataset.id == dataset_id)
     result = await db.execute(dataset_query)
     dataset = result.scalar_one_or_none()
-    
+
     if not dataset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Dataset {dataset_id} not found"
         )
-    
+
     scenes_query = select(Scene).where(Scene.dataset_id == dataset_id, Scene.is_deleted == False)
     result = await db.execute(scenes_query)
     scenes = result.scalars().all()
-    
+
     if not scenes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Dataset has no scenes. Import sensor data first."
         )
-    
+
     scene_map = {scene.name: scene for scene in scenes}
-    
+
     try:
         content = await file.read()
         zip_buffer = io.BytesIO(content)
-        
+
         if not zipfile.is_zipfile(zip_buffer):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Uploaded file is not a valid ZIP file"
             )
-        
+
         zip_buffer.seek(0)
-        
-        annotations_by_scene: Dict[str, Dict[str, dict]] = {}
-        all_annotation_files: Dict[str, dict] = {}
-        
+
+        annotations_by_scene: dict[str, dict[str, dict]] = {}
+        all_annotation_files: dict[str, dict] = {}
+
         with zipfile.ZipFile(zip_buffer, 'r') as zf:
             for file_info in zf.infolist():
                 if file_info.is_dir():
                     continue
-                
+
                 file_path = file_info.filename
-                
+
                 if '__MACOSX' in file_path or file_path.startswith('.'):
                     continue
-                
+
                 if not file_path.endswith('.json'):
                     continue
-                
+
                 parts = file_path.replace('\\', '/').split('/')
-                
+
                 if len(parts) >= 2:
                     scene_name = parts[-2]
                     sensor_name = parts[-1].replace('.json', '')
@@ -532,40 +532,40 @@ async def import_dataset_annotations(
                     sensor_name = parts[0].replace('.json', '')
                 else:
                     continue
-                
+
                 try:
                     json_content = zf.read(file_info.filename).decode('utf-8')
                     coco_data = json.loads(json_content)
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     continue
-                
+
                 if scene_name not in annotations_by_scene:
                     annotations_by_scene[scene_name] = {}
                 annotations_by_scene[scene_name][sensor_name] = coco_data
-                
+
                 all_annotation_files[sensor_name] = coco_data
-        
+
         if not annotations_by_scene:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No valid annotation JSON files found in ZIP"
             )
-        
+
     except zipfile.BadZipFile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or corrupted ZIP file"
         )
-    
+
     derived_taxonomy = None
     derived_taxonomy_id = None
-    
+
     if derive_taxonomy and all_annotation_files:
         derived_taxonomy = derive_taxonomy_from_annotations(
-            all_annotation_files, 
+            all_annotation_files,
             dataset.name
         )
-        
+
         new_taxonomy = Taxonomy(
             id=uuid4(),
             name=derived_taxonomy["name"],
@@ -578,42 +578,42 @@ async def import_dataset_annotations(
         )
         db.add(new_taxonomy)
         await db.flush()
-        
+
         await db.execute(
             dataset_taxonomy_association.insert().values(
                 dataset_id=dataset_id,
                 taxonomy_id=new_taxonomy.id
             )
         )
-        
+
         derived_taxonomy_id = str(new_taxonomy.id)
-    
+
     total_imported = 0
     sensors_processed = {}
     errors = []
     scenes_processed = 0
-    
+
     for scene_name_key, sensor_annotations in annotations_by_scene.items():
         scene = None
         for s_name, s in scene_map.items():
             if s_name == scene_name_key or scene_name_key in s_name or s_name in scene_name_key:
                 scene = s
                 break
-        
+
         if not scene and len(scenes) == 1:
             scene = scenes[0]
-        
+
         if not scene:
             errors.append(f"Scene '{scene_name_key}' not found in dataset")
             continue
-        
+
         task_query = select(Task).where(
             Task.scene_id == scene.id,
             Task.is_deleted == False
         ).order_by(Task.created_at.desc())
         result = await db.execute(task_query)
         task = result.scalar_one_or_none()
-        
+
         if not task:
             task = Task(
                 id=uuid4(),
@@ -624,17 +624,17 @@ async def import_dataset_annotations(
             )
             db.add(task)
             await db.flush()
-        
+
         frames_query = select(Frame).where(Frame.scene_id == scene.id).order_by(Frame.frame_index)
         result = await db.execute(frames_query)
         frames = result.scalars().all()
-        
+
         if not frames:
             errors.append(f"Scene '{scene.name}' has no frames")
             continue
-        
+
         frame_id_map = {f.frame_index: f.id for f in frames}
-        
+
         dataset_result = await db.execute(
             select(Dataset).where(Dataset.id == scene.dataset_id)
         )
@@ -646,10 +646,10 @@ async def import_dataset_annotations(
             from sqlalchemy import delete
             await db.execute(delete(Annotation2D).where(Annotation2D.task_id == task.id))
             await db.execute(delete(Annotation3D).where(Annotation3D.task_id == task.id))
-        
+
         for sensor_name, coco_data in sensor_annotations.items():
             is_3d = sensor_name.lower() in ['lidar', 'velodyne', 'point_cloud', 'pointcloud']
-            
+
             if is_3d:
                 parsed = parse_coco_3d_annotations(coco_data, frame_id_map, taxonomy)
                 for ann_data in parsed:
@@ -678,7 +678,7 @@ async def import_dataset_annotations(
             else:
                 parsed = parse_coco_2d_annotations(coco_data, sensor_name, frame_id_map, taxonomy)
 
-                track_id_remap: Dict[str, UUID] = {}
+                track_id_remap: dict[str, UUID] = {}
                 for tr in (coco_data.get("tracks") or []):
                     orig_id = tr.get("id")
                     if orig_id is None:
@@ -742,11 +742,11 @@ async def import_dataset_annotations(
                     db.add(ann)
                     total_imported += 1
                     sensors_processed[sensor_name] = sensors_processed.get(sensor_name, 0) + 1
-        
+
         scenes_processed += 1
-    
+
     await db.commit()
-    
+
     return {
         "success": True,
         "message": f"Imported {total_imported} annotations for {scenes_processed} scenes",

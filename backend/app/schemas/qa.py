@@ -1,7 +1,7 @@
 """Quality assurance review, annotation review, comment and suggestion schemas."""
 from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from pydantic import Field
@@ -9,33 +9,33 @@ from pydantic import Field
 from app.schemas.common import BaseSchema, TimestampSchema
 
 
-class QAReviewMode(str, Enum):
+class QAReviewMode(StrEnum):
     VIEW_ONLY = "view_only"
     EDIT = "edit"
     SUGGEST = "suggest"
 
 
-class QAReviewStatus(str, Enum):
+class QAReviewStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     PAUSED = "paused"
 
 
-class ReviewVerdict(str, Enum):
+class ReviewVerdict(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     FLAGGED = "flagged"
     PENDING = "pending"
 
 
-class SuggestionSeverity(str, Enum):
+class SuggestionSeverity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
 
-class SuggestionType(str, Enum):
+class SuggestionType(StrEnum):
     SIZE_ANOMALY = "size_anomaly"
     POSITION_JUMP = "position_jump"
     ORIENTATION_FLIP = "orientation_flip"
@@ -63,19 +63,19 @@ class QAReviewCreate(BaseSchema):
     """Start a new QA review session."""
     task_id: UUID
     mode: QAReviewMode = QAReviewMode.VIEW_ONLY
-    review_stage: Optional[str] = None
+    review_stage: str | None = None
 
 
 class QAReviewUpdate(BaseSchema):
     """Update a QA review session."""
-    status: Optional[QAReviewStatus] = None
-    mode: Optional[QAReviewMode] = None
+    status: QAReviewStatus | None = None
+    mode: QAReviewMode | None = None
 
 
 class QAReviewComplete(BaseSchema):
     """Complete a QA review session."""
     final_verdict: str = "completed"
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class QAReviewSummary(BaseSchema):
@@ -93,14 +93,14 @@ class QAReviewResponse(TimestampSchema):
     """Response for a QA review session."""
     id: UUID
     task_id: UUID
-    reviewer_id: Optional[UUID] = None
-    reviewer_name: Optional[str] = None
+    reviewer_id: UUID | None = None
+    reviewer_name: str | None = None
     status: str
     mode: str
-    review_stage: Optional[str] = None
+    review_stage: str | None = None
     started_at: datetime
-    completed_at: Optional[datetime] = None
-    summary: Optional[QAReviewSummary] = None
+    completed_at: datetime | None = None
+    summary: QAReviewSummary | None = None
 
 
 class AnnotationReviewCreate(BaseSchema):
@@ -108,20 +108,20 @@ class AnnotationReviewCreate(BaseSchema):
     annotation_id: str
     annotation_table: str = "annotations"
     verdict: ReviewVerdict
-    issue_types: Optional[List[str]] = None
-    notes: Optional[str] = None
-    frame_id: Optional[str] = None
-    class_id: Optional[str] = None
-    location_x: Optional[float] = None
-    location_y: Optional[float] = None
-    location_z: Optional[float] = None
+    issue_types: list[str] | None = None
+    notes: str | None = None
+    frame_id: str | None = None
+    class_id: str | None = None
+    location_x: float | None = None
+    location_y: float | None = None
+    location_z: float | None = None
 
 
 class AnnotationReviewUpdate(BaseSchema):
     """Update an annotation review."""
-    verdict: Optional[ReviewVerdict] = None
-    issue_types: Optional[List[str]] = None
-    notes: Optional[str] = None
+    verdict: ReviewVerdict | None = None
+    issue_types: list[str] | None = None
+    notes: str | None = None
 
 
 class AnnotationReviewResponse(TimestampSchema):
@@ -130,28 +130,28 @@ class AnnotationReviewResponse(TimestampSchema):
     qa_review_id: UUID
     annotation_id: str
     annotation_table: str
-    verdict: Optional[str] = None
-    issue_types: Optional[List[str]] = None
-    notes: Optional[str] = None
-    reviewed_at: Optional[datetime] = None
-    frame_id: Optional[str] = None
-    class_id: Optional[str] = None
-    location_x: Optional[float] = None
-    location_y: Optional[float] = None
-    location_z: Optional[float] = None
+    verdict: str | None = None
+    issue_types: list[str] | None = None
+    notes: str | None = None
+    reviewed_at: datetime | None = None
+    frame_id: str | None = None
+    class_id: str | None = None
+    location_x: float | None = None
+    location_y: float | None = None
+    location_z: float | None = None
     annotator_resolved: bool = False
 
 
 class BulkAnnotationReviewCreate(BaseSchema):
     """Bulk review multiple annotations."""
-    reviews: List[AnnotationReviewCreate]
+    reviews: list[AnnotationReviewCreate]
 
 
 class BulkAnnotationReviewResponse(BaseSchema):
     """Response for bulk annotation review."""
     success_count: int
     error_count: int
-    errors: List[Dict[str, Any]] = Field(default_factory=list)
+    errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AnnotationCommentCreate(BaseSchema):
@@ -159,12 +159,12 @@ class AnnotationCommentCreate(BaseSchema):
     annotation_id: str
     annotation_table: str = "annotations"
     content: str
-    parent_id: Optional[UUID] = None
+    parent_id: UUID | None = None
 
 
 class AnnotationCommentUpdate(BaseSchema):
     """Update a comment."""
-    content: Optional[str] = None
+    content: str | None = None
 
 
 class AnnotationCommentResponse(TimestampSchema):
@@ -172,14 +172,14 @@ class AnnotationCommentResponse(TimestampSchema):
     id: UUID
     annotation_id: str
     annotation_table: str
-    user_id: Optional[UUID] = None
-    user_name: Optional[str] = None
-    parent_id: Optional[UUID] = None
+    user_id: UUID | None = None
+    user_name: str | None = None
+    parent_id: UUID | None = None
     content: str
     is_resolved: bool
-    resolved_by: Optional[UUID] = None
-    resolved_at: Optional[datetime] = None
-    replies: List["AnnotationCommentResponse"] = Field(default_factory=list)
+    resolved_by: UUID | None = None
+    resolved_at: datetime | None = None
+    replies: list["AnnotationCommentResponse"] = Field(default_factory=list)
 
 
 class ResolveCommentRequest(BaseSchema):
@@ -190,50 +190,50 @@ class ResolveCommentRequest(BaseSchema):
 class QASuggestionCreate(BaseSchema):
     """Create a QA suggestion (typically auto-generated)."""
     task_id: UUID
-    annotation_id: Optional[str] = None
-    annotation_table: Optional[str] = None
-    frame_id: Optional[str] = None
+    annotation_id: str | None = None
+    annotation_table: str | None = None
+    frame_id: str | None = None
     suggestion_type: SuggestionType
     severity: SuggestionSeverity = SuggestionSeverity.MEDIUM
     message: str
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
 
 class QASuggestionResponse(BaseSchema):
     """Response for a QA suggestion."""
     id: UUID
     task_id: UUID
-    annotation_id: Optional[str] = None
-    annotation_table: Optional[str] = None
-    frame_id: Optional[str] = None
+    annotation_id: str | None = None
+    annotation_table: str | None = None
+    frame_id: str | None = None
     suggestion_type: str
     severity: str
     message: str
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
     is_dismissed: bool
-    dismissed_by: Optional[UUID] = None
-    dismissed_at: Optional[datetime] = None
+    dismissed_by: UUID | None = None
+    dismissed_at: datetime | None = None
     created_at: datetime
 
 
 class DismissSuggestionRequest(BaseSchema):
     """Dismiss a QA suggestion."""
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 class GenerateSuggestionsRequest(BaseSchema):
     """Request to generate AI suggestions for a task."""
     task_id: UUID
     regenerate: bool = False
-    check_types: Optional[List[SuggestionType]] = None
+    check_types: list[SuggestionType] | None = None
 
 
 class GenerateSuggestionsResponse(BaseSchema):
     """Response for suggestion generation."""
     task_id: UUID
     suggestions_count: int
-    by_severity: Dict[str, int]
-    by_type: Dict[str, int]
+    by_severity: dict[str, int]
+    by_type: dict[str, int]
 
 
 class CreateManualSuggestionRequest(BaseSchema):
@@ -241,11 +241,11 @@ class CreateManualSuggestionRequest(BaseSchema):
     task_id: UUID
     frame_id: UUID
     suggestion_type: SuggestionType = SuggestionType.FALSE_NEGATIVE
-    severity: Optional[str] = "high"
+    severity: str | None = "high"
     message: str
-    details: Optional[Dict[str, Any]] = None
-    location: Optional[Dict[str, float]] = None
-    suggested_class: Optional[str] = None
+    details: dict[str, Any] | None = None
+    location: dict[str, float] | None = None
+    suggested_class: str | None = None
 
 
 class QATaskStats(BaseSchema):
@@ -263,7 +263,7 @@ class QATaskStats(BaseSchema):
     unresolved_comments: int
     review_progress_percent: float
     has_active_review: bool
-    active_review_id: Optional[UUID] = None
+    active_review_id: UUID | None = None
 
 
 AnnotationCommentResponse.model_rebuild()
