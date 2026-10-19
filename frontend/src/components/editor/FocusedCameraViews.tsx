@@ -573,7 +573,7 @@ export const FocusedCameraViews: React.FC<FocusedCameraViewsProps> = ({
     const filename = currentFrame.file_paths.cameras[cameraId];
 
     // allowThumb: accept the 400px preview tier for instant display
-    const cached = getCachedImage(`${basePath}/${filename}`, true);
+    const cached = getCachedImage(`${basePath}/${filename}`, 'thumb');
     if (cached) {
       return cached; // Return cached blob URL
     }

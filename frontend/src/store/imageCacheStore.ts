@@ -2,13 +2,16 @@ import { create } from 'zustand';
 import { useAuthStore } from '@/store/authStore';
 import type { Frame, Scene } from '@/types';
 
-// Resolution tier for a cached image.
+// Resolution tier for a cached image (higher rank satisfies lower requests).
 // - 'full': original camera image, required for pixel-space 2D annotation,
 //   SAM2 embeddings and the main projection canvas.
-// - 'thumb': server-resized preview (THUMB_WIDTH), only safe for pure 3D
-//   projection surfaces that anchor their coordinate space to the calibration
-//   intrinsic resolution (see FocusedCameraViews).
-type ImageTier = 'full' | 'thumb';
+// - 'mid': 1280px preview for near-neighbour frames.
+// - 'thumb': 400px preview, only safe for pure 3D projection surfaces that
+//   anchor their coordinate space to the calibration intrinsic resolution
+//   (see FocusedCameraViews).
+type ImageTier = 'full' | 'mid' | 'thumb';
+
+const TIER_RANK: Record<ImageTier, number> = { full: 3, mid: 2, thumb: 1 };
 
 interface ImageCacheEntry {
   blob: Blob;
@@ -40,7 +43,7 @@ interface ImageCacheState {
     opts?: { initial?: boolean },
   ) => void;
   cancelPrefetch: () => void;
-  getCached: (filePath: string, allowThumb?: boolean) => string | null;
+  getCached: (filePath: string, minTier?: ImageTier) => string | null;
   areFrameImagesCached: (scene: Scene, frame: Frame) => boolean;
   clearCache: () => void;
 
@@ -50,15 +53,19 @@ interface ImageCacheState {
 let cacheHits = 0;
 let cacheMisses = 0;
 
-// Bounded two-tier prefetch window centred on the current frame:
-//   near (±FULL_WINDOW)  -> full-resolution originals, ~31 MB for 7 frames
-//   far  (±THUMB_WINDOW) -> 400px thumbnails, ~4.4 MB for 31 frames
+// Bounded three-tier prefetch window centred on the current frame:
+//   ±FULL_WINDOW  -> full-resolution originals (fluid frame-by-frame playback)
+//   ±MID_WINDOW   -> 1280px previews
+//   ±THUMB_WINDOW -> 400px thumbnails
 // Frames outside the window are fetched incrementally as the user scrubs.
-const FULL_WINDOW = 3;
+const FULL_WINDOW = 1;
+const MID_WINDOW = 3;
 const THUMB_WINDOW = 15;
 const THUMB_WIDTH = 400;
+const MID_WIDTH = 1280;
 
 const MAX_CONCURRENT_FULL = 12;
+const MAX_CONCURRENT_MID = 12;
 const MAX_CONCURRENT_THUMB = 20;
 
 const MAX_CACHE_SIZE = 1024 * 1024 * 1024;
@@ -86,9 +93,9 @@ function cameraPathsForFrame(scene: Scene, frame: Frame): Array<{ path: string; 
 // URL is token-free (JWT travels in the Authorization header) so the browser
 // disk cache and CDN edge can key on a stable URL across reloads.
 function buildImageUrl(path: string, tier: ImageTier): string {
-  return tier === 'thumb'
-    ? `/api/v1/data/image/${path}?width=${THUMB_WIDTH}`
-    : `/api/v1/data/image/${path}`;
+  if (tier === 'thumb') return `/api/v1/data/image/${path}?width=${THUMB_WIDTH}`;
+  if (tier === 'mid') return `/api/v1/data/image/${path}?width=${MID_WIDTH}`;
+  return `/api/v1/data/image/${path}`;
 }
 
 async function fetchImage(
@@ -164,11 +171,10 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
     void get().followWindow(scene, frames, currentFrameIndex, { initial: true });
   },
 
-  // Incrementally fills the two-tier window around centerIndex. Frames within
-  // FULL_WINDOW get originals; frames within THUMB_WINDOW (but outside the
-  // near window) get 400px thumbnails. Already-cached/in-flight items are
-  // skipped, so scrubbing only ever fetches what is newly in range.
-  followWindow: (scene: Scene, frames: Frame[], centerIndex: number, opts?: { initial?: boolean; signal?: AbortSignal }) => {
+  // Incrementally fills the three-tier window around centerIndex (full ±1,
+  // mid ±3, thumb ±15). Already-cached/in-flight items are skipped, so
+  // scrubbing only ever fetches what is newly in range.
+  followWindow: (scene: Scene, frames: Frame[], centerIndex: number, opts?: { initial?: boolean }) => {
     const state = get();
     if (!scene.storage_paths?.cameras || frames.length === 0) return;
 
@@ -176,29 +182,33 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
     if (!signal) return;
 
     const cache = state.cache;
-    const fullItems: Array<{ path: string; cameraId: string; frameIndex: number }> = [];
-    const thumbItems: Array<{ path: string; cameraId: string; frameIndex: number }> = [];
+    const buckets: Record<ImageTier, Array<{ path: string; cameraId: string; frameIndex: number }>> = {
+      full: [], mid: [], thumb: [],
+    };
 
     const lo = Math.max(0, centerIndex - THUMB_WINDOW);
     const hi = Math.min(frames.length, centerIndex + THUMB_WINDOW + 1);
     for (let i = lo; i < hi; i++) {
       const distance = Math.abs(i - centerIndex);
-      const tier: ImageTier = distance <= FULL_WINDOW ? 'full' : 'thumb';
+      const tier: ImageTier = distance <= FULL_WINDOW ? 'full' : distance <= MID_WINDOW ? 'mid' : 'thumb';
       for (const item of cameraPathsForFrame(scene, frames[i])) {
         const entry = cache.get(item.path);
-        // Full satisfies both tiers; a thumb only satisfies thumb requests.
-        if (entry && (entry.tier === 'full' || tier === 'thumb')) continue;
+        // A cached variant satisfies the request when its tier is >= requested.
+        if (entry && TIER_RANK[entry.tier] >= TIER_RANK[tier]) continue;
         if (inflight.has(`${tier}:${item.path}`)) continue;
-        // A full fetch already in flight will supersede a pending thumb.
-        if (tier === 'thumb' && inflight.has(`full:${item.path}`)) continue;
-        (tier === 'full' ? fullItems : thumbItems).push(item);
+        // Any in-flight variant of equal/higher rank will supersede this one.
+        if (tier !== 'full' && inflight.has(`full:${item.path}`)) continue;
+        if (tier === 'thumb' && inflight.has(`mid:${item.path}`)) continue;
+        buckets[tier].push(item);
       }
     }
 
-    // Near frames first, sorted by distance so the current frame lands first.
-    fullItems.sort((a, b) => Math.abs(a.frameIndex - centerIndex) - Math.abs(b.frameIndex - centerIndex));
+    // Each bucket is fetched nearest-first; full → mid → thumb in time.
+    (Object.keys(buckets) as ImageTier[]).forEach((tier) => {
+      buckets[tier].sort((a, b) => Math.abs(a.frameIndex - centerIndex) - Math.abs(b.frameIndex - centerIndex));
+    });
 
-    const total = fullItems.length + thumbItems.length;
+    const total = buckets.full.length + buckets.mid.length + buckets.thumb.length;
     if (opts?.initial) {
       set({ prefetchTotal: total, prefetchLoaded: 0 });
     }
@@ -225,8 +235,9 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
       set((s) => {
         const newCache = new Map(s.cache);
         const previous = newCache.get(path);
-        // Never downgrade full to thumb; revoke replaced blob URL.
-        if (previous && (previous.tier === 'full' || (previous.tier === tier && previous.size === blob.size))) {
+        // Never replace with an equal/lower tier or identical payload;
+        // revoke the replaced blob URL.
+        if (previous && (TIER_RANK[previous.tier] >= TIER_RANK[tier] || previous.size === blob.size)) {
           return {};
         }
         const objectUrl = URL.createObjectURL(blob);
@@ -252,12 +263,17 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
     };
 
     void (async () => {
-      await runPool(fullItems, MAX_CONCURRENT_FULL, async (item) => {
+      await runPool(buckets.full, MAX_CONCURRENT_FULL, async (item) => {
         await fetchImage(item, 'full', signal!, put);
         bumpProgress();
       });
       if (signal.aborted) return;
-      await runPool(thumbItems, MAX_CONCURRENT_THUMB, async (item) => {
+      await runPool(buckets.mid, MAX_CONCURRENT_MID, async (item) => {
+        await fetchImage(item, 'mid', signal!, put);
+        bumpProgress();
+      });
+      if (signal.aborted) return;
+      await runPool(buckets.thumb, MAX_CONCURRENT_THUMB, async (item) => {
         await fetchImage(item, 'thumb', signal!, put);
         bumpProgress();
       });
@@ -286,10 +302,10 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
   },
 
   // Defaults to full-resolution only (pixel-space annotation must never get
-  // a thumbnail). Pass allowThumb=true on pure 3D projection surfaces.
-  getCached: (filePath: string, allowThumb = false): string | null => {
+  // a thumbnail). Pass minTier='thumb' on pure 3D projection surfaces.
+  getCached: (filePath: string, minTier: ImageTier = 'full'): string | null => {
     const entry = get().cache.get(filePath);
-    if (entry && (entry.tier === 'full' || allowThumb)) {
+    if (entry && TIER_RANK[entry.tier] >= TIER_RANK[minTier]) {
       cacheHits++;
       return entry.objectUrl;
     }

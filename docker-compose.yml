@@ -14,6 +14,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/annotation_platform
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY}
+      - THUMB_CACHE_DIR=/uploads/.thumb-cache
       # Gunicorn kills a worker that goes silent for this long. The image bakes
       # TIMEOUT=120, which is far too low: a big dataset ZIP upload alone can
       # take several minutes, and the worker gets SIGABRT'd mid-import (the

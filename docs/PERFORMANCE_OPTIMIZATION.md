@@ -86,29 +86,74 @@
 
 > 注：near 窗口原图 31 MB 是当前帧 ±3 的保守取值；后续 P1 可进一步把邻帧降为 1280px。
 
-## 4. P1 / P2 后续优化（未实施，备选）
+## 4. P1 优化（已实施）
 
-- **P1 邻帧原图降档**：±1～±3 帧改 1280px（6 路 1.14 MB/帧），仅当前帧取原图，图像窗口流量再降约 60%。
-- **P1 缩略图落盘/对象存储缓存**：后端当前每次实时缩放（约 10 ms/张），可在首次生成后写入 MinIO 或本地 `.thumb/` 目录，后续走 sendfile，并供 Cloudflare 边缘缓存。
-- **P1 点云 LOD 抽稀**：邻帧提供 1/4 点云（0.88 MB，gzip 后约 0.4 MB），当前帧全量。后端已有抽稀管线（`_MAX_DISPLAY_POINTS` 随机抽稀），增加 `lod` 查询参数即可。
-- **P2 WebP 缩略图**：同画质再省约 25%，需前端确认浏览器兼容。
-- **P2 点云 Draco / 帧间差分压缩**：5–10x 压缩率，前端需引入解码器，工作量较大。
+### P1-1 缩略图磁盘缓存
 
-## 5. 涉及文件
+新增 `backend/app/services/thumbnail_cache.py`：缩略图按「源文件 mtime/size + 尺寸 + 质量」哈希分片落盘（`THUMB_CACHE_DIR`，compose 中指向持久卷 `/uploads/.thumb-cache`），临时文件 rename 防并发竞争，源文件替换自动失效，不放大。`/data/image` 与 `/scenes/{id}/frames/{n}/image` 两个缩放端点统一复用，命中后走 sendfile。
+
+实测：同档缩略图重复请求 88 ms → **3 ms**（约 30 倍）。
+
+### P1-2 点云 LOD 分级（full / coarse）
+
+- 后端 `/data/lidar` 新增 `lod=full|coarse`：coarse 为固定种子随机抽稀到约 1/4（2 万～10 万点），确定性结果，gzip 压缩产物复用 Redis 缓存（缓存键含点数天然区分），ETag/X-Subsampled 头自动反映。
+- `lidarCacheStore` 缓存按 path 单层存放、tier 标记，full 到达替换 coarse 并 bump `fullUpgradeTick`；窗口中心帧 full、邻帧 coarse；`ensureFull` 支持占位升级。
+- 当前帧 react-query 接受 coarse 即时显示，监听 tick 自动 invalidate 升级为 full；逐点分割编辑器仍只取 full。
+
+实测（230,400 点帧，gzip 传输）：full 1.64 MB / 230,400 点，coarse **0.62 MB / 57,600 点**。7 帧窗口点云传输 11.5 MB → **5.4 MB**。
+
+### P1-3 图像三档窗口
+
+图像预取由两档升级为三档：±1 full（保证逐帧播放零等待）、±2～±3 mid(1280)、±4～±15 thumb(400)；tier 按 rank(full>mid>thumb) 去重、防降级、防并发。`getCached(path, minTier)` 按档查询：
+
+- 纯 3D 投影小卡（FocusedCameraCard）允许 thumb/mid 即时显示，投影锚定标定分辨率（P0 已建立）；
+- FusionLabelingView 大图叠的是**可交互 2D bbox**（viewBox 为图片自然像素空间），坐标必须像素精确，因此坚持 full，不做缩略图占位；
+- 2D 标注、SAM2 链路同样 full-only。
+
+### P1 后首次打开传输量（7 帧工作窗口，与场景长度无关）
+
+| 组成 | 档位/帧数 | 流量 |
+|---|---|---|
+| 图像 full | ±1，3 帧 × 6 路原图 | 13.2 MB |
+| 图像 mid 1280 | ±2～±3，4 帧 × 6 路 | 4.6 MB |
+| 图像 thumb 400 | ±4～±15，24 帧 × 6 路 | 3.5 MB |
+| 点云 full | 1 帧 | 1.6 MB |
+| 点云 coarse | 6 帧 × 0.62 MB | 3.7 MB |
+| **合计** | | **≈ 26.6 MB**（P0 约 46 MB） |
+
+二次刷新仍由浏览器磁盘缓存/ETag 兜底，接近零传输。
+
+## 5. P2 后续优化（备选）
+
+- 播放方向自适应预取：连续播放时只向播放方向补窗口，再省约一半流量。
+- WebP/AVIF 缩略图：按 `Accept` 协商，同画质再省 25–35%。
+- Service Worker 缓存：磁盘缓存升级为多标签页共享/弱网离线可用。
+- 点云 Draco / 帧间差分压缩：5–10x，前端需引入 WASM 解码器。
+- 缩略图边缘缓存：当前带 Authorization 头时 Cloudflare 不缓存；可改走 query-token 端点并配置忽略 token 参数的 Cache Rule。
+- 标注 JSON 接口审计：2500 帧场景的全量 3D/2D/4D 标注可能为 MB 级，可改按帧范围懒加载。
+
+## 6. 涉及文件
 
 | 文件 | 改动 |
 |---|---|
-| `frontend/src/store/imageCacheStore.ts` | 两档窗口预取、tier 缓存（full/thumb）、`followWindow`、header 鉴权、允许磁盘缓存 |
-| `frontend/src/hooks/useTaskDataLoader.ts` | 点云窗口 ±10→±3；图像窗口化初始化与切帧跟随 |
-| `frontend/src/components/editor/FocusedCameraViews.tsx` | 小卡允许缩略图占位；投影坐标空间锚定标定分辨率 |
-| `backend/app/api/v1/endpoints/data.py` | 原图/缩略图 `Cache-Control` 缓存头 |
+| `frontend/src/store/imageCacheStore.ts` | 三档窗口预取（full ±1 / mid ±3 / thumb ±15）、rank 去重防降级、`followWindow`、header 鉴权、磁盘缓存 |
+| `frontend/src/store/lidarCacheStore.ts` | full/coarse 双 tier，窗口中心 full、邻帧 coarse，`ensureFull` 占位升级，`fullUpgradeTick` 通知 |
+| `frontend/src/hooks/useTaskDataLoader.ts` | 点云窗口 ±3；coarse 即时显示 + tick 触发 full 升级；图像窗口跟随 |
+| `frontend/src/api/client.ts` | `getLidarData(path, { lod })`，响应携带 lod 标记 |
+| `frontend/src/components/editor/FocusedCameraViews.tsx` | 小卡允许 thumb/mid 占位；投影锚定标定分辨率 |
+| `backend/app/api/v1/endpoints/data.py` | 图像缓存头；点云 `lod` 参数与确定性 coarse 抽稀 |
+| `backend/app/api/v1/endpoints/scenes.py` | frame image 端点复用缩略图缓存 |
+| `backend/app/services/thumbnail_cache.py` | 缩略图磁盘缓存（新增） |
+| `docker-compose.yml` | backend 增加 `THUMB_CACHE_DIR=/uploads/.thumb-cache` |
 
-## 6. 验证方法
+## 7. 验证方法
 
 1. 打开 DevTools → Network，进入一个多帧场景：
-   - `/data/image/` 请求应仅覆盖当前帧 ±15，且 ±3 之外 URL 带 `width=400`；
-   - `/data/lidar/` 请求应仅覆盖 ±3，响应头含 `content-encoding: gzip`；
-   - 图像响应头含 `cache-control: max-age=604800`；二次刷新状态为 `200 (disk cache)` 或 `304`。
-2. 快速拖动时间轴：6 相机小卡先出缩略图（投影框位置准确不错位），随后替换为原图。
-3. 2D 标注模式下画框、SAM2 分割：确认使用原图（坐标与标定像素空间一致）。
-4. 后端日志 `docker logs anno-backend -f | grep -E "GZIP|SUBSAMPLE"` 观察压缩/抽稀。
+   - `/data/image/` 请求仅覆盖当前帧 ±15：±2～±3 带 `width=1280`，±4～±15 带 `width=400`，±1 无 width；
+   - `/data/lidar/` 请求仅覆盖 ±3：中心帧无 lod，邻帧带 `lod=coarse`，均含 `content-encoding: gzip`；
+   - 邻帧点云响应头 `x-point-count` 约为全帧 1/4、`x-subsampled: 1`；
+   - 二次刷新图像/缩略图为 `200 (disk cache)` 或 `304`；重复请求同一缩略图后端耗时约 3 ms。
+2. 快速拖动时间轴：6 相机小卡先出 400/1280 预览（投影框不错位）；当前帧点云先密后疏地"补点"升级为全量。
+3. 2D 标注模式画框、SAM2 分割、FusionLabelingView 大图 bbox：确认始终使用原图，坐标与标定像素空间一致。
+4. 语义分割编辑器确认仍只取 full 点云（逐点分割不用 coarse）。
+5. 缓存目录：`docker exec anno-backend find /uploads/.thumb-cache -type f | wc -l`。
