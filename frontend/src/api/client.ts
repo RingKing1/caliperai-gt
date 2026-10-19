@@ -1103,6 +1103,8 @@ export interface PointCloudResponse {
   // Per-point RGB in [0,1], flat [r1,g1,b1,...]. Present only when the source
   // PCD carries an `rgb`/`rgba` packed field or separate r/g/b channels.
   colors?: Float32Array;
+  // Server level of detail; 'coarse' is the deterministic ~1/4 subsample.
+  lod?: 'full' | 'coarse';
 }
 
 // Legacy interface for backward compatibility
@@ -1118,7 +1120,10 @@ export const dataApi = {
    * Binary format is 3-4x smaller and faster to parse than JSON.
    * @param filePath Path relative to sample_data root (e.g., "scenes/scene_001/lidar/000000.pcd")
    */
-  getLidarData: async (filePath: string): Promise<PointCloudResponse> => {
+  getLidarData: async (
+    filePath: string,
+    options?: { lod?: 'full' | 'coarse' },
+  ): Promise<PointCloudResponse> => {
     const startTime = performance.now();
     const token = useAuthStore.getState().accessToken;
     const headers: Record<string, string> = {};
@@ -1128,7 +1133,8 @@ export const dataApi = {
 
     // Fetch binary format for better performance
     const fetchStart = performance.now();
-    const response = await fetch(`/api/v1/data/lidar/${filePath}?format=binary`, {
+    const lodParam = options?.lod === 'coarse' ? '&lod=coarse' : '';
+    const response = await fetch(`/api/v1/data/lidar/${filePath}?format=binary${lodParam}`, {
       headers,
     });
     const fetchTime = performance.now() - fetchStart;
@@ -1172,6 +1178,7 @@ export const dataApi = {
       positions,
       intensities,
       colors,
+      lod: options?.lod ?? 'full',
     };
   },
 

@@ -2,16 +2,22 @@ import { create } from 'zustand';
 import { dataApi } from '@/api/client';
 import type { Frame, Scene } from '@/types';
 
+// Level of detail: 'coarse' = deterministic ~1/4 subsample for neighbouring
+// frames, 'full' = every point for the current frame.
+type LidarTier = 'full' | 'coarse';
+
 interface PointCloudData {
   positions: Float32Array;
   intensities: Float32Array;
   pointCount: number;
+  lod?: LidarTier;
 }
 
 interface CacheEntry {
   data: PointCloudData;
   loadedAt: number;
   size: number;
+  tier: LidarTier;
 }
 
 type PrefetchStatus = 'idle' | 'prefetching' | 'complete' | 'error';
@@ -28,10 +34,16 @@ interface LidarCacheState {
   currentSceneId: string | null;
   abortController: AbortController | null;
 
-  startPrefetch: (scene: Scene, frames: Frame[]) => void;
+  // Bumped whenever a full cloud replaces a coarse placeholder; consumers
+  // (react-query) watch it to upgrade the rendered current frame.
+  fullUpgradeTick: number;
+
+  startPrefetch: (scene: Scene, frames: Frame[], centerOffset?: number) => void;
   prefetchAround: (scene: Scene, frames: Frame[], centerIndex: number, windowSize?: number) => void;
+  // Kick off a full-tier fetch for a path currently holding coarse data.
+  ensureFull: (path: string) => void;
   cancelPrefetch: () => void;
-  getCached: (filePath: string) => PointCloudData | null;
+  getCached: (filePath: string, allowCoarse?: boolean) => PointCloudData | null;
   clearCache: () => void;
 
   getCacheStats: () => { entries: number; totalSize: number; hitRate: number };
@@ -41,8 +53,16 @@ let cacheHits = 0;
 let cacheMisses = 0;
 
 const MAX_CONCURRENT = 6;
+const MAX_CONCURRENT_COARSE = 6;
 
 const MAX_CACHE_SIZE = 500 * 1024 * 1024;
+
+// Dedupes in-flight fetches by path+tier.
+const inflightLidar = new Set<string>();
+
+// Persistent controller for quiet rolling prefetch; survives the initial
+// prefetch completing (store keeps the signal usable across frame changes).
+let rollingController: AbortController | null = null;
 
 export const useLidarCacheStore = create<LidarCacheState>((set, get) => ({
   cache: new Map(),
@@ -53,39 +73,33 @@ export const useLidarCacheStore = create<LidarCacheState>((set, get) => ({
   prefetchErrors: [],
   currentSceneId: null,
   abortController: null,
+  fullUpgradeTick: 0,
 
-  startPrefetch: (scene: Scene, frames: Frame[]) => {
+  startPrefetch: (scene: Scene, frames: Frame[], centerOffset?: number) => {
     const state = get();
 
     if (state.currentSceneId === scene.id && (state.prefetchStatus === 'prefetching' || state.prefetchStatus === 'complete')) {
       return;
     }
 
-    if (state.abortController) {
-      state.abortController.abort();
-    }
+    state.abortController?.abort();
 
     const abortController = new AbortController();
+    rollingController = abortController;
     const lidarBase = scene.storage_paths?.lidar_base?.replace(/\/$/, '') || '';
 
-    if (!lidarBase) {
-      return;
-    }
+    if (!lidarBase) return;
 
-    const filePaths = frames
-      .filter(f => f.file_paths?.lidar)
-      .map(f => `${lidarBase}/${f.file_paths.lidar}`);
+    const center = centerOffset ?? Math.floor(frames.length / 2);
+    const items = buildWindowItems(frames, lidarBase, center, frames.length - 1);
+    const plan = planTierItems(items, get().cache);
 
-    // Filter out already cached paths
-    const cache = state.cache;
-    const pathsToLoad = filePaths.filter(path => !cache.has(path));
-
-    if (pathsToLoad.length === 0) {
+    if (plan.length === 0) {
       set({
         prefetchStatus: 'complete',
         prefetchProgress: 100,
-        prefetchTotal: filePaths.length,
-        prefetchLoaded: filePaths.length,
+        prefetchTotal: items.length,
+        prefetchLoaded: items.length,
         currentSceneId: scene.id,
         abortController: null,
       });
@@ -95,52 +109,63 @@ export const useLidarCacheStore = create<LidarCacheState>((set, get) => ({
     set({
       prefetchStatus: 'prefetching',
       prefetchProgress: 0,
-      prefetchTotal: pathsToLoad.length,
+      prefetchTotal: plan.length,
       prefetchLoaded: 0,
       prefetchErrors: [],
       currentSceneId: scene.id,
       abortController,
     });
 
-    // Start prefetching in batches
-    prefetchBatch(pathsToLoad, abortController.signal, set, get);
+    void prefetchTiered(plan, abortController.signal, set, get, { reportProgress: true });
   },
 
-  prefetchAround: (scene: Scene, frames: Frame[], centerIndex: number, windowSize = 10) => {
+  prefetchAround: (scene: Scene, frames: Frame[], centerIndex: number, windowSize = 3) => {
     const lidarBase = scene.storage_paths?.lidar_base?.replace(/\/$/, '') || '';
     if (!lidarBase) return;
 
+    if (!rollingController || rollingController.signal.aborted) {
+      rollingController = new AbortController();
+    }
+    const signal = rollingController.signal;
+
     const lo = Math.max(0, centerIndex - windowSize);
     const hi = Math.min(frames.length - 1, centerIndex + windowSize);
-    const window = frames.slice(lo, hi + 1);
+    const windowFrames = frames.slice(lo, hi + 1);
+    const items = buildWindowItems(windowFrames, lidarBase, centerIndex - lo, windowSize);
+    const plan = planTierItems(items, get().cache);
+    if (plan.length === 0) return;
 
-    const cache = get().cache;
-    const pathsToLoad = window
-      .filter(f => f.file_paths?.lidar)
-      .map(f => `${lidarBase}/${f.file_paths.lidar}`)
-      .filter(path => !cache.has(path));
+    // Quiet: UI progress bar is not reset while scrubbing.
+    void prefetchTiered(plan, signal, set, get, { reportProgress: false });
+  },
 
-    if (pathsToLoad.length === 0) return;
-
-    // Download quietly — don't touch prefetchStatus so the UI progress bar isn't reset
-    const signal = get().abortController?.signal ?? new AbortController().signal;
-    prefetchQuiet(pathsToLoad, signal, set);
+  ensureFull: (path: string) => {
+    const entry = get().cache.get(path);
+    if (entry?.tier === 'full') return;
+    const key = `full:${path}`;
+    if (inflightLidar.has(key)) return;
+    if (!rollingController || rollingController.signal.aborted) {
+      rollingController = new AbortController();
+    }
+    void fetchOneTier(path, 'full', rollingController.signal, set, get);
   },
 
   cancelPrefetch: () => {
     const state = get();
-    if (state.abortController) {
-      state.abortController.abort();
-    }
+    state.abortController?.abort();
+    rollingController?.abort();
+    rollingController = null;
     set({
       prefetchStatus: 'idle',
       abortController: null,
     });
   },
 
-  getCached: (filePath: string): PointCloudData | null => {
+  // Full tier by default (the current frame renders every point). Pass
+  // allowCoarse=true to show the ~1/4 placeholder while full is loading.
+  getCached: (filePath: string, allowCoarse = false): PointCloudData | null => {
     const entry = get().cache.get(filePath);
-    if (entry) {
+    if (entry && (entry.tier === 'full' || allowCoarse)) {
       cacheHits++;
       return entry.data;
     }
@@ -150,9 +175,10 @@ export const useLidarCacheStore = create<LidarCacheState>((set, get) => ({
 
   clearCache: () => {
     const state = get();
-    if (state.abortController) {
-      state.abortController.abort();
-    }
+    state.abortController?.abort();
+    rollingController?.abort();
+    rollingController = null;
+    inflightLidar.clear();
     cacheHits = 0;
     cacheMisses = 0;
     set({
@@ -183,137 +209,162 @@ export const useLidarCacheStore = create<LidarCacheState>((set, get) => ({
   },
 }));
 
-// Quietly download a set of paths into the cache without updating prefetchStatus
-async function prefetchQuiet(
-  paths: string[],
-  signal: AbortSignal,
-  set: (partial: Partial<LidarCacheState> | ((state: LidarCacheState) => Partial<LidarCacheState>)) => void,
-) {
-  for (let i = 0; i < paths.length; i += MAX_CONCURRENT) {
-    if (signal.aborted) return;
-    const batch = paths.slice(i, i + MAX_CONCURRENT);
-    await Promise.all(batch.map(async (path) => {
-      try {
-        const response = await dataApi.getLidarData(path);
-        if (signal.aborted) return;
-        const size = response.positions.byteLength + response.intensities.byteLength + 4;
-        set((state) => {
-          const newCache = new Map(state.cache);
-          let currentSize = 0;
-          newCache.forEach(e => currentSize += e.size);
-          if (currentSize + size > MAX_CACHE_SIZE) {
-            const sorted = Array.from(newCache.entries()).sort((a, b) => a[1].loadedAt - b[1].loadedAt);
-            while (currentSize + size > MAX_CACHE_SIZE && sorted.length > 0) {
-              const [p, e] = sorted.shift()!;
-              currentSize -= e.size;
-              newCache.delete(p);
-            }
-          }
-          newCache.set(path, { data: { positions: response.positions, intensities: response.intensities, pointCount: response.pointCount }, loadedAt: Date.now(), size });
-          return { cache: newCache };
-        });
-      } catch { /* silent — rolling prefetch is best-effort */ }
-    }));
-  }
+// ---------------------------------------------------------------------------
+// Tiered prefetch helpers
+
+type TierItem = { path: string; tier: LidarTier; distance: number };
+
+// Window plan: the frame at centerOffset is full LOD, every other frame in
+// the slice is coarse. Caller passes the already-sliced frame window.
+function buildWindowItems(
+  frames: Frame[],
+  lidarBase: string,
+  centerOffset: number,
+  _maxDistance: number,
+): TierItem[] {
+  const items: TierItem[] = [];
+  frames.forEach((frame, offset) => {
+    if (!frame.file_paths?.lidar) return;
+    items.push({
+      path: `${lidarBase}/${frame.file_paths.lidar}`,
+      tier: offset === centerOffset ? 'full' : 'coarse',
+      distance: Math.abs(offset - centerOffset),
+    });
+  });
+  return items;
 }
 
-// Prefetch frames in batches with concurrency control
-async function prefetchBatch(
-  paths: string[],
-  signal: AbortSignal,
-  set: (partial: Partial<LidarCacheState> | ((state: LidarCacheState) => Partial<LidarCacheState>)) => void,
-  _get: () => LidarCacheState  // Prefixed with _ to indicate intentionally unused
+// Drop items already satisfied: full cache satisfies both tiers; a full item
+// whose cache only holds coarse still needs fetching (upgrade).
+function planTierItems(items: TierItem[], cache: Map<string, CacheEntry>): TierItem[] {
+  return items.filter((item) => {
+    const key = `${item.tier}:${item.path}`;
+    if (inflightLidar.has(key)) return false;
+    const entry = cache.get(item.path);
+    if (!entry) return true;
+    if (item.tier === 'full' && entry.tier !== 'full') return true;
+    return false;
+  }).sort((a, b) => {
+    // Full before coarse, then proximity to the centre.
+    if (a.tier !== b.tier) return a.tier === 'full' ? -1 : 1;
+    return a.distance - b.distance;
+  });
+}
+
+type StoreSet = (partial: Partial<LidarCacheState> | ((state: LidarCacheState) => Partial<LidarCacheState>)) => void;
+type StoreGet = () => LidarCacheState;
+
+function putCloud(
+  set: StoreSet,
+  path: string,
+  tier: LidarTier,
+  response: { positions: Float32Array; intensities: Float32Array; pointCount: number },
 ) {
-  const startTime = performance.now();
-  let loaded = 0;
-  let errors: string[] = [];
+  const size = response.positions.byteLength + response.intensities.byteLength + 4;
+  let upgraded = false;
+  set((state) => {
+    const newCache = new Map(state.cache);
+    const previous = newCache.get(path);
+    if (previous?.tier === 'full') return {};
+    if (previous && previous.tier === tier && previous.data.pointCount === response.pointCount) return {};
+    if (previous?.tier === 'coarse' && tier === 'full') upgraded = true;
 
-  // Process in batches of MAX_CONCURRENT
-  for (let i = 0; i < paths.length; i += MAX_CONCURRENT) {
-    if (signal.aborted) {
-      console.log('[LiDAR Cache] Prefetch aborted');
-      return;
-    }
-
-    const batch = paths.slice(i, i + MAX_CONCURRENT);
-    const promises = batch.map(async (path) => {
-      try {
-        const response = await dataApi.getLidarData(path);
-
-        // Check if still valid (not aborted, cache not cleared)
-        if (signal.aborted) return;
-
-        // Calculate size (positions + intensities)
-        const size = response.positions.byteLength + response.intensities.byteLength + 4;
-
-        // Add to cache
-        const entry: CacheEntry = {
-          data: {
-            positions: response.positions,
-            intensities: response.intensities,
-            pointCount: response.pointCount,
-          },
-          loadedAt: Date.now(),
-          size,
-        };
-
-        // Update cache with eviction if needed
-        set((state) => {
-          const newCache = new Map(state.cache);
-
-          // Check cache size and evict oldest if needed
-          let currentSize = 0;
-          newCache.forEach(e => currentSize += e.size);
-
-          if (currentSize + size > MAX_CACHE_SIZE) {
-            // Evict oldest entries
-            const sortedEntries = Array.from(newCache.entries())
-              .sort((a, b) => a[1].loadedAt - b[1].loadedAt);
-
-            while (currentSize + size > MAX_CACHE_SIZE && sortedEntries.length > 0) {
-              const [oldPath, oldEntry] = sortedEntries.shift()!;
-              currentSize -= oldEntry.size;
-              newCache.delete(oldPath);
-            }
-          }
-
-          newCache.set(path, entry);
-          return { cache: newCache };
-        });
-
-        loaded++;
-      } catch (err) {
-        if (!signal.aborted) {
-          const errMsg = path.split('/').pop() || path;
-          errors.push(errMsg);
-          console.warn(`[LiDAR Cache] Failed to prefetch ${errMsg}:`, err);
-        }
+    let currentSize = 0;
+    newCache.forEach((e) => { currentSize += e.size; });
+    if (previous) currentSize -= previous.size;
+    if (currentSize + size > MAX_CACHE_SIZE) {
+      const sorted = Array.from(newCache.entries()).sort((a, b) => a[1].loadedAt - b[1].loadedAt);
+      while (currentSize + size > MAX_CACHE_SIZE && sorted.length > 0) {
+        const [oldPath, oldEntry] = sorted.shift()!;
+        if (oldPath === path) continue;
+        currentSize -= oldEntry.size;
+        newCache.delete(oldPath);
       }
-    });
-
-    await Promise.all(promises);
-
-    // Update progress
-    if (!signal.aborted) {
-      const progress = Math.round(((i + batch.length) / paths.length) * 100);
-      set({
-        prefetchProgress: progress,
-        prefetchLoaded: loaded,
-        prefetchErrors: errors,
-      });
     }
+    newCache.set(path, {
+      data: { positions: response.positions, intensities: response.intensities, pointCount: response.pointCount, lod: tier },
+      loadedAt: Date.now(),
+      size,
+      tier,
+    });
+    return { cache: newCache, ...(upgraded ? { fullUpgradeTick: state.fullUpgradeTick + 1 } : {}) };
+  });
+}
+
+async function fetchOneTier(
+  path: string,
+  tier: LidarTier,
+  signal: AbortSignal,
+  set: StoreSet,
+  get: StoreGet,
+): Promise<boolean> {
+  const key = `${tier}:${path}`;
+  if (inflightLidar.has(key)) return false;
+  inflightLidar.add(key);
+  try {
+    const response = await dataApi.getLidarData(path, tier === 'coarse' ? { lod: 'coarse' } : undefined);
+    if (!signal.aborted) putCloud(set, path, tier, response);
+    return true;
+  } catch (err) {
+    if (!signal.aborted) console.warn('[LiDAR Cache] fetch failed', tier, path.split('/').pop(), err);
+    return false;
+  } finally {
+    inflightLidar.delete(key);
+  }
+  void get;
+}
+
+async function runLidarPool(items: TierItem[], limit: number, signal: AbortSignal, set: StoreSet, get: StoreGet) {
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      await fetchOneTier(item.path, item.tier, signal, set, get);
+    }
+  });
+  await Promise.all(runners);
+}
+
+// Fetch full-tier items first (instant scrubbing onto real data), then coarse
+// neighbours for fluid playback.
+async function prefetchTiered(
+  items: TierItem[],
+  signal: AbortSignal,
+  set: StoreSet,
+  get: StoreGet,
+  opts: { reportProgress: boolean },
+) {
+  const fullItems = items.filter((i) => i.tier === 'full');
+  const coarseItems = items.filter((i) => i.tier === 'coarse');
+  let loaded = 0;
+  const total = items.length;
+
+  const tick = () => {
+    if (!opts.reportProgress || signal.aborted) return;
+    loaded++;
+    set((s) => ({
+      prefetchLoaded: (s.prefetchLoaded ?? 0) + 1,
+      prefetchProgress: s.prefetchTotal > 0 ? Math.min(100, Math.round((s.prefetchLoaded / s.prefetchTotal) * 100)) : 0,
+    }));
+  };
+
+  await runLidarPool(fullItems, MAX_CONCURRENT, signal, set, get);
+  loaded += fullItems.length;
+  if (opts.reportProgress) {
+    set((s) => ({ prefetchLoaded: Math.max(s.prefetchLoaded, loaded), prefetchProgress: total ? Math.round((loaded / total) * 100) : 100 }));
+  }
+  if (signal.aborted) return;
+
+  const coarseBatchSize = MAX_CONCURRENT_COARSE;
+  for (let i = 0; i < coarseItems.length; i += coarseBatchSize) {
+    if (signal.aborted) return;
+    const batch = coarseItems.slice(i, i + coarseBatchSize);
+    await Promise.all(batch.map((item) => fetchOneTier(item.path, item.tier, signal, set, get).then(tick)));
   }
 
-  const elapsed = performance.now() - startTime;
-  console.log(`[LiDAR Cache] Prefetch complete: ${loaded}/${paths.length} frames in ${(elapsed / 1000).toFixed(1)}s`);
-
-  set({
-    prefetchStatus: errors.length > 0 && loaded === 0 ? 'error' : 'complete',
-    prefetchProgress: 100,
-    prefetchLoaded: loaded,
-    prefetchErrors: errors,
-    abortController: null,
-  });
+  if (opts.reportProgress && !signal.aborted) {
+    set({ prefetchStatus: 'complete', prefetchProgress: 100, abortController: null });
+  }
 }
 
 // Hook to use cached data with fallback to API

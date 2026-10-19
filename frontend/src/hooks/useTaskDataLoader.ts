@@ -273,12 +273,16 @@ export const useTaskDataLoader = ({
   const [displayedFrameIndex, setDisplayedFrameIndex] = useState(0);
 
   const getCachedLidar = useLidarCacheStore((s) => s.getCached);
+  const ensureFullLidar = useLidarCacheStore((s) => s.ensureFull);
+  const fullUpgradeTick = useLidarCacheStore((s) => s.fullUpgradeTick);
 
   const { data: lidarData, isLoading: loadingLidar, isFetching: fetchingLidar } = useQuery({
     queryKey: ['lidar', lidarFilePath],
     queryFn: async () => {
       if (!lidarFilePath) return null;
-      const cached = getCachedLidar(lidarFilePath);
+      // Accept the coarse placeholder for instant display, then upgrade to
+      // full in the background; fullUpgradeTick triggers a refetch below.
+      const cached = getCachedLidar(lidarFilePath, true);
       if (cached) return cached;
       return await dataApi.getLidarData(lidarFilePath);
     },
@@ -287,6 +291,16 @@ export const useTaskDataLoader = ({
     gcTime: 10 * 60 * 1000,
     placeholderData: (previousData: PointCloudResponse | null | undefined) => previousData,
   });
+
+  // Coarse placeholder shown -> full cloud arrived in cache -> refetch.
+  useEffect(() => {
+    if (lidarData?.lod === 'coarse' && lidarFilePath) {
+      ensureFullLidar(lidarFilePath);
+      queryClient.invalidateQueries({ queryKey: ['lidar', lidarFilePath] });
+    }
+    // Only react to upgrade ticks / frame change, not to lidarData churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullUpgradeTick, lidarFilePath]);
 
   useEffect(() => {
     if (availableModes.fusion_3d) {
@@ -314,6 +328,7 @@ export const useTaskDataLoader = ({
       positions,
       intensities,
       pointCount: lidarData.pointCount,
+      lod: lidarData.lod,
     };
     lastValidPointCloudRef.current = newPointCloud;
     return newPointCloud;
@@ -523,7 +538,7 @@ export const useTaskDataLoader = ({
       const lo = Math.max(0, currentFrameIndex - INITIAL_WINDOW);
       const hi = Math.min(framesData.frames.length, currentFrameIndex + INITIAL_WINDOW + 1);
       const initialFrames = framesData.frames.slice(lo, hi);
-      startLidarPrefetch(scene, initialFrames);
+      startLidarPrefetch(scene, initialFrames, currentFrameIndex - lo);
     }
 
     startImagePrefetch(scene, framesData.frames, currentFrameIndex);

@@ -252,6 +252,40 @@ def _maybe_subsample(
     return new_positions, new_intensities, new_colors, _MAX_DISPLAY_POINTS, True
 
 
+# Deterministic level-of-detail for neighbouring-frame prefetch: ~1/4 of the
+# points, clamped to a sane floor/ceiling. Fixed seed makes the selection
+# stable across requests/workers (Redis gzip cache + label references stay
+# consistent); 3D cuboid labels are frame-scoped and don't index points.
+_LOD_COARSE_DIVISOR = 4
+_LOD_COARSE_MIN = 20000
+_LOD_COARSE_MAX = 100000
+
+
+def _apply_lod_coarse(
+    positions_bytes: bytes,
+    intensities_bytes: bytes,
+    colors_bytes: bytes | None,
+    point_count: int,
+) -> tuple[bytes, bytes, bytes | None, int]:
+    target = max(_LOD_COARSE_MIN, point_count // _LOD_COARSE_DIVISOR)
+    target = min(target, _LOD_COARSE_MAX, point_count)
+    if target >= point_count:
+        return positions_bytes, intensities_bytes, colors_bytes, point_count
+
+    rng = np.random.default_rng(42)
+    idx = rng.choice(point_count, target, replace=False)
+    idx.sort()
+
+    xyz = np.frombuffer(positions_bytes, dtype=np.float32).reshape(point_count, 3)
+    new_positions = xyz[idx].reshape(-1).tobytes()
+    new_intensities = np.frombuffer(intensities_bytes, dtype=np.float32)[idx].tobytes()
+    new_colors = None
+    if colors_bytes is not None:
+        rgb = np.frombuffer(colors_bytes, dtype=np.float32).reshape(point_count, 3)
+        new_colors = rgb[idx].reshape(-1).tobytes()
+    return new_positions, new_intensities, new_colors, target
+
+
 def _extract_pcd_colors(
     structured_arr: np.ndarray, point_count: int
 ) -> np.ndarray | None:
@@ -551,6 +585,7 @@ async def get_lidar_data(
     request: Request,
     current_user: Annotated[User, Depends(RequirePermissions(Permission.DATASETS_READ))],
     format: str = Query("json", description="Response format: json, binary, or raw"),
+    lod: str = Query("full", description="Level of detail: full or coarse (deterministic ~1/4 subsample)"),
 ):
     """
     Get LiDAR point cloud data. Requires DATASETS_READ permission.
@@ -571,6 +606,8 @@ async def get_lidar_data(
     - then (if has_colors): colors Float32 [r1,g1,b1,...] in [0,1] (N * 3 * 4 bytes)
 
     Supports gzip compression if client sends Accept-Encoding: gzip header.
+    lod=coarse returns a deterministic ~1/4 random subsample for neighbouring
+    frames during scrubbing; the current frame should use full.
     """
     accept_encoding = request.headers.get("Accept-Encoding", "")
     supports_gzip = "gzip" in accept_encoding.lower()
@@ -600,6 +637,16 @@ async def get_lidar_data(
         positions_bytes, intensities_bytes, colors_bytes, point_count, meta = (
             await get_cached_pointcloud_async(str(full_path))
         )
+        if lod == "coarse":
+            positions_bytes, intensities_bytes, colors_bytes, point_count = await run_in_threadpool(
+                _apply_lod_coarse,
+                positions_bytes,
+                intensities_bytes,
+                colors_bytes,
+                point_count,
+            )
+        elif lod != "full":
+            raise ValueError("lod must be 'full' or 'coarse'")
         offset = meta.get("offset")
         original_count = meta.get("original_point_count", point_count)
         has_colors = colors_bytes is not None
