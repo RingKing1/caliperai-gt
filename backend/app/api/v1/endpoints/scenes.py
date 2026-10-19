@@ -13,6 +13,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +25,7 @@ from app.schemas.schemas import (
     SceneSearchResponse,
     SceneUpdate,
 )
-from app.services import scene_service
+from app.services import scene_service, thumbnail_cache
 from app.services.dataset_service import DatasetNotFoundError
 from app.services.rbac_service import (
     RequirePermissions,
@@ -236,32 +237,19 @@ async def get_frame_camera_image(
         ext, "application/octet-stream"
     )
     try:
-        from PIL import Image
-
-        img = Image.open(image_path)
-        if img.mode == "RGBA" and ext in (".jpg", ".jpeg"):
-            background = Image.new("RGB", img.size, (255, 255, 255))
-            background.paste(img, mask=img.split()[3])
-            img = background
-        orig_w, _ = img.size
-        if width and orig_w > width:
-            ratio = width / orig_w
-            img = img.resize((width, max(1, int(img.size[1] * ratio))), Image.Resampling.LANCZOS)
-        buffer = BytesIO()
-        if ext in (".jpg", ".jpeg"):
-            img.convert("RGB").save(buffer, format="JPEG", quality=quality, optimize=True)
-            media_type = "image/jpeg"
-        elif ext == ".png":
-            img.save(buffer, format="PNG", optimize=True)
-        elif ext == ".webp":
-            img.save(buffer, format="WEBP", quality=quality)
-        else:
+        result = await run_in_threadpool(
+            thumbnail_cache.get_or_create_thumbnail, image_path, width, None, quality
+        )
+        if result is None:
             return FileResponse(image_path, media_type=media_type)
-        buffer.seek(0)
-        return StreamingResponse(
-            buffer,
+        cached_path, media_type, _, (out_w, out_h) = result
+        return FileResponse(
+            cached_path,
             media_type=media_type,
-            headers={"Cache-Control": "public, max-age=3600"},
+            headers={
+                "Cache-Control": "public, max-age=604800, immutable",
+                "X-Image-Resized": f"{out_w}x{out_h}",
+            },
         )
     except HTTPException:
         raise

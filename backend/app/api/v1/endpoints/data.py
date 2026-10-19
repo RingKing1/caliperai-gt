@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from app.core.redis_cache import redis_gzip_cache, redis_pcd_cache
 from app.models.models import Permission, User
 from app.services.rbac_service import RequirePermissions, RequirePermissionsWithQuery
+from app.services import thumbnail_cache
 from app.services.storage_service import StorageService, get_storage_service
 
 logger = logging.getLogger(__name__)
@@ -769,55 +770,24 @@ async def get_image(
         )
 
     try:
-        from io import BytesIO
-
-        from PIL import Image
-
-        img = Image.open(full_path)
-
-        if img.mode == 'RGBA' and ext in ['.jpg', '.jpeg']:
-            background = Image.new('RGB', img.size, (255, 255, 255))
-            background.paste(img, mask=img.split()[3])
-            img = background
-
-        orig_width, orig_height = img.size
-
-        if width and height:
-            img.thumbnail((width, height), Image.Resampling.LANCZOS)
-        elif width:
-            new_height = int(orig_height * (width / orig_width))
-            img = img.resize((width, new_height), Image.Resampling.LANCZOS)
-        elif height:
-            new_width = int(orig_width * (height / orig_height))
-            img = img.resize((new_width, height), Image.Resampling.LANCZOS)
-
-        buffer = BytesIO()
-
-        if ext in ['.jpg', '.jpeg']:
-            img.save(buffer, format='JPEG', quality=quality, optimize=True)
-            media_type = 'image/jpeg'
-        elif ext == '.png':
-            img.save(buffer, format='PNG', optimize=True)
-            media_type = 'image/png'
-        elif ext == '.webp':
-            img.save(buffer, format='WEBP', quality=quality)
-            media_type = 'image/webp'
-        else:
+        # Disk-cached variant: generated once via Pillow, then served with
+        # sendfile. The endpoint is async, so encode work stays in a worker.
+        result = await run_in_threadpool(
+            thumbnail_cache.get_or_create_thumbnail, full_path, width, height, quality
+        )
+        if result is None:
             return FileResponse(full_path, media_type=media_type)
-
-        buffer.seek(0)
-
-        from fastapi.responses import StreamingResponse
-        return StreamingResponse(
-            buffer,
+        cached_path, media_type, (orig_w, orig_h), (out_w, out_h) = result
+        return FileResponse(
+            cached_path,
             media_type=media_type,
             headers={
                 # URL carries the width/quality params, so each resize variant
                 # is a distinct immutable cache key.
                 "Cache-Control": "public, max-age=604800, immutable",
-                "X-Image-Resized": f"{img.size[0]}x{img.size[1]}",
-                "X-Original-Size": f"{orig_width}x{orig_height}",
-            }
+                "X-Image-Resized": f"{out_w}x{out_h}",
+                "X-Original-Size": f"{orig_w}x{orig_h}",
+            },
         )
     except ImportError:
         logger.warning(
