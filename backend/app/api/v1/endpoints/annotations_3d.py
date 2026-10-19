@@ -68,10 +68,24 @@ async def list_annotations_3d(
     track_id: UUID | None = Query(None, description="Track ID to filter by"),
     taxonomy_id: UUID | None = Query(None, description="Taxonomy ID to filter by"),
     is_migrated: bool | None = Query(None, description="Filter by migration status"),
+    frame_start: int | None = Query(None, ge=0, description="Inclusive frame_index lower bound (joins frames table)"),
+    frame_end: int | None = Query(None, ge=0, description="Inclusive frame_index upper bound (joins frames table)"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List 3D annotations for a task. Requires ANNOTATIONS_READ permission."""
+    """List 3D annotations for a task. Requires ANNOTATIONS_READ permission.
+
+    frame_start/frame_end bound Frame.frame_index within the task's scene,
+    letting the editor load a bounded window (~±50 frames) instead of every
+    annotation in long tasks.
+    """
     query = select(Annotation3D).where(Annotation3D.task_id == task_id)
+
+    if frame_start is not None or frame_end is not None:
+        query = query.join(Frame, Frame.id == Annotation3D.frame_id)
+        if frame_start is not None:
+            query = query.where(Frame.frame_index >= frame_start)
+        if frame_end is not None:
+            query = query.where(Frame.frame_index <= frame_end)
 
     if frame_id:
         query = query.where(Annotation3D.frame_id == frame_id)

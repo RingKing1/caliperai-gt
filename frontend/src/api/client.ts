@@ -1313,11 +1313,19 @@ export interface Annotation3DCreate {
 }
 
 export const annotation3DApi = {
-  list: async (taskId: string, frameId?: string, trackId?: string, taxonomyId?: string) => {
+  list: async (
+    taskId: string,
+    frameId?: string,
+    trackId?: string,
+    taxonomyId?: string,
+    range?: { frameStart?: number; frameEnd?: number },
+  ) => {
     const params = new URLSearchParams({ task_id: taskId });
     if (frameId) params.append('frame_id', frameId);
     if (trackId) params.append('track_id', trackId);
     if (taxonomyId) params.append('taxonomy_id', taxonomyId);
+    if (range?.frameStart !== undefined) params.append('frame_start', String(range.frameStart));
+    if (range?.frameEnd !== undefined) params.append('frame_end', String(range.frameEnd));
     const { data } = await api.get<Annotation3DData[]>(`/annotations-3d?${params}`);
     return data;
   },
