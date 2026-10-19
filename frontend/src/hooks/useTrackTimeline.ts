@@ -82,7 +82,7 @@ export function useTrackTimeline() {
     }
   }, [storeActiveTrackId, pinnedTrackId]);
 
-  const activeTrackId = (isOpen && storeActiveTrackId) ? (pinnedTrackId || storeActiveTrackId) : null;
+  const activeTrackId = (isOpen && (pinnedTrackId || storeActiveTrackId)) ? (pinnedTrackId || storeActiveTrackId) : null;
 
   const closeTimeline = useCallback(() => {
     setIsOpen(false);

@@ -13,7 +13,7 @@ services:
       context: .
       dockerfile: microservices/sam2/Dockerfile.cpu
     container_name: anno-sam2
-    restart: unless-stopped
+    restart: "no"
     environment:
       - SAM2_MODEL_SIZE=${SAM2_MODEL_SIZE:-base}  # Use 'base' for faster CPU inference
       - SAM2_DEVICE=cpu  # CPU mode (Docker doesn't support MPS)

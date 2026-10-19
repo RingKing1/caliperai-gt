@@ -1,6 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useEditorStore, useSelectedAnnotations } from '@/store/editorStore';
-import { useTrackStore } from '@/store/trackStore';
 import { useAuthStore } from '@/store/authStore';
 import { useImageCacheStore } from '@/store/imageCacheStore';
 import { findVisibleCamerasForCuboid, findBestCameraForPoint } from '@/utils/projection';
@@ -139,15 +138,13 @@ export const useCameraProjections = () => {
 
   const handleEmptySpaceClick = useCallback(() => {
     useEditorStore.getState().deselectAll();
-    useTrackStore.getState().setActiveTrack(null);
     setVisibleCamerasForSelection([]);
     setClickedLidarPoint(null);
   }, []);
 
   const handlePointCloudClick = useCallback((point: { x: number; y: number; z: number }) => {
-    // Clicking on point cloud: deselect any active annotation and dismiss track timebar
+    // Clicking on point cloud: deselect any active annotation but preserve active track session
     useEditorStore.getState().deselectAll();
-    useTrackStore.getState().setActiveTrack(null);
     setVisibleCamerasForSelection([]);
     setClickedLidarPoint(null);
 

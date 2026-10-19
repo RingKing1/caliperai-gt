@@ -17,7 +17,7 @@ services:
       context: .
       dockerfile: microservices/sam2/Dockerfile
     container_name: anno-sam2
-    restart: unless-stopped
+    restart: "no"
     shm_size: '4gb'  # Required for PyTorch
     environment:
       - SAM2_MODEL_SIZE=${SAM2_MODEL_SIZE:-large}

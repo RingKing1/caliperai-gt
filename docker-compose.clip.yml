@@ -10,7 +10,7 @@ services:
       dockerfile: microservices/clip/Dockerfile
     image: caliperai-gt-clip:latest
     container_name: anno-clip
-    restart: unless-stopped
+    restart: "no"
     shm_size: '4gb'
     environment:
       - CLIP_MODEL_NAME=${CLIP_MODEL_NAME:-ViT-B-16}

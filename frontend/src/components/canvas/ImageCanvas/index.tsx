@@ -2,7 +2,6 @@ import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import { Stage, Layer, Image, Rect, Group, Text } from 'react-konva';
 import Konva from 'konva';
 import { useEditorStore, useCurrentFrameAnnotations } from '@/store/editorStore';
-import { useTrackStore } from '@/store/trackStore';
 import {
   getCuboidCorners,
   projectLidarPointsToImage,
@@ -240,7 +239,6 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({
         onClick={(e) => {
           if (e.target === e.target.getStage()) {
             deselectAll();
-            useTrackStore.getState().setActiveTrack(null);
           }
         }}
       >

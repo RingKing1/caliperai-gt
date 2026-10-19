@@ -9,7 +9,7 @@ services:
       context: ./backend
       target: ${BUILD_TARGET:-production}
     container_name: anno-backend
-    restart: unless-stopped
+    restart: "no"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/annotation_platform
       - REDIS_URL=redis://redis:6379/0
@@ -90,7 +90,7 @@ services:
         HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
         HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
     container_name: anno-frontend
-    restart: unless-stopped
+    restart: "no"
     environment:
       - BRAND_NAME=${BRAND_NAME:-CheryGT}
       - BRAND_COMPANY=${BRAND_COMPANY:-Chery AI}
@@ -118,7 +118,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile.postgres
     container_name: anno-postgres
-    restart: unless-stopped
+    restart: "no"
     environment:
       - POSTGRES_DB=annotation_platform
       - POSTGRES_USER=postgres
@@ -143,7 +143,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: anno-redis
-    restart: unless-stopped
+    restart: "no"
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "${REDIS_PORT:-6379}:6379"
@@ -163,7 +163,7 @@ services:
   minio:
     image: minio/minio:latest
     container_name: anno-minio
-    restart: unless-stopped
+    restart: "no"
     command: server /data --console-address ":9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
@@ -187,7 +187,7 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: anno-ollama
-    restart: unless-stopped
+    restart: "no"
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:

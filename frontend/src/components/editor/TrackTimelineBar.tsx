@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useTrackTimeline } from '@/hooks/useTrackTimeline';
+import { useEditorStore } from '@/store/editorStore';
 
 export const TrackTimelineBar: React.FC = () => {
   const {
@@ -533,12 +534,19 @@ export const TrackTimelineBar: React.FC = () => {
 
           {/* CASE A: Selected object belongs to ANOTHER track -> Merge / Overwrite / Switch */}
           {selectedOtherTrackId && candidateToLink ? (
-            <div className="flex items-center justify-between px-3.5 py-2 bg-gradient-to-r from-purple-950/80 via-indigo-950/80 to-blue-950/80 border border-purple-400/40 rounded-xl text-xs text-purple-200 animate-fadeIn shadow-lg shadow-purple-950/40">
+            <div className="flex items-center justify-between px-3.5 py-2 bg-gradient-to-r from-purple-950/90 via-indigo-950/90 to-blue-950/90 border border-purple-400/50 rounded-xl text-xs text-purple-200 animate-fadeIn shadow-lg shadow-purple-950/50">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-ping" />
-                <span>
-                  当前帧选中目标 <strong>[{candidateToLink.class_id || 'Object'}]</strong> 归属于次轨迹{' '}
-                  <strong className="text-amber-300">#{shortOtherTrackId}</strong>
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-gray-300">
+                    主轨迹 <strong className="text-amber-400 font-mono">#{shortTrackId}</strong> (
+                    <span className={isCurrentScopeTracked ? 'text-amber-300 font-medium' : 'text-gray-400 font-medium'}>
+                      {isCurrentScopeTracked ? '当前区间已有目标' : '灰色空缺区间'}
+                    </span>
+                    ) ⇄ 选中次目标:
+                  </span>
+                  <strong className="text-white">[{candidateToLink.class_id || 'Object'}]</strong>
+                  <span className="text-purple-300 font-mono font-semibold">Track #{shortOtherTrackId}</span>
                 </span>
               </div>
 
@@ -555,7 +563,7 @@ export const TrackTimelineBar: React.FC = () => {
                   title={
                     isCurrentScopeTracked
                       ? '当前区间已有主轨迹目标 (黄色)，无法直接合并；若要替换错误目标请使用【覆盖】，或跳转至灰色区间'
-                      : `将次轨迹在当前${keyframeSamplingEnabled ? '关键帧区间' : '帧'}内的目标合并入主轨迹`
+                      : `将次轨迹在当前${keyframeSamplingEnabled ? '关键帧区间' : '帧'}内的目标合并入主轨迹 (全程零弹窗)`
                   }
                 >
                   {isMerging ? (
@@ -590,7 +598,7 @@ export const TrackTimelineBar: React.FC = () => {
                   title={
                     !isCurrentScopeTracked
                       ? '当前为灰色空缺区间，主轨迹无旧目标需要覆盖；如需引入请使用【合并】'
-                      : `以所选目标覆盖当前${keyframeSamplingEnabled ? '关键帧区间' : '帧'}现有目标，原目标安全转为新UUID`
+                      : `以所选目标覆盖当前${keyframeSamplingEnabled ? '关键帧区间' : '帧'}现有目标，原目标安全转为新UUID (全程零弹窗)`
                   }
                 >
                   {isLinking ? (
@@ -620,6 +628,15 @@ export const TrackTimelineBar: React.FC = () => {
                   title="切换查看该物体的轨迹时间线"
                 >
                   查看该轨迹 ↗
+                </button>
+
+                {/* 4. Deselect candidate */}
+                <button
+                  onClick={() => useEditorStore.getState().deselectAll()}
+                  className="px-2 py-1.5 bg-white/5 hover:bg-white/15 text-gray-400 hover:text-white rounded-lg transition-colors text-xs border border-white/10 flex items-center gap-1"
+                  title="取消选中次目标 (Esc)"
+                >
+                  ✕ 取消
                 </button>
               </div>
             </div>
