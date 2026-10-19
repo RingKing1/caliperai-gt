@@ -759,7 +759,14 @@ async def get_image(
     media_type = media_types.get(ext, 'application/octet-stream')
 
     if width is None and height is None:
-        return FileResponse(full_path, media_type=media_type)
+        # Sensor images are immutable. The store prefetches with an
+        # Authorization header (stable URL), so the browser disk cache and
+        # revalidation (ETag handled by FileResponse) make reloads near-free.
+        return FileResponse(
+            full_path,
+            media_type=media_type,
+            headers={"Cache-Control": "private, max-age=604800, immutable"},
+        )
 
     try:
         from io import BytesIO
@@ -805,7 +812,9 @@ async def get_image(
             buffer,
             media_type=media_type,
             headers={
-                "Cache-Control": "public, max-age=3600",
+                # URL carries the width/quality params, so each resize variant
+                # is a distinct immutable cache key.
+                "Cache-Control": "public, max-age=604800, immutable",
                 "X-Image-Resized": f"{img.size[0]}x{img.size[1]}",
                 "X-Original-Size": f"{orig_width}x{orig_height}",
             }

@@ -513,12 +513,13 @@ export const useTaskDataLoader = ({
   const startLidarPrefetch = useLidarCacheStore((s) => s.startPrefetch);
   const prefetchAroundFrame = useLidarCacheStore((s) => s.prefetchAround);
   const startImagePrefetch = useImageCacheStore((s) => s.startPrefetch);
+  const followImageWindow = useImageCacheStore((s) => s.followWindow);
 
   useEffect(() => {
     if (!scene || !framesData?.frames || framesData.frames.length === 0 || linkedTaxonomies === undefined) return;
 
     if (availableModes.fusion_3d) {
-      const INITIAL_WINDOW = 10;
+      const INITIAL_WINDOW = 3;
       const lo = Math.max(0, currentFrameIndex - INITIAL_WINDOW);
       const hi = Math.min(framesData.frames.length, currentFrameIndex + INITIAL_WINDOW + 1);
       const initialFrames = framesData.frames.slice(lo, hi);
@@ -529,9 +530,14 @@ export const useTaskDataLoader = ({
   }, [scene, framesData?.frames, linkedTaxonomies, startLidarPrefetch, startImagePrefetch, availableModes.fusion_3d, currentFrameIndex]);
 
   useEffect(() => {
-    if (!scene || !framesData?.frames || !availableModes.fusion_3d) return;
-    prefetchAroundFrame(scene, framesData.frames, currentFrameIndex, 10);
-  }, [currentFrameIndex, scene, framesData?.frames, availableModes.fusion_3d, prefetchAroundFrame]);
+    if (!scene || !framesData?.frames) return;
+    if (availableModes.fusion_3d) {
+      prefetchAroundFrame(scene, framesData.frames, currentFrameIndex, 3);
+    }
+    // Images: incrementally fill the bounded full/thumb window around the
+    // current frame (no-op for frames already cached or in flight).
+    followImageWindow(scene, framesData.frames, currentFrameIndex);
+  }, [currentFrameIndex, scene, framesData?.frames, availableModes.fusion_3d, prefetchAroundFrame, followImageWindow]);
 
   // 4D Annotations
   const loadAnnotations4D = useAnnotation4DStore((s) => s.loadAnnotations4D);

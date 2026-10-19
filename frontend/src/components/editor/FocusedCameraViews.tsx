@@ -48,14 +48,18 @@ export const FocusedCameraCard: React.FC<{
   const cameraCalib = scene?.calibration?.lidar_to_cameras?.[cameraId];
 
   // Store stable image dimensions - use calibration data as primary source
-  // This avoids projection jitter when switching frames (naturalWidth might be 0 briefly)
+  // This avoids projection jitter when switching frames (naturalWidth might be 0 briefly).
+  // fromCalibration anchors the projection coordinate space to the intrinsic
+  // pixel space, so any server-resized thumbnail projects identically to the
+  // original (thumbnails are always aspect-preserving).
   const stableImageSize = useMemo(() => {
-    if (!cameraCalib?.intrinsic) return { width: 1920, height: 1080 };
+    if (!cameraCalib?.intrinsic) return { width: 1920, height: 1080, fromCalibration: false };
     const { cx, cy, resolution } = cameraCalib.intrinsic;
     // Prefer explicit resolution from calibration, fall back to cx*2/cy*2
     return {
       width: resolution?.[0] ?? Math.round(cx * 2),
       height: resolution?.[1] ?? Math.round(cy * 2),
+      fromCalibration: true,
     };
   }, [cameraCalib?.intrinsic]);
 
@@ -115,11 +119,16 @@ export const FocusedCameraCard: React.FC<{
     const R_stored = extrinsic.rotation;
     const t_stored = extrinsic.translation;
 
-    // Use actual image dimensions when available, fall back to calibration-derived size
-    // This matches how ProjectedPointsOverlay uses naturalWidth/naturalHeight
+    // Projection coordinate space: always the calibration pixel space when
+    // known (works for both originals and aspect-preserved thumbnails);
+    // naturalWidth is only a fallback for cameras without usable calibration.
     const img = imgRef.current;
-    const imageWidth = (img && img.naturalWidth > 0) ? img.naturalWidth : stableImageSize.width;
-    const imageHeight = (img && img.naturalHeight > 0) ? img.naturalHeight : stableImageSize.height;
+    const imageWidth = stableImageSize.fromCalibration
+      ? stableImageSize.width
+      : ((img && img.naturalWidth > 0) ? img.naturalWidth : stableImageSize.width);
+    const imageHeight = stableImageSize.fromCalibration
+      ? stableImageSize.height
+      : ((img && img.naturalHeight > 0) ? img.naturalHeight : stableImageSize.height);
 
     // Check if extrinsics need to be inverted
     // DISABLED: Inversion was causing projections to appear in wrong cameras
@@ -372,8 +381,12 @@ export const FocusedCameraCard: React.FC<{
       return;
     }
     const img = imgRef.current;
-    const imageWidth  = (img && img.naturalWidth  > 0) ? img.naturalWidth  : stableImageSize.width;
-    const imageHeight = (img && img.naturalHeight > 0) ? img.naturalHeight : stableImageSize.height;
+    const imageWidth  = stableImageSize.fromCalibration
+      ? stableImageSize.width
+      : ((img && img.naturalWidth  > 0) ? img.naturalWidth  : stableImageSize.width);
+    const imageHeight = stableImageSize.fromCalibration
+      ? stableImageSize.height
+      : ((img && img.naturalHeight > 0) ? img.naturalHeight : stableImageSize.height);
     const cW = containerSize.width;
     const cH = containerSize.height;
 
@@ -548,9 +561,10 @@ export const FocusedCameraViews: React.FC<FocusedCameraViewsProps> = ({
   const getCachedImage = useImageCacheStore((s) => s.getCached);
   const [isResizing, setIsResizing] = useState(false);
 
-  // Build image URL for a camera - check cache first for instant display
-  // FocusedCameraCard needs full-res images so naturalWidth matches the calibration
-  // intrinsic coordinate space. Thumbnails (width=600) cause projection misalignment.
+  // Build image URL for a camera. Cards are pure 3D-projection surfaces with
+  // the coordinate space anchored to the calibration intrinsic resolution,
+  // so a 400px thumbnail (cache or fallback URL) is displayed instantly while
+  // scrubbing; the prefetch window upgrades it to the original shortly after.
   const getImageUrl = (cameraId: string): string | undefined => {
     if (!scene?.storage_paths?.cameras?.[cameraId] || !currentFrame?.file_paths?.cameras?.[cameraId]) {
       return undefined;
@@ -558,18 +572,18 @@ export const FocusedCameraViews: React.FC<FocusedCameraViewsProps> = ({
     const basePath = scene.storage_paths.cameras[cameraId].replace(/\/$/, '');
     const filename = currentFrame.file_paths.cameras[cameraId];
 
-    // Check cache first for instant load (no network delay)
-    const cached = getCachedImage(`${basePath}/${filename}`);
+    // allowThumb: accept the 400px preview tier for instant display
+    const cached = getCachedImage(`${basePath}/${filename}`, true);
     if (cached) {
       return cached; // Return cached blob URL
     }
 
-    // Fallback to API endpoint
+    // Fallback to a server-resized thumbnail; full image arrives via prefetch
     const token = useAuthStore.getState().accessToken;
     const baseUrl = `/api/v1/data/image/${basePath}/${filename}`;
     const params = new URLSearchParams();
     if (token) params.append('token', token);
-    // No width restriction — full-res so naturalWidth matches calibration intrinsic space
+    params.append('width', '400');
     return `${baseUrl}?${params.toString()}`;
   };
 

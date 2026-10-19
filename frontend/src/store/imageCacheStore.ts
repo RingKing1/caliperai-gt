@@ -2,11 +2,20 @@ import { create } from 'zustand';
 import { useAuthStore } from '@/store/authStore';
 import type { Frame, Scene } from '@/types';
 
+// Resolution tier for a cached image.
+// - 'full': original camera image, required for pixel-space 2D annotation,
+//   SAM2 embeddings and the main projection canvas.
+// - 'thumb': server-resized preview (THUMB_WIDTH), only safe for pure 3D
+//   projection surfaces that anchor their coordinate space to the calibration
+//   intrinsic resolution (see FocusedCameraViews).
+type ImageTier = 'full' | 'thumb';
+
 interface ImageCacheEntry {
   blob: Blob;
   objectUrl: string;
   loadedAt: number;
   size: number;
+  tier: ImageTier;
 }
 
 type PrefetchStatus = 'idle' | 'prefetching' | 'complete' | 'error';
@@ -24,8 +33,14 @@ interface ImageCacheState {
   abortController: AbortController | null;
 
   startPrefetch: (scene: Scene, frames: Frame[], currentFrameIndex?: number) => void;
+  followWindow: (
+    scene: Scene,
+    frames: Frame[],
+    centerIndex: number,
+    opts?: { initial?: boolean },
+  ) => void;
   cancelPrefetch: () => void;
-  getCached: (filePath: string) => string | null;
+  getCached: (filePath: string, allowThumb?: boolean) => string | null;
   areFrameImagesCached: (scene: Scene, frame: Frame) => boolean;
   clearCache: () => void;
 
@@ -35,9 +50,90 @@ interface ImageCacheState {
 let cacheHits = 0;
 let cacheMisses = 0;
 
-const MAX_CONCURRENT = 30;
+// Bounded two-tier prefetch window centred on the current frame:
+//   near (±FULL_WINDOW)  -> full-resolution originals, ~31 MB for 7 frames
+//   far  (±THUMB_WINDOW) -> 400px thumbnails, ~4.4 MB for 31 frames
+// Frames outside the window are fetched incrementally as the user scrubs.
+const FULL_WINDOW = 3;
+const THUMB_WINDOW = 15;
+const THUMB_WIDTH = 400;
+
+const MAX_CONCURRENT_FULL = 12;
+const MAX_CONCURRENT_THUMB = 20;
 
 const MAX_CACHE_SIZE = 1024 * 1024 * 1024;
+
+// Dedupes in-flight fetches across startPrefetch/followWindow calls.
+const inflight = new Set<string>();
+
+function cameraPathsForFrame(scene: Scene, frame: Frame): Array<{ path: string; cameraId: string; frameIndex: number }> {
+  const cameras = scene.storage_paths?.cameras;
+  if (!cameras || !frame.file_paths?.cameras) return [];
+  const out: Array<{ path: string; cameraId: string; frameIndex: number }> = [];
+  for (const [cameraId, basePath] of Object.entries(cameras)) {
+    const filename = frame.file_paths.cameras[cameraId];
+    if (filename) {
+      out.push({
+        path: `${basePath.replace(/\/$/, '')}/${filename}`,
+        cameraId,
+        frameIndex: frame.frame_index,
+      });
+    }
+  }
+  return out;
+}
+
+// URL is token-free (JWT travels in the Authorization header) so the browser
+// disk cache and CDN edge can key on a stable URL across reloads.
+function buildImageUrl(path: string, tier: ImageTier): string {
+  return tier === 'thumb'
+    ? `/api/v1/data/image/${path}?width=${THUMB_WIDTH}`
+    : `/api/v1/data/image/${path}`;
+}
+
+async function fetchImage(
+  item: { path: string; cameraId: string; frameIndex: number },
+  tier: ImageTier,
+  signal: AbortSignal,
+  put: (path: string, tier: ImageTier, blob: Blob) => void,
+): Promise<void> {
+  const inflightKey = `${tier}:${item.path}`;
+  if (inflight.has(inflightKey)) return;
+  inflight.add(inflightKey);
+  try {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) throw new Error('No auth token available');
+
+    const response = await fetch(buildImageUrl(item.path, tier), {
+      signal,
+      // Default caching mode: responses carry long-lived Cache-Control and
+      // stable URLs, so reloads are served from the browser disk cache.
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status} for ${item.cameraId}/${item.frameIndex}`);
+    const blob = await response.blob();
+    if (!signal.aborted) put(item.path, tier, blob);
+  } catch (err) {
+    if (!signal.aborted) {
+      console.warn('[ImageCache] fetch failed', tier, item.cameraId, item.frameIndex, err);
+    }
+  } finally {
+    inflight.delete(inflightKey);
+  }
+}
+
+// Simple concurrency-limited queue; near/full batches always run before
+// far/thumb batches so the current frame is visible first.
+async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const current = next++;
+      await worker(items[current]);
+    }
+  });
+  await Promise.all(runners);
+}
 
 export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
   cache: new Map(),
@@ -51,82 +147,124 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
 
   startPrefetch: (scene: Scene, frames: Frame[], currentFrameIndex: number = 0) => {
     const state = get();
-
-    console.log('[ImageCache] startPrefetch called', { sceneId: scene.id, frameCount: frames.length, currentFrameIndex, cameras: scene.storage_paths?.cameras });
-
     if (state.currentSceneId === scene.id && (state.prefetchStatus === 'prefetching' || state.prefetchStatus === 'complete')) {
-      console.log('[ImageCache] Already prefetching/complete for this scene, skipping');
       return;
     }
-
-    if (state.abortController) {
-      state.abortController.abort();
-    }
+    state.abortController?.abort();
 
     const abortController = new AbortController();
-    const cameras = scene.storage_paths?.cameras;
-
-    if (!cameras || Object.keys(cameras).length === 0) {
-      console.warn('[ImageCache] No cameras found in scene.storage_paths', scene.storage_paths);
-      return;
-    }
-
-    const imagePaths: Array<{ path: string; cameraId: string; frameIndex: number }> = [];
-    frames.forEach(frame => {
-      Object.entries(cameras).forEach(([cameraId, basePath]) => {
-        const filename = frame.file_paths?.cameras?.[cameraId];
-        if (filename) {
-          const cleanBasePath = basePath.replace(/\/$/, '');
-          const fullPath = `${cleanBasePath}/${filename}`;
-          imagePaths.push({ path: fullPath, cameraId, frameIndex: frame.frame_index });
-        }
-      });
-    });
-
-    // Filter out already cached paths
-    const cache = state.cache;
-    const pathsToLoad = imagePaths.filter(({ path }) => !cache.has(path));
-
-    // Sort to prioritize current frame, then nearby frames
-    // This ensures the user sees the current frame images first
-    pathsToLoad.sort((a, b) => {
-      const distA = Math.abs(a.frameIndex - currentFrameIndex);
-      const distB = Math.abs(b.frameIndex - currentFrameIndex);
-      return distA - distB;
-    });
-
-    console.log('[ImageCache] Image paths analysis', {
-      totalPaths: imagePaths.length,
-      alreadyCached: imagePaths.length - pathsToLoad.length,
-      toLoad: pathsToLoad.length
-    });
-
-    if (pathsToLoad.length === 0) {
-      console.log('[ImageCache] All images already cached');
-      set({
-        prefetchStatus: 'complete',
-        prefetchProgress: 100,
-        prefetchTotal: imagePaths.length,
-        prefetchLoaded: imagePaths.length,
-        currentSceneId: scene.id,
-        abortController: null,
-      });
-      return;
-    }
-
-    console.log('[ImageCache] Starting prefetch of', pathsToLoad.length, 'images');
     set({
       prefetchStatus: 'prefetching',
       prefetchProgress: 0,
-      prefetchTotal: pathsToLoad.length,
       prefetchLoaded: 0,
       prefetchErrors: [],
       currentSceneId: scene.id,
       abortController,
     });
+    void get().followWindow(scene, frames, currentFrameIndex, { initial: true });
+  },
 
-    // Start prefetching in batches
-    prefetchBatch(pathsToLoad, abortController.signal, set, get);
+  // Incrementally fills the two-tier window around centerIndex. Frames within
+  // FULL_WINDOW get originals; frames within THUMB_WINDOW (but outside the
+  // near window) get 400px thumbnails. Already-cached/in-flight items are
+  // skipped, so scrubbing only ever fetches what is newly in range.
+  followWindow: (scene: Scene, frames: Frame[], centerIndex: number, opts?: { initial?: boolean; signal?: AbortSignal }) => {
+    const state = get();
+    if (!scene.storage_paths?.cameras || frames.length === 0) return;
+
+    const signal = state.abortController?.signal;
+    if (!signal) return;
+
+    const cache = state.cache;
+    const fullItems: Array<{ path: string; cameraId: string; frameIndex: number }> = [];
+    const thumbItems: Array<{ path: string; cameraId: string; frameIndex: number }> = [];
+
+    const lo = Math.max(0, centerIndex - THUMB_WINDOW);
+    const hi = Math.min(frames.length, centerIndex + THUMB_WINDOW + 1);
+    for (let i = lo; i < hi; i++) {
+      const distance = Math.abs(i - centerIndex);
+      const tier: ImageTier = distance <= FULL_WINDOW ? 'full' : 'thumb';
+      for (const item of cameraPathsForFrame(scene, frames[i])) {
+        const entry = cache.get(item.path);
+        // Full satisfies both tiers; a thumb only satisfies thumb requests.
+        if (entry && (entry.tier === 'full' || tier === 'thumb')) continue;
+        if (inflight.has(`${tier}:${item.path}`)) continue;
+        // A full fetch already in flight will supersede a pending thumb.
+        if (tier === 'thumb' && inflight.has(`full:${item.path}`)) continue;
+        (tier === 'full' ? fullItems : thumbItems).push(item);
+      }
+    }
+
+    // Near frames first, sorted by distance so the current frame lands first.
+    fullItems.sort((a, b) => Math.abs(a.frameIndex - centerIndex) - Math.abs(b.frameIndex - centerIndex));
+
+    const total = fullItems.length + thumbItems.length;
+    if (opts?.initial) {
+      set({ prefetchTotal: total, prefetchLoaded: 0 });
+    }
+    if (total === 0) {
+      if (opts?.initial) {
+        set({ prefetchStatus: 'complete', prefetchProgress: 100, prefetchLoaded: 0 });
+      }
+      return;
+    }
+
+    let done = 0;
+    const bumpProgress = () => {
+      done++;
+      if (!opts?.initial) return;
+      set((s) => ({
+        prefetchLoaded: (s.prefetchLoaded ?? 0) + 1,
+        prefetchProgress: s.prefetchTotal > 0
+          ? Math.min(100, Math.round(((s.prefetchLoaded ?? 0) / s.prefetchTotal) * 100))
+          : 0,
+      }));
+    };
+
+    const put = (path: string, tier: ImageTier, blob: Blob) => {
+      set((s) => {
+        const newCache = new Map(s.cache);
+        const previous = newCache.get(path);
+        // Never downgrade full to thumb; revoke replaced blob URL.
+        if (previous && (previous.tier === 'full' || (previous.tier === tier && previous.size === blob.size))) {
+          return {};
+        }
+        const objectUrl = URL.createObjectURL(blob);
+        let currentSize = 0;
+        newCache.forEach((e) => { currentSize += e.size; });
+        if (previous) {
+          currentSize -= previous.size;
+          URL.revokeObjectURL(previous.objectUrl);
+        }
+        if (currentSize + blob.size > MAX_CACHE_SIZE) {
+          const sorted = Array.from(newCache.entries()).sort((a, b) => a[1].loadedAt - b[1].loadedAt);
+          while (currentSize + blob.size > MAX_CACHE_SIZE && sorted.length > 0) {
+            const [oldPath, oldEntry] = sorted.shift()!;
+            if (oldPath === path) continue;
+            currentSize -= oldEntry.size;
+            URL.revokeObjectURL(oldEntry.objectUrl);
+            newCache.delete(oldPath);
+          }
+        }
+        newCache.set(path, { blob, objectUrl, loadedAt: Date.now(), size: blob.size, tier });
+        return { cache: newCache };
+      });
+    };
+
+    void (async () => {
+      await runPool(fullItems, MAX_CONCURRENT_FULL, async (item) => {
+        await fetchImage(item, 'full', signal!, put);
+        bumpProgress();
+      });
+      if (signal.aborted) return;
+      await runPool(thumbItems, MAX_CONCURRENT_THUMB, async (item) => {
+        await fetchImage(item, 'thumb', signal!, put);
+        bumpProgress();
+      });
+      if (opts?.initial && !signal.aborted) {
+        set({ prefetchStatus: 'complete', prefetchProgress: 100 });
+      }
+    })();
   },
 
   cancelPrefetch: () => {
@@ -147,9 +285,11 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
     });
   },
 
-  getCached: (filePath: string): string | null => {
+  // Defaults to full-resolution only (pixel-space annotation must never get
+  // a thumbnail). Pass allowThumb=true on pure 3D projection surfaces.
+  getCached: (filePath: string, allowThumb = false): string | null => {
     const entry = get().cache.get(filePath);
-    if (entry) {
+    if (entry && (entry.tier === 'full' || allowThumb)) {
       cacheHits++;
       return entry.objectUrl;
     }
@@ -157,7 +297,7 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
     return null;
   },
 
-  // Check if all images for a specific frame are cached
+  // Check if all images for a specific frame are cached (any tier)
   areFrameImagesCached: (scene: Scene, frame: Frame): boolean => {
     const cameras = scene.storage_paths?.cameras;
     if (!cameras || Object.keys(cameras).length === 0) {
@@ -214,114 +354,6 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
   },
 }));
 
-// Prefetch images in batches with concurrency control
-async function prefetchBatch(
-  paths: Array<{ path: string; cameraId: string; frameIndex: number }>,
-  signal: AbortSignal,
-  set: (partial: Partial<ImageCacheState> | ((state: ImageCacheState) => Partial<ImageCacheState>)) => void,
-  _get: () => ImageCacheState  // Prefixed with _ to indicate intentionally unused
-) {
-  let loaded = 0;
-  let errors: string[] = [];
-
-  // Process in batches of MAX_CONCURRENT
-  for (let i = 0; i < paths.length; i += MAX_CONCURRENT) {
-    if (signal.aborted) {
-      return;
-    }
-
-    const batch = paths.slice(i, i + MAX_CONCURRENT);
-    const promises = batch.map(async ({ path, cameraId, frameIndex }) => {
-      try {
-        const token = useAuthStore.getState().accessToken;
-        if (!token) {
-          throw new Error('No auth token available');
-        }
-
-        const url = `/api/v1/data/image/${path}?token=${encodeURIComponent(token)}`;
-
-        // Use cache: 'no-store' to prevent browser disk cache write failures
-        // We use our own blob URL cache instead
-        const response = await fetch(url, {
-          signal,
-          cache: 'no-store',
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} for ${cameraId}/${frameIndex}`);
-        }
-
-        const blob = await response.blob();
-
-        // Check if still valid (not aborted, cache not cleared)
-        if (signal.aborted) return;
-
-        // Create object URL for the blob
-        const objectUrl = URL.createObjectURL(blob);
-
-        // Add to cache
-        const entry: ImageCacheEntry = {
-          blob,
-          objectUrl,
-          loadedAt: Date.now(),
-          size: blob.size,
-        };
-
-        // Update cache with eviction if needed
-        set((state) => {
-          const newCache = new Map(state.cache);
-
-          // Check cache size and evict oldest if needed
-          let currentSize = 0;
-          newCache.forEach(e => currentSize += e.size);
-
-          if (currentSize + blob.size > MAX_CACHE_SIZE) {
-            // Evict oldest entries
-            const sortedEntries = Array.from(newCache.entries())
-              .sort((a, b) => a[1].loadedAt - b[1].loadedAt);
-
-            while (currentSize + blob.size > MAX_CACHE_SIZE && sortedEntries.length > 0) {
-              const [oldPath, oldEntry] = sortedEntries.shift()!;
-              currentSize -= oldEntry.size;
-              URL.revokeObjectURL(oldEntry.objectUrl); // Clean up
-              newCache.delete(oldPath);
-            }
-          }
-
-          newCache.set(path, entry);
-          return { cache: newCache };
-        });
-
-        loaded++;
-      } catch (err) {
-        if (!signal.aborted) {
-          const errMsg = `${cameraId}/${frameIndex}`;
-          errors.push(errMsg);
-        }
-      }
-    });
-
-    await Promise.all(promises);
-
-    // Update progress
-    if (!signal.aborted) {
-      const progress = Math.round(((i + batch.length) / paths.length) * 100);
-      set({
-        prefetchProgress: progress,
-        prefetchLoaded: loaded,
-        prefetchErrors: errors,
-      });
-    }
-  }
-
-  set({
-    prefetchStatus: errors.length > 0 && loaded === 0 ? 'error' : 'complete',
-    prefetchProgress: 100,
-    prefetchLoaded: loaded,
-    prefetchErrors: errors,
-    abortController: null,
-  });
-}
 
 // Export for external use
 export type { PrefetchStatus };
