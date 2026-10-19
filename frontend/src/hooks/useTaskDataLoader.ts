@@ -212,27 +212,30 @@ export const useTaskDataLoader = ({
   const selectedTaxonomyId = scene?.selected_taxonomy_id;
   const taxonomyReady = !urlTaxonomyId || (scene?.selected_taxonomy_id === urlTaxonomyId);
 
-  // 3D summary query
-  const { data: annotationSummary } = useQuery({
-    queryKey: ['annotations-3d-summary', taskId, selectedTaxonomyId],
+  // 3D annotations are loaded as a bounded window around the current frame
+  // (not the whole task: a 3k-frame task can hold 65k cuboids ≈ 44MB JSON).
+  // All UI renders filter by current frame and mergeAnnotationsFromServer is
+  // incremental, so newly entered windows are merged as the user scrubs.
+  // (The former /summary gate query — 1.6MB gzip with no data consumer — was
+  // removed together with the full-task fetch.)
+  const ANN_WINDOW = 50;
+  const frameCount = framesData?.frames.length ?? 0;
+  const annWindowStart = Math.max(0, currentFrameIndex - ANN_WINDOW);
+  const annWindowEnd = Math.min(frameCount - 1, currentFrameIndex + ANN_WINDOW);
+  const { data: windowTaskAnnotations } = useQuery({
+    queryKey: ['all-3d-annotations', taskId, selectedTaxonomyId, annWindowStart, annWindowEnd],
     queryFn: async () => {
       if (!taskId) return [];
-      return annotation3DApi.summary(taskId, selectedTaxonomyId || undefined);
+      return annotation3DApi.list(
+        taskId,
+        undefined,
+        undefined,
+        selectedTaxonomyId || undefined,
+        { frameStart: annWindowStart, frameEnd: annWindowEnd },
+      );
     },
-    enabled: !!taskId && !!scene && taxonomyReady,
-    staleTime: 30 * 1000,
-    refetchOnWindowFocus: false,
-  });
-
-  // All 3D annotations
-  const { data: allTaskAnnotations } = useQuery({
-    queryKey: ['all-3d-annotations', taskId, selectedTaxonomyId],
-    queryFn: async () => {
-      if (!taskId) return [];
-      return annotation3DApi.list(taskId, undefined, undefined, selectedTaxonomyId || undefined);
-    },
-    enabled: !!taskId && !!scene && taxonomyReady && !!annotationSummary,
-    staleTime: 30 * 1000,
+    enabled: !!taskId && !!scene && taxonomyReady && frameCount > 0,
+    staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
@@ -496,19 +499,24 @@ export const useTaskDataLoader = ({
 
   const lastSyncedFrameIdRef = useRef<string | null>(null);
   const lastSyncedTaxonomyIdRef = useRef<string | null | undefined>(undefined);
+  const lastMergedWindowRef = useRef<string | null>(null);
 
-  // Sync all task annotations for backward interpolation
+  // Merge each annotation window as it enters range. The store merge is
+  // incremental and protects local dirty edits, so overlapping windows are
+  // cheap; this seeds track bootstrap/interpolation for frames around the
+  // playhead. Taxonomy switch forces a re-merge of the current window.
   useEffect(() => {
-    if (!allTaskAnnotations?.length) return;
-    if (lastSyncedTaxonomyIdRef.current === selectedTaxonomyId && lastSyncedFrameIdRef.current !== null) return;
+    if (!windowTaskAnnotations?.length) return;
+    const windowKey = `${taskId}:${selectedTaxonomyId ?? ''}:${annWindowStart}-${annWindowEnd}`;
+    if (lastMergedWindowRef.current === windowKey) return;
+    lastMergedWindowRef.current = windowKey;
 
     const filteredAnnotations = selectedTaxonomyId
-      ? (allTaskAnnotations as any[]).filter((ann: any) => ann.taxonomy_id === selectedTaxonomyId)
-      : (allTaskAnnotations as any[]);
+      ? (windowTaskAnnotations as any[]).filter((ann: any) => ann.taxonomy_id === selectedTaxonomyId)
+      : (windowTaskAnnotations as any[]);
 
     mergeAnnotationsFromServer(filteredAnnotations, '');
-    lastSyncedTaxonomyIdRef.current = selectedTaxonomyId;
-  }, [allTaskAnnotations, mergeAnnotationsFromServer, selectedTaxonomyId]);
+  }, [windowTaskAnnotations, mergeAnnotationsFromServer, selectedTaxonomyId, taskId, annWindowStart, annWindowEnd]);
 
   // Sync annotations when frame changes
   useEffect(() => {
@@ -530,6 +538,11 @@ export const useTaskDataLoader = ({
   const startImagePrefetch = useImageCacheStore((s) => s.startPrefetch);
   const followImageWindow = useImageCacheStore((s) => s.followWindow);
 
+  // Playback direction: two consecutive same-direction steps switch the
+  // image prefetch to a one-sided far window; a single manual step (or a
+  // reversal) resets to the symmetric window.
+  const playDirectionRef = useRef({ prev: currentFrameIndex, dir: 0 as -1 | 0 | 1, streak: 0, bias: 0 as -1 | 0 | 1 });
+
   useEffect(() => {
     if (!scene || !framesData?.frames || framesData.frames.length === 0 || linkedTaxonomies === undefined) return;
 
@@ -545,13 +558,27 @@ export const useTaskDataLoader = ({
   }, [scene, framesData?.frames, linkedTaxonomies, startLidarPrefetch, startImagePrefetch, availableModes.fusion_3d, currentFrameIndex]);
 
   useEffect(() => {
+    const s = playDirectionRef.current;
+    const delta = currentFrameIndex - s.prev;
+    s.prev = currentFrameIndex;
+    if (delta === 0) return;
+    const moveDir: -1 | 1 = delta > 0 ? 1 : -1;
+    if (moveDir === s.dir) s.streak += 1;
+    else {
+      s.dir = moveDir;
+      s.streak = 1;
+    }
+    s.bias = s.streak >= 2 ? s.dir : 0;
+  }, [currentFrameIndex]);
+
+  useEffect(() => {
     if (!scene || !framesData?.frames) return;
     if (availableModes.fusion_3d) {
       prefetchAroundFrame(scene, framesData.frames, currentFrameIndex, 3);
     }
     // Images: incrementally fill the bounded full/thumb window around the
     // current frame (no-op for frames already cached or in flight).
-    followImageWindow(scene, framesData.frames, currentFrameIndex);
+    followImageWindow(scene, framesData.frames, currentFrameIndex, { bias: playDirectionRef.current.bias });
   }, [currentFrameIndex, scene, framesData?.frames, availableModes.fusion_3d, prefetchAroundFrame, followImageWindow]);
 
   // 4D Annotations

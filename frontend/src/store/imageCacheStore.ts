@@ -40,7 +40,7 @@ interface ImageCacheState {
     scene: Scene,
     frames: Frame[],
     centerIndex: number,
-    opts?: { initial?: boolean },
+    opts?: { initial?: boolean; bias?: -1 | 0 | 1 },
   ) => void;
   cancelPrefetch: () => void;
   getCached: (filePath: string, minTier?: ImageTier) => string | null;
@@ -172,9 +172,11 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
   },
 
   // Incrementally fills the three-tier window around centerIndex (full ±1,
-  // mid ±3, thumb ±15). Already-cached/in-flight items are skipped, so
-  // scrubbing only ever fetches what is newly in range.
-  followWindow: (scene: Scene, frames: Frame[], centerIndex: number, opts?: { initial?: boolean }) => {
+  // mid ±3, thumb ±15). During forward/backward playback bias extends the
+  // cheap thumb tier only in the travel direction (back edge stays at ±3),
+  // roughly halving far-window traffic while reverse stays just as fluid.
+  // Already-cached/in-flight items are skipped.
+  followWindow: (scene: Scene, frames: Frame[], centerIndex: number, opts?: { initial?: boolean; bias?: -1 | 0 | 1 }) => {
     const state = get();
     if (!scene.storage_paths?.cameras || frames.length === 0) return;
 
@@ -186,8 +188,11 @@ export const useImageCacheStore = create<ImageCacheState>((set, get) => ({
       full: [], mid: [], thumb: [],
     };
 
-    const lo = Math.max(0, centerIndex - THUMB_WINDOW);
-    const hi = Math.min(frames.length, centerIndex + THUMB_WINDOW + 1);
+    const bias = opts?.bias ?? 0;
+    const backReach = bias === -1 ? THUMB_WINDOW : bias === 1 ? MID_WINDOW : THUMB_WINDOW;
+    const fwdReach = bias === 1 ? THUMB_WINDOW : bias === -1 ? MID_WINDOW : THUMB_WINDOW;
+    const lo = Math.max(0, centerIndex - backReach);
+    const hi = Math.min(frames.length, centerIndex + fwdReach + 1);
     for (let i = lo; i < hi; i++) {
       const distance = Math.abs(i - centerIndex);
       const tier: ImageTier = distance <= FULL_WINDOW ? 'full' : distance <= MID_WINDOW ? 'mid' : 'thumb';

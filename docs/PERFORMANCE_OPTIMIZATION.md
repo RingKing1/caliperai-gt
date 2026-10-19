@@ -123,14 +123,43 @@
 
 二次刷新仍由浏览器磁盘缓存/ETag 兜底，接近零传输。
 
-## 5. P2 后续优化（备选）
+## 5. P2 优化（已实施两项）
 
-- 播放方向自适应预取：连续播放时只向播放方向补窗口，再省约一半流量。
-- WebP/AVIF 缩略图：按 `Accept` 协商，同画质再省 25–35%。
-- Service Worker 缓存：磁盘缓存升级为多标签页共享/弱网离线可用。
-- 点云 Draco / 帧间差分压缩：5–10x，前端需引入 WASM 解码器。
-- 缩略图边缘缓存：当前带 Authorization 头时 Cloudflare 不缓存；可改走 query-token 端点并配置忽略 token 参数的 Cache Rule。
-- 标注 JSON 接口审计：2500 帧场景的全量 3D/2D/4D 标注可能为 MB 级，可改按帧范围懒加载。
+### P2-1 标注元数据窗口化（打开场景最大的单一请求）
+
+实测最大任务（2993 帧 / 65,194 条 cuboid）：打开时 `GET /annotations-3d` 全量返回 **raw 44.5 MB / gzip 4.44 MB**，另有 `summary` 门闩请求 **gzip 1.64 MB**（该数据前端无消费者，仅用于串行等待）。
+
+走查确认所有 UI（CuboidAnnotations、对象面板、LabelList 等）都按当前帧过滤渲染，全量 map 只用于轨迹引导（`initializeTracksFromAnnotations`，增量 merge 式），因此安全窗口化：
+
+- 后端 `/annotations-3d` 新增 `frame_start`/`frame_end`（join frames 按 frame_index 过滤）；
+- 编辑器全量拉取改为当前帧 ±50 的窗口，随播放头滚动增量 merge，本地脏标注受 `dirtyAnnotations` 保护不被覆盖；
+- 删除无消费者的 summary 门闩请求；
+- QA 面板（FrameAnnotationsTab/TrackReviewTab）本就只在质检模式条件挂载，保留全量（跨帧质检统计需要）；`TrackQAPanel` 为无引用死组件。
+
+实测：gzip **4.44 MB → 0.08～0.11 MB/窗口**（约 98%），且消除 44.5 MB JSON 的主线程解析与 6.5 万对象驻留。
+
+### P2-2 播放方向自适应预取
+
+连续两步同向移动判定为播放（单步手动跳转/反向立即恢复对称窗口）：
+
+- 图像 full(±1)/mid(±3) 近窗始终对称，保证双向跟手；
+- thumb 远窗只向播放方向延伸到 ±15，后沿收在 ±3——播放中远窗帧数 24 → 12，thumb 流量约 **3.5 MB → 1.75 MB**；
+- 点云 coarse 窗（±3）保持对称（总量仅 3.7 MB，回退也要跟手）。
+
+### P2 后流量基线
+
+| 场景 | 首次打开（静止/手动） | 连续播放每跨窗增量 |
+|---|---|---|
+| 传感器（P1 窗口） | 26.6 MB | — |
+| 3D 标注元数据 | 0.1 MB（原 6.1 MB） | 0.1 MB |
+| 播放时 thumb 远窗 | 3.5 MB → **1.75 MB** | 约 1.75 MB |
+
+### 仍备选（未实施）
+
+- WebP/AVIF 缩略图：实测 WebP 省 11%（400px）～20%（1280px），按 `Accept` 协商。
+- Service Worker 缓存：多标签页共享/弱网离线可用，但需防标注数据陈旧。
+- 点云 Draco / 帧间差分压缩：5–10x，前端需引入 WASM 解码器；coarse 已 0.62 MB/帧，优先级低。
+- 缩略图边缘缓存：带 Authorization 头时 Cloudflare 不缓存；需 query-token 端点 + Cache Rule。
 
 ## 6. 涉及文件
 
@@ -138,10 +167,11 @@
 |---|---|
 | `frontend/src/store/imageCacheStore.ts` | 三档窗口预取（full ±1 / mid ±3 / thumb ±15）、rank 去重防降级、`followWindow`、header 鉴权、磁盘缓存 |
 | `frontend/src/store/lidarCacheStore.ts` | full/coarse 双 tier，窗口中心 full、邻帧 coarse，`ensureFull` 占位升级，`fullUpgradeTick` 通知 |
-| `frontend/src/hooks/useTaskDataLoader.ts` | 点云窗口 ±3；coarse 即时显示 + tick 触发 full 升级；图像窗口跟随 |
-| `frontend/src/api/client.ts` | `getLidarData(path, { lod })`，响应携带 lod 标记 |
+| `frontend/src/hooks/useTaskDataLoader.ts` | 点云窗口 ±3；coarse 即时显示 + tick 触发 full 升级；图像窗口跟随与播放方向偏置；3D 标注 ±50 窗口增量 merge |
+| `frontend/src/api/client.ts` | `getLidarData(path, { lod })`，响应携带 lod 标记；`annotation3DApi.list` 支持 frameStart/frameEnd |
 | `frontend/src/components/editor/FocusedCameraViews.tsx` | 小卡允许 thumb/mid 占位；投影锚定标定分辨率 |
 | `backend/app/api/v1/endpoints/data.py` | 图像缓存头；点云 `lod` 参数与确定性 coarse 抽稀 |
+| `backend/app/api/v1/endpoints/annotations_3d.py` | 列表端点新增 `frame_start`/`frame_end` 帧范围过滤 |
 | `backend/app/api/v1/endpoints/scenes.py` | frame image 端点复用缩略图缓存 |
 | `backend/app/services/thumbnail_cache.py` | 缩略图磁盘缓存（新增） |
 | `docker-compose.yml` | backend 增加 `THUMB_CACHE_DIR=/uploads/.thumb-cache` |
