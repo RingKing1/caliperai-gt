@@ -210,7 +210,15 @@ export const useTaskDataLoader = ({
   });
 
   const selectedTaxonomyId = scene?.selected_taxonomy_id;
-  const taxonomyReady = !urlTaxonomyId || (scene?.selected_taxonomy_id === urlTaxonomyId);
+  // A scene whose selected_taxonomy_id is still NULL must NOT block annotation
+  // loading: the editor URL always carries ?taxonomy=<task taxonomy>, and the
+  // auto-set mutation below can only persist it for users who may PATCH the
+  // scene (annotators get 403), so gating strictly on equality left annotators
+  // staring at an empty viewport on every freshly imported scene.
+  const taxonomyReady =
+    !urlTaxonomyId ||
+    !scene?.selected_taxonomy_id ||
+    scene.selected_taxonomy_id === urlTaxonomyId;
 
   // 3D annotations are loaded as a bounded window around the current frame
   // (not the whole task: a 3k-frame task can hold 65k cuboids ≈ 44MB JSON).
