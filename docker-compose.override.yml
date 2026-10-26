@@ -1,0 +1,14 @@
+# 把两个大卷从 /var/lib/docker（根分区，仅剩 ~167G）改挂到 /home（/dev/sda，可用 1.8T）。
+# 其余服务与配置保持与上游 docker-compose.yml 完全一致；删除本文件即可回滚。
+#
+# 数据来源：caliperai-gt_uploaded_data / caliperai-gt_minio_data 两个命名卷的整卷拷贝。
+services:
+  backend:
+    volumes:
+      - ./backend:/app:delegated
+      - ./sample_data:/data:ro
+      - /home/nvidia/caliperai-gt-data/uploads:/uploads
+
+  minio:
+    volumes:
+      - /home/nvidia/caliperai-gt-data/minio:/data

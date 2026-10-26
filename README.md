@@ -159,8 +159,27 @@ curl -s http://localhost:8000/health
 ```
 
 ### 3. 访问应用
-* **前端工作台**：打开浏览器访问 [http://localhost:3000](http://localhost:3000)，使用上述管理员账号登录。
-* **交互式 API 文档**：开发环境下访问 [http://localhost:8000/api/docs](http://localhost:8000/api/docs)。
+
+**公网访问（团队推荐）**
+
+| 用途 | 地址 | 说明 |
+|---|---|---|
+| 标注平台 | [https://gt.wanghuan.site](https://gt.wanghuan.site) | Cloudflare Tunnel 暴露，**已取消 Zero Trust 拦截**，打开即用 |
+| 数据集直达 | https://gt.wanghuan.site/datasets/e464e448-52a9-43a7-a738-dcae4249f40c | scene1 5-sweep，20 个场景 |
+
+**内网访问**
+
+| 用途 | 地址 |
+|---|---|
+| 局域网 | http://10.105.213.208:3000 |
+| 本机 | http://localhost:3000 |
+| 交互式 API 文档 | http://localhost:8000/api/docs （开发环境） |
+| 健康检查 | http://localhost:8000/health |
+
+> [!IMPORTANT]
+> `gt.wanghuan.site` 原先由 Cloudflare Access（Zero Trust）保护，仅允许指定邮箱登录。
+> 该 Access 应用已于 2026-10-23 删除，现在**公网可直接访问**，仅依赖平台自身的账号密码鉴权。
+> 应用配置备份在 `../cloudflare_backup/`，如需恢复保护可按备份重建。
 
 > [!TIP]
 > **忘记管理员密码？**
