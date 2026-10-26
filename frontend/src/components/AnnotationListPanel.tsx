@@ -42,6 +42,7 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
   const annotations4D = useAnnotation4DStore(s => s.annotations4D);
 
   const taskId = useEditorStore(s => s.task?.id);
+  const keyframeSamplingEnabled = useEditorStore(s => s.keyframeSamplingEnabled);
 
   const [localPosition, setLocalPosition] = useState({ x: '', y: '', z: '' });
   const [localDimensions, setLocalDimensions] = useState({ length: '', width: '', height: '' });
@@ -51,6 +52,10 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
   const [showTrackChangeModal, setShowTrackChangeModal] = useState(false);
   const [pendingTrackChange, setPendingTrackChange] = useState<{ updates: Partial<Annotation>; changeType: string } | null>(null);
   const [isApplyingTrackChange, setIsApplyingTrackChange] = useState(false);
+  // Static Object scope picker (this frame / keyframe range / whole track)
+  const [staticPicker, setStaticPicker] = useState<{ open: boolean; value: boolean }>({ open: false, value: false });
+  const [staticBusy, setStaticBusy] = useState(false);
+  const [staticError, setStaticError] = useState<string | null>(null);
 
   useEffect(() => {
     if (cuboidData?.center) {
@@ -191,6 +196,73 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
     }
     setShowTrackChangeModal(false);
     setPendingTrackChange(null);
+  };
+
+  // ---------------------------------------------------------------------
+  // Static Object with explicit scope + immediate persistence.
+  // The previous implementation only flipped the in-memory flag and relied on
+  // the debounced autosave, so changing frames before the save landed dropped
+  // the value; it also could not reach frames outside the loaded window.
+  // ---------------------------------------------------------------------
+  const applyStaticScope = async (scope: 'frame' | 'keyframe' | 'track') => {
+    if (!taskId) return;
+    const value = staticPicker.value;
+    const trackId = ann.track_id;
+    setStaticBusy(true);
+    setStaticError(null);
+    try {
+      let ids: string[] = [ann.id];
+
+      if (trackId && scope !== 'frame') {
+        const ed = useEditorStore.getState();
+        let range: { frameStart: number; frameEnd: number } | undefined;
+        if (scope === 'keyframe') {
+          const idx = (ed.frames || []).findIndex((f) => f.id === ed.currentFrame?.id);
+          if (idx < 0) throw new Error('current frame not found');
+          let start = idx;
+          if (!ed.isKeyframeAt(idx)) {
+            const interval = Math.max(1, ed.keyframeInterval);
+            const k = Math.floor((idx - ed.keyframeStartFrame) / interval);
+            start = Math.max(0, ed.keyframeStartFrame + k * interval);
+          }
+          const nextKf = ed.getNextKeyframeIndex(start);
+          const end = (nextKf ?? (ed.frames?.length ?? 0)) - 1; // 左闭右开
+          if (end < start) throw new Error('empty keyframe range');
+          range = { frameStart: start, frameEnd: end };
+        }
+
+        const list = await annotation3DApi.list(taskId, undefined, trackId, undefined, range);
+        const fetched = (list || []).map((a: { id: string }) => a.id);
+        ids = Array.from(new Set([ann.id, ...fetched]));
+      }
+
+      await annotation3DApi.updateBulk(ids.map((id) => ({ id, is_static: value })));
+
+      // Persisted already — mirror into local state without re-marking dirty.
+      const editor = useEditorStore.getState();
+      const nextAnnotations = new Map(editor.annotations);
+      ids.forEach((id) => {
+        const existing = nextAnnotations.get(id);
+        if (existing) nextAnnotations.set(id, { ...existing, is_static: value });
+      });
+      useEditorStore.setState({ annotations: nextAnnotations });
+
+      if (trackId) {
+        useTrackStore.setState((s) => {
+          const nextTracks = new Map(s.tracks);
+          const track = nextTracks.get(trackId);
+          if (track) nextTracks.set(trackId, { ...track, is_static: value });
+          return { tracks: nextTracks };
+        });
+      }
+
+      setStaticPicker({ open: false, value });
+    } catch (err) {
+      console.error('[StaticObject] apply failed:', err);
+      setStaticError('设置失败，请重试');
+    } finally {
+      setStaticBusy(false);
+    }
   };
 
   const handleDeleteAnnotation = () => {
@@ -360,15 +432,72 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
         </div>
       )}
 
-      {/* Static Toggle */}
-      <div className="flex items-center justify-between py-1">
-        <span className="text-xs text-gray-400">Static Object</span>
-        <button
-          onClick={() => updateAnnotation({ is_static: !ann.is_static })}
-          className={`w-8 h-4 rounded-full transition-colors relative ${ann.is_static ? 'bg-cyan-500' : 'bg-gray-700'}`}
-        >
-          <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${ann.is_static ? 'left-4' : 'left-0.5'}`} />
-        </button>
+      {/* Static Toggle — scope picker (this frame / keyframe range / whole track) */}
+      <div className="py-1">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-400">Static Object</span>
+          <button
+            disabled={staticBusy}
+            onClick={() => {
+              if (is4D) {
+                updateAnnotation({ is_static: !ann.is_static });
+                return;
+              }
+              setStaticError(null);
+              setStaticPicker({ open: !staticPicker.open, value: !(ann.is_static ?? false) });
+            }}
+            title="设置静止范围"
+            className={`w-8 h-4 rounded-full transition-colors relative disabled:opacity-50 ${ann.is_static ? 'bg-cyan-500' : 'bg-gray-700'}`}
+          >
+            <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${ann.is_static ? 'left-4' : 'left-0.5'}`} />
+          </button>
+        </div>
+
+        {staticPicker.open && !is4D && (
+          <div className="mt-1.5 rounded-lg border border-gray-600 bg-[#1c2230] overflow-hidden">
+            <div className="px-2.5 py-1.5 text-[10px] text-gray-400 border-b border-gray-700">
+              设为 <span className={staticPicker.value ? 'text-cyan-300' : 'text-gray-300'}>
+                {staticPicker.value ? '静止' : '非静止'}
+              </span>
+            </div>
+            <button
+              disabled={staticBusy}
+              onClick={() => applyStaticScope('frame')}
+              className="w-full text-left px-2.5 py-1.5 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-50"
+            >
+              仅当前帧
+            </button>
+            {ann.track_id && keyframeSamplingEnabled && (
+              <button
+                disabled={staticBusy}
+                onClick={() => applyStaticScope('keyframe')}
+                className="w-full text-left px-2.5 py-1.5 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-50"
+              >
+                仅当前关键帧区间
+              </button>
+            )}
+            {ann.track_id && (
+              <button
+                disabled={staticBusy}
+                onClick={() => applyStaticScope('track')}
+                className="w-full text-left px-2.5 py-1.5 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-50"
+              >
+                整条轨迹
+              </button>
+            )}
+            {!ann.track_id && (
+              <div className="px-2.5 py-1.5 text-[10px] text-gray-500">无轨迹，只能设置当前帧</div>
+            )}
+            <button
+              onClick={() => setStaticPicker({ open: false, value: false })}
+              className="w-full text-left px-2.5 py-1.5 text-[11px] text-gray-500 hover:bg-white/5 border-t border-gray-700"
+            >
+              取消
+            </button>
+          </div>
+        )}
+
+        {staticError && <div className="mt-1 text-[10px] text-red-400">{staticError}</div>}
       </div>
 
       {/* Attributes */}
