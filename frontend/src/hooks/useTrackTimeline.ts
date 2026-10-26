@@ -15,6 +15,30 @@ export interface TrackTimelineNode {
   dimensions?: Dimensions3D;
 }
 
+/**
+ * crypto.randomUUID() is only exposed in secure contexts (HTTPS / localhost).
+ * Annotators commonly open the platform over plain HTTP on the LAN, where the
+ * old `trk-<base36>` fallback produced a non-UUID string — the backend rejects
+ * it with 422 ("Input should be a valid UUID"), surfacing as the useless
+ * "加入/覆盖轨迹失败" toast. Always emit a real v4 UUID.
+ */
+function generateTrackUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 export function useTrackTimeline() {
   const {
     task,
@@ -376,10 +400,7 @@ export function useTrackTimeline() {
 
         if (oldAnnsInScope.length > 0) {
           // Overwrite mode: assign fresh non-repeating UUID to old evicted annotations
-          newTrackId =
-            typeof crypto !== 'undefined' && crypto.randomUUID
-              ? crypto.randomUUID()
-              : `trk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+          newTrackId = generateTrackUuid();
 
           oldAnnsInScope.forEach((old) => {
             bulkPayload.push({ id: old.id, track_id: newTrackId! });
@@ -461,10 +482,7 @@ export function useTrackTimeline() {
 
       setIsLoading(true);
       try {
-        const newTrackId =
-          typeof crypto !== 'undefined' && crypto.randomUUID
-            ? crypto.randomUUID()
-            : `trk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+        const newTrackId = generateTrackUuid();
 
         const bulkPayload = annsToDetach.map((ann) => ({
           id: ann.id,
@@ -558,10 +576,7 @@ export function useTrackTimeline() {
         const sourceAnnsInScope = sourceList.filter((a: any) => scopeFrameIdSet.has(a.frame_id));
 
         if (oldAnnsInScope.length > 0 && sourceAnnsInScope.length > 0) {
-          newTrackId =
-            typeof crypto !== 'undefined' && crypto.randomUUID
-              ? crypto.randomUUID()
-              : `trk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+          newTrackId = generateTrackUuid();
 
           oldAnnsInScope.forEach((old) => {
             bulkPayload.push({ id: old.id, track_id: newTrackId! });
