@@ -905,9 +905,10 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
     queryKey: ['tracks-3d-refinement', taskId],
     queryFn: () => tracks3DApi.list(taskId!),
     enabled: !!taskId,
-    // Toggling happens in the timeline bar; keep this cheap and re-fetch
-    // eagerly so the filter never serves a stale snapshot.
-    staleTime: 0,
+    // Toggling happens in the timeline bar, which invalidates this key on
+    // success — so a short staleTime is safe and avoids refetching on every
+    // re-render of the (frequently updating) annotation list.
+    staleTime: 5 * 1000,
     refetchOnWindowFocus: true,
   });
   const refinedTrackIds = useMemo(() => {
