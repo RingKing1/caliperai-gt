@@ -239,6 +239,17 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
       await annotation3DApi.updateBulk(ids.map((id) => ({ id, is_static: value })));
 
       // Persisted already — mirror into local state without re-marking dirty.
+      // React Query caches must be patched too: on the next frame change
+      // mergeAnnotationsFromServer re-applies them (these rows are not dirty),
+      // so a stale cached payload would silently revert the flag.
+      const idSet = new Set(ids);
+      const patchList = (old: any) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((item: any) => (idSet.has(item.id) ? { ...item, is_static: value } : item));
+      };
+      queryClient.setQueriesData<any[]>({ queryKey: ['annotations', taskId] }, patchList);
+      queryClient.setQueriesData<any[]>({ queryKey: ['all-3d-annotations', taskId] }, patchList);
+
       const editor = useEditorStore.getState();
       const nextAnnotations = new Map(editor.annotations);
       ids.forEach((id) => {
@@ -460,13 +471,15 @@ const ExpandedEditor: React.FC<ExpandedEditorProps> = ({ annotation, is4D, taxon
                 {staticPicker.value ? '静止' : '非静止'}
               </span>
             </div>
-            <button
-              disabled={staticBusy}
-              onClick={() => applyStaticScope('frame')}
-              className="w-full text-left px-2.5 py-1.5 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-50"
-            >
-              仅当前帧
-            </button>
+            {(!ann.track_id || !keyframeSamplingEnabled) && (
+              <button
+                disabled={staticBusy}
+                onClick={() => applyStaticScope('frame')}
+                className="w-full text-left px-2.5 py-1.5 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-50"
+              >
+                仅当前帧
+              </button>
+            )}
             {ann.track_id && keyframeSamplingEnabled && (
               <button
                 disabled={staticBusy}
