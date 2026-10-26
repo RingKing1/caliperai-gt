@@ -3,13 +3,14 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useEditorStore, useCurrentFrameAnnotations } from '@/store/editorStore';
 import { useAnnotation4DStore } from '@/store/annotation4DStore';
 import { useTrackStore } from '@/store/trackStore';
-import { annotation3DApi, qaApi } from '@/api/client';
+import { annotation3DApi, qaApi, tracks3DApi } from '@/api/client';
 import { useIsQAMode } from '@/store/qaStore';
 import { getEffectiveAttributesForClass } from '@/utils/taxonomyUtils';
 import type { Annotation, CuboidData, TaxonomyConfig } from '@/types';
 
 
 type TrackFilter = 'all' | 'tracked' | 'untracked';
+type RefineFilter = 'all' | 'refined' | 'unrefined';
 
 interface AnnotationListPanelProps {
   isVisible?: boolean;
@@ -897,6 +898,24 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
 
   // Panel state
   const [trackFilter, setTrackFilter] = useState<TrackFilter>('all');
+  const [refineFilter, setRefineFilter] = useState<RefineFilter>('all');
+
+  // Track-level refinement flags (sparse: missing track => AI-only / 未精修)
+  const { data: refinementRows } = useQuery({
+    queryKey: ['tracks-3d-refinement', taskId],
+    queryFn: () => tracks3DApi.list(taskId!),
+    enabled: !!taskId,
+    staleTime: 30 * 1000,
+  });
+  const refinedTrackIds = useMemo(() => {
+    const s = new Set<string>();
+    (refinementRows || []).forEach((r) => { if (r.is_refined) s.add(r.track_id); });
+    return s;
+  }, [refinementRows]);
+  const isRefinedTrack = useCallback(
+    (trackId?: string | null) => !!trackId && refinedTrackIds.has(trackId),
+    [refinedTrackIds],
+  );
   const [classFilter, setClassFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [panelWidth, setPanelWidth] = useState(280);
@@ -959,6 +978,13 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
     if (trackFilter === 'tracked') result = result.filter(item => !!item.annotation.track_id);
     else if (trackFilter === 'untracked') result = result.filter(item => !item.annotation.track_id);
 
+    if (refineFilter !== 'all') {
+      result = result.filter((item) => {
+        const refined = isRefinedTrack(item.annotation.track_id);
+        return refineFilter === 'refined' ? refined : !refined;
+      });
+    }
+
     if (classFilter) result = result.filter(item => item.annotation.class_id === classFilter);
 
     if (searchQuery.trim()) {
@@ -979,7 +1005,7 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
     });
 
     return result;
-  }, [annotationList, trackFilter, classFilter, searchQuery, selectedIds]);
+  }, [annotationList, trackFilter, refineFilter, isRefinedTrack, classFilter, searchQuery, selectedIds]);
 
   // Unique classes
   const uniqueClasses = useMemo(() => {
@@ -1126,6 +1152,16 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
             <option value="all">All</option>
             <option value="tracked">Tracked</option>
             <option value="untracked">Untracked</option>
+          </select>
+          <select
+            value={refineFilter}
+            onChange={(e) => setRefineFilter(e.target.value as RefineFilter)}
+            title="按精修状态筛选"
+            className="flex-1 py-1.5 px-2 text-xs bg-white/5 border border-white/5 rounded-lg text-white focus:outline-none focus:border-white/20 cursor-pointer appearance-none"
+          >
+            <option value="all">精修状态</option>
+            <option value="refined">精修</option>
+            <option value="unrefined">未精修</option>
           </select>
         </div>
       </div>
