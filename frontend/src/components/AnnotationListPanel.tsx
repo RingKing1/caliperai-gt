@@ -1159,9 +1159,9 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
             title="按精修状态筛选"
             className="flex-1 py-1.5 px-2 text-xs bg-white/5 border border-white/5 rounded-lg text-white focus:outline-none focus:border-white/20 cursor-pointer appearance-none"
           >
-            <option value="all">精修状态</option>
-            <option value="refined">精修</option>
-            <option value="unrefined">未精修</option>
+            <option value="all">Refined: All</option>
+            <option value="refined">Refined</option>
+            <option value="unrefined">Unrefined</option>
           </select>
         </div>
       </div>
