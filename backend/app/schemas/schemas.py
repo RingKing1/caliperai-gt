@@ -77,6 +77,8 @@ from app.schemas.annotation import (
     Track2DResponse,
     Track2DUpdate,
     TrackWideUpdate2D,
+    Track3DRefinementResponse,
+    Track3DRefinementUpdate,
     TrackWideUpdate3D,
 )
 from app.schemas.auth import (
@@ -479,6 +481,8 @@ __all__ = [
     "Annotation3DUpdateBulkItem",
     "BulkAnnotation3DUpdate",
     "BulkAnnotation3DDelete",
+    "Track3DRefinementResponse",
+    "Track3DRefinementUpdate",
     "TrackWideUpdate3D",
     "Annotation3DResponse",
     "Annotation2DProjection",

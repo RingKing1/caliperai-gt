@@ -16,6 +16,7 @@ from app.models.models import (
     Annotation,
     Annotation2D,
     Annotation3D,
+    Track3DRefinement,
     Annotation4D,
     AnnotationFusion,
     Dataset,
@@ -69,7 +70,23 @@ async def get_annotations_for_task(
         .where(*where_3d)
     )
     result = await db.execute(stmt)
-    for ann, frame in result.all():
+    rows_3d = result.all()
+
+    # Track-level refinement flags (Human-refined vs AI-only). Sparse table:
+    # a missing entry means AI-only.
+    refined_tracks: set[str] = set()
+    if rows_3d:
+        track_ids = {ann.track_id for ann, _ in rows_3d if ann.track_id}
+        if track_ids:
+            ref_result = await db.execute(
+                select(Track3DRefinement.track_id).where(
+                    Track3DRefinement.track_id.in_(track_ids),
+                    Track3DRefinement.is_refined.is_(True),
+                )
+            )
+            refined_tracks = {str(r) for r in ref_result.scalars().all()}
+
+    for ann, frame in rows_3d:
         data = ann.data or {}
         center = data.get("center", {})
         dimensions = data.get("dimensions", {})
@@ -97,6 +114,7 @@ async def get_annotations_for_task(
             "attributes": ann.attributes or {},
             "source": ann.source,
             "confidence": data.get("confidence", 1.0),
+            "is_refined": bool(ann.track_id and str(ann.track_id) in refined_tracks),
             "created_at": ann.created_at.isoformat() if ann.created_at else None,
         })
 

@@ -1476,6 +1476,34 @@ export interface Migrate4DTo3DResponse {
   errors: Array<{ annotation_4d_id?: string; frame_id?: string; error: string }>;
 }
 
+export interface Track3DRefinement {
+  track_id: string;
+  task_id: string;
+  is_refined: boolean;
+  refined_by?: string | null;
+  refined_at?: string | null;
+}
+
+/**
+ * Track-level refinement flag (Human-refined vs AI-only).
+ * Sparse on the server: a track with no row is AI-only.
+ */
+export const tracks3DApi = {
+  list: async (taskId: string): Promise<Track3DRefinement[]> => {
+    const { data } = await api.get<Track3DRefinement[]>(
+      `/tracks-3d?task_id=${encodeURIComponent(taskId)}`,
+    );
+    return data;
+  },
+  setRefined: async (trackId: string, isRefined: boolean): Promise<Track3DRefinement> => {
+    const { data } = await api.put<Track3DRefinement>(
+      `/tracks-3d/${trackId}`,
+      { is_refined: isRefined },
+    );
+    return data;
+  },
+};
+
 export const annotation4DApi = {
   list: async (taskId: string, isMigrated?: boolean) => {
     const params = new URLSearchParams({ task_id: taskId });

@@ -21,6 +21,7 @@ from app.models.annotation import (
     AnnotationHistory,
     SegmentationBlob,
     Track2D,
+    Track3DRefinement,
 )
 from app.models.base import (
     SoftDeleteMixin,
@@ -108,6 +109,7 @@ __all__ = [
     "AnnotationHistory",
     "SegmentationBlob",
     "Track2D",
+    "Track3DRefinement",
     "SoftDeleteMixin",
     "TimestampMixin",
     "Campaign",

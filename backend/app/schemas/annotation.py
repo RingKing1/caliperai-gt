@@ -589,3 +589,24 @@ class BulkAnnotationFusionCreate(BaseSchema):
 class BulkAnnotation2DCreate(BaseSchema):
     """Bulk create 2D annotations."""
     annotations: list[Annotation2DCreate]
+
+
+# ---------------------------------------------------------------------------
+# Track-level refinement (tracks_3d)
+# ---------------------------------------------------------------------------
+
+
+class Track3DRefinementUpdate(BaseSchema):
+    """Toggle the human-review flag of a single 3D track."""
+
+    is_refined: bool
+
+
+class Track3DRefinementResponse(BaseSchema):
+    """Refinement state of one 3D track."""
+
+    track_id: UUID
+    task_id: UUID
+    is_refined: bool
+    refined_by: UUID | None = None
+    refined_at: datetime | None = None

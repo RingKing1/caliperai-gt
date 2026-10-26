@@ -29,6 +29,9 @@ export const TrackTimelineBar: React.FC = () => {
     detachFromTrack,
     mergeWithTrack,
     syncDimensions,
+    isRefined,
+    refinementLoading,
+    toggleRefinement,
   } = useTrackTimeline();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -367,6 +370,28 @@ export const TrackTimelineBar: React.FC = () => {
                 {isLoading && (
                   <span className="ml-1 w-2 h-2 rounded-full bg-cyan-400 animate-ping inline-block" />
                 )}
+                <span className="mx-1 text-white/15">|</span>
+                {/* Track refinement: Human-refined vs AI-only (click to toggle) */}
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); toggleRefinement(); }}
+                  disabled={refinementLoading}
+                  title={
+                    isRefined
+                      ? '已人工精修 — 点击改回 AI-only'
+                      : '仅 AI 预标注 — 点击标记为 Human-refined'
+                  }
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-semibold transition-colors disabled:opacity-60 ${
+                    isRefined
+                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300 hover:bg-emerald-500/30'
+                      : 'bg-white/5 border-white/15 text-gray-400 hover:bg-white/10 hover:text-gray-200'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    isRefined ? 'bg-emerald-400' : 'bg-gray-500 border border-gray-400'
+                  }`} />
+                  {isRefined ? 'Human-refined' : 'AI-only'}
+                </button>
               </div>
             </div>
 

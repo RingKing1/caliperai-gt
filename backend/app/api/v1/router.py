@@ -11,6 +11,7 @@ from app.api.v1.endpoints import (
     annotations_4d,
     annotations_fusion,
     auth,
+    tracks_3d,
     campaigns,
     chat,
     data,
@@ -89,6 +90,10 @@ api_router.include_router(
 api_router.include_router(
     annotations_3d.router,
     tags=["annotations-3d"],
+)
+api_router.include_router(
+    tracks_3d.router,
+    tags=["tracks-3d"],
 )
 api_router.include_router(
     annotations_fusion.router,

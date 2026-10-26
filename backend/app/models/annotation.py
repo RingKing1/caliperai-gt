@@ -795,3 +795,43 @@ class AnnotationHistory(Base):
         Index("ix_annotation_history_created_at", "created_at"),
         Index("ix_annotation_history_change_type", "change_type"),
     )
+
+
+class Track3DRefinement(Base, TimestampMixin):
+    """Explicit human-review flag for a 3D cuboid track.
+
+    Sparse by design: a row exists only once someone toggles the state.
+    No row means "AI-only". Kept separate from annotations_3d so marking a
+    track refined never rewrites the 668k annotation rows.
+    """
+
+    __tablename__ = "tracks_3d"
+
+    track_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+    )
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    is_refined: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    refined_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    refined_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    __table_args__ = (
+        Index("ix_tracks_3d_task_id", "task_id"),
+    )

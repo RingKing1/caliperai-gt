@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { useTrackStore } from '@/store/trackStore';
-import { annotation3DApi } from '@/api/client';
+import { annotation3DApi, tracks3DApi } from '@/api/client';
 import type { CuboidData, Dimensions3D } from '@/types';
 import { validateTrackBinding } from '@/utils/trackValidation';
 
@@ -61,6 +61,9 @@ export function useTrackTimeline() {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [trackAnnotations, setTrackAnnotations] = useState<any[]>([]);
+  // Track-level refinement flag: Human-refined (true) vs AI-only (false)
+  const [isRefined, setIsRefined] = useState(false);
+  const [refinementLoading, setRefinementLoading] = useState(false);
 
   // Pinned Track Session: keeps track session pinned even when switching to MISS frames
   const [pinnedTrackId, setPinnedTrackId] = useState<string | null>(null);
@@ -143,11 +146,41 @@ export function useTrackTimeline() {
     }
   }, [task?.id]);
 
+  // Load the refinement flag for the current track. Sparse API: a track with
+  // no row is AI-only, so a miss simply means `false`.
+  const fetchRefinement = useCallback(async (trackId: string) => {
+    if (!task?.id) return;
+    try {
+      const rows = await tracks3DApi.list(task.id);
+      const row = (rows || []).find((r) => r.track_id === trackId);
+      setIsRefined(!!row?.is_refined);
+    } catch (err) {
+      console.error('[useTrackTimeline] Failed to fetch refinement state:', err);
+    }
+  }, [task?.id]);
+
+  const toggleRefinement = useCallback(async () => {
+    if (!activeTrackId) return;
+    const next = !isRefined;
+    setRefinementLoading(true);
+    setIsRefined(next); // optimistic
+    try {
+      await tracks3DApi.setRefined(activeTrackId, next);
+    } catch (err) {
+      console.error('[useTrackTimeline] Failed to set refinement state:', err);
+      setIsRefined(!next); // revert
+    } finally {
+      setRefinementLoading(false);
+    }
+  }, [activeTrackId, isRefined]);
+
   useEffect(() => {
     if (activeTrackId) {
       fetchTrackAnnotations(activeTrackId);
+      fetchRefinement(activeTrackId);
     } else {
       setTrackAnnotations([]);
+      setIsRefined(false);
     }
   }, [activeTrackId, fetchTrackAnnotations]);
 
@@ -750,6 +783,9 @@ export function useTrackTimeline() {
     detachFromTrack,
     mergeWithTrack,
     syncDimensions,
+    isRefined,
+    refinementLoading,
+    toggleRefinement,
     refreshTrack: () => activeTrackId && fetchTrackAnnotations(activeTrackId),
   };
 }
