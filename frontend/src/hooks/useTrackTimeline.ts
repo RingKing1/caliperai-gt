@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEditorStore } from '@/store/editorStore';
 import { useTrackStore } from '@/store/trackStore';
 import { annotation3DApi, tracks3DApi } from '@/api/client';
@@ -40,6 +41,7 @@ function generateTrackUuid(): string {
 }
 
 export function useTrackTimeline() {
+  const queryClient = useQueryClient();
   const {
     task,
     frames,
@@ -166,13 +168,17 @@ export function useTrackTimeline() {
     setIsRefined(next); // optimistic
     try {
       await tracks3DApi.setRefined(activeTrackId, next);
+      // The annotation list's "Refined" filter reads its own cached copy;
+      // without this it keeps serving the pre-toggle snapshot until it goes
+      // stale (30s) or the page is reloaded.
+      await queryClient.invalidateQueries({ queryKey: ['tracks-3d-refinement'] });
     } catch (err) {
       console.error('[useTrackTimeline] Failed to set refinement state:', err);
       setIsRefined(!next); // revert
     } finally {
       setRefinementLoading(false);
     }
-  }, [activeTrackId, isRefined]);
+  }, [activeTrackId, isRefined, queryClient]);
 
   useEffect(() => {
     if (activeTrackId) {
