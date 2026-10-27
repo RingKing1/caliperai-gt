@@ -10,6 +10,7 @@ import { dataApi, sceneApi, FrameCuboidData, CuboidWorldData } from '@/api/clien
 import type { Frame, SceneCalibration, CuboidData } from '@/types';
 import { detectGroundPlane } from '@/utils/groundPlaneDetection';
 import { usePointCloudWorker } from '@/hooks/usePointCloudWorker';
+import { DistanceRings } from './SceneHelpers';
 
 import { CuboidAnnotations4D } from './CuboidAnnotations4D';
 import { CuboidCreator } from './CuboidCreator';
@@ -1129,6 +1130,7 @@ export const LidarCanvas4DNew: React.FC<LidarCanvas4DProps> = ({
         <CameraController4D disabled={shiftPressed} origin={stackedData?.origin} />
 
         {(lidarView.showGrid ?? true) && <GroundGrid />}
+        {(lidarView.showGrid ?? true) && <DistanceRings />}
 
         {stackedData && stackedData.pointCount > 0 && (
           <SimplePointCloud

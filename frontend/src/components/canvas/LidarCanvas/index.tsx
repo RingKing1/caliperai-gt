@@ -8,7 +8,7 @@ import { PointCloud } from './PointCloud';
 import { CuboidAnnotations } from './CuboidAnnotations';
 import { CuboidCreator } from './CuboidCreator';
 import { CameraController } from './CameraController';
-import { GroundGrid, AxesIndicator } from './SceneHelpers';
+import { GroundGrid, AxesIndicator, DistanceRings } from './SceneHelpers';
 import { Brush3DTool } from './Brush3DTool';
 import { CursorTracker } from './CursorTracker';
 import { CameraViewOverlay } from './CameraViewOverlay';
@@ -473,6 +473,7 @@ export const LidarCanvas: React.FC<LidarCanvasProps> = ({
       />
 
       {showElements && (lidarView.showGrid ?? true) && <GroundGrid />}
+      {showElements && (lidarView.showGrid ?? true) && <DistanceRings />}
       {showElements && <AxesIndicator />}
 
       {showElements && pointCloud && (
@@ -540,7 +541,7 @@ export { CuboidMesh } from './CuboidMesh';
 export { CuboidAnnotations } from './CuboidAnnotations';
 export { CuboidCreator } from './CuboidCreator';
 export { CameraController } from './CameraController';
-export { GroundGrid, AxesIndicator } from './SceneHelpers';
+export { GroundGrid, AxesIndicator, DistanceRings } from './SceneHelpers';
 export { Brush3DTool } from './Brush3DTool';
 export { CursorTracker } from './CursorTracker';
 export { pointCloudVertexShader, pointCloudFragmentShader } from './shaders';
