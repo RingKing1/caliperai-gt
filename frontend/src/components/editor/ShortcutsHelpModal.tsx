@@ -103,7 +103,7 @@ export const ShortcutsHelpModal: React.FC<ShortcutsHelpModalProps> = ({
                 <div className="space-y-1.5">
                   {[
                     ['Ctrl+S', 'Save annotations'],
-                    ['Ctrl+Z', 'Undo'],
+                    ['Ctrl+Z', '撤销删除（最近 3 个框）'],
                     ['Ctrl+Y / Ctrl+Shift+Z', 'Redo'],
                     ['Del / ⌫', 'Delete selected'],
                     ['Esc', 'Cancel / Deselect'],

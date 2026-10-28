@@ -132,6 +132,11 @@ interface EditorState {
   pendingScrollAnnotationId: string | null;
   requestScrollToAnnotation: (id: string | null) => void;
 
+  /** Last few deleted annotations (newest first) so Ctrl+Z can bring them back. */
+  deletedBuffer: Annotation[];
+  pushDeletedBuffer: (ann: Annotation) => void;
+  restoreLastDeleted: () => Annotation | null;
+
   hiddenAnnotationIds: Set<string>;
   toggleAnnotationVisibility: (id: string) => void;
   setHiddenAnnotationIds: (ids: Set<string>) => void;
@@ -239,6 +244,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   lockedAnnotationIds: new Set<string>(),
   visibleAnnotationIds: [],
   pendingScrollAnnotationId: null,
+  deletedBuffer: [],
   hiddenAnnotationIds: new Set<string>(),
 
   keyframeSamplingEnabled: false,
@@ -782,14 +788,53 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       newDirty.set(id, 'deleted');
     }
 
+    // Keep the last few deletions around; the history stack alone proved
+    // unreliable for "oops, wrong box" recovery.
+    const nextBuffer = [annotation, ...get().deletedBuffer].slice(0, 3);
+
     set({
       annotations: newAnnotations,
       dirtyAnnotations: newDirty,
+      deletedBuffer: nextBuffer,
       selection: {
         ...selection,
         selectedAnnotationIds: selection.selectedAnnotationIds.filter((i) => i !== id),
       },
     });
+  },
+
+  pushDeletedBuffer: (ann) => {
+    set({ deletedBuffer: [ann, ...get().deletedBuffer].slice(0, 3) });
+  },
+
+  /**
+   * Bring back the most recently deleted annotation.
+   * Marked dirty as 'new' so the save path re-creates it; the backend uses an
+   * upsert, which is safe whether or not the delete already reached the server.
+   */
+  restoreLastDeleted: () => {
+    const { deletedBuffer, annotations, dirtyAnnotations, selection } = get();
+    if (deletedBuffer.length === 0) return null;
+
+    const [restored, ...rest] = deletedBuffer;
+    const nextAnnotations = new Map(annotations);
+    nextAnnotations.set(restored.id, restored);
+
+    const nextDirty = new Map(dirtyAnnotations);
+    nextDirty.set(restored.id, 'new');
+
+    set({
+      annotations: nextAnnotations,
+      dirtyAnnotations: nextDirty,
+      deletedBuffer: rest,
+      selection: {
+        ...selection,
+        selectedAnnotationIds: [restored.id],
+        hoveredAnnotationId: undefined,
+        selectedPoints: undefined,
+      },
+    });
+    return restored;
   },
 
   deleteAllAnnotations: () => {

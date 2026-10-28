@@ -77,9 +77,19 @@ export const useEditorHotkeys = ({
         return;
       }
 
-      // Ctrl+Z to undo
+      // Ctrl+Z: restore the most recently deleted box first (reliable),
+      // then fall back to the generic history undo.
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
+        const restored = useEditorStore.getState().restoreLastDeleted();
+        if (restored) {
+          useEditorStore.getState().saveAnnotations();
+          const left = useEditorStore.getState().deletedBuffer.length;
+          showTransientHint(
+            `已恢复 ${restored.class_id}${left > 0 ? `（还可撤销 ${left} 个）` : ''}`,
+          );
+          return;
+        }
         store.undo();
         return;
       }
