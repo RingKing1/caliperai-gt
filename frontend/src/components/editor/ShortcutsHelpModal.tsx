@@ -8,6 +8,22 @@ export interface ShortcutsHelpModalProps {
   effectiveQAMode: boolean;
 }
 
+/**
+ * Dated shortcut changelog shown at the top of this dialog. Keep the newest
+ * entry first; the key list below stays the single source of truth for the
+ * full mapping.
+ */
+const RECENT_UPDATES: Array<{ date: string; items: Array<[string, string]> }> = [
+  {
+    date: '2026-10-28',
+    items: [
+      ['N', '跳到下一个未确认框（本帧内循环）'],
+      ['Shift+N', '跳到下一帧的第一个未确认框'],
+      ['Shift+V', '确认当前框并跳到下一个未确认'],
+    ],
+  },
+];
+
 export const ShortcutsHelpModal: React.FC<ShortcutsHelpModalProps> = ({
   isOpen,
   onClose,
@@ -47,6 +63,33 @@ export const ShortcutsHelpModal: React.FC<ShortcutsHelpModalProps> = ({
 
         {/* Content */}
         <div className="px-6 py-5 overflow-y-auto">
+          {/* Dated changelog */}
+          {RECENT_UPDATES.map((entry) => (
+            <div
+              key={entry.date}
+              className="mb-5 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-4 py-3"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] font-semibold tracking-wider text-emerald-300">
+                  NEW
+                </span>
+                <span className="text-xs font-semibold text-emerald-200">
+                  {entry.date} 更新
+                </span>
+              </div>
+              <div className="space-y-1">
+                {entry.items.map(([key, desc]) => (
+                  <div key={key} className="flex items-center justify-between py-0.5">
+                    <span className="text-xs text-gray-300">{desc}</span>
+                    <kbd className="px-1.5 py-0.5 bg-dark border border-emerald-600/50 rounded text-[10px] font-mono text-emerald-300">
+                      {key}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
           <div className="grid grid-cols-2 gap-6">
 
             {/* Left Column */}
@@ -202,9 +245,9 @@ export const ShortcutsHelpModal: React.FC<ShortcutsHelpModalProps> = ({
                       ['T', 'Track tool (multi-frame track)'],
                       ['S', '3D Brush tool (when unselected)'],
                       ['V', 'Accept / Unaccept（核验合格切换）'],
-                      ['Shift+V', '确认当前框并跳到下一个未确认'],
-                      ['N', '跳到下一个未确认框（本帧循环）'],
-                      ['Shift+N', '跳到下一帧的第一个未确认框'],
+                      ['Shift+V', '确认当前框并跳到下一个未确认 · NEW'],
+                      ['N', '跳到下一个未确认框（本帧循环） · NEW'],
+                      ['Shift+N', '跳到下一帧的第一个未确认框 · NEW'],
                       ['Shift+Click', 'Draw box (select mode)'],
                     ].map(([key, desc]) => (
                       <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">
