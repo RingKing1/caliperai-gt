@@ -68,6 +68,18 @@ async def list_annotations_3d(
     track_id: UUID | None = Query(None, description="Track ID to filter by"),
     taxonomy_id: UUID | None = Query(None, description="Taxonomy ID to filter by"),
     is_migrated: bool | None = Query(None, description="Filter by migration status"),
+    is_keyframe: bool | None = Query(
+        None, description="Only annotations flagged as keyframes"
+    ),
+    frame_index_step: int | None = Query(
+        None, ge=1,
+        description="Keep only frames whose frame_index hits every N-th slot "
+                    "(keyframe sampling by position, e.g. 10)",
+    ),
+    frame_index_offset: int = Query(
+        0, ge=0,
+        description="Offset used with frame_index_step: keeps (frame_index - offset) % step == 0",
+    ),
     frame_start: int | None = Query(None, ge=0, description="Inclusive frame_index lower bound (joins frames table)"),
     frame_end: int | None = Query(None, ge=0, description="Inclusive frame_index upper bound (joins frames table)"),
     db: AsyncSession = Depends(get_db),
@@ -96,6 +108,13 @@ async def list_annotations_3d(
         query = query.where(or_(Annotation3D.taxonomy_id == taxonomy_id, Annotation3D.taxonomy_id.is_(None)))
     if is_migrated is not None:
         query = query.where(Annotation3D.is_migrated_to_fusion == is_migrated)
+    if is_keyframe is not None:
+        query = query.where(Annotation3D.is_keyframe == is_keyframe)
+    if frame_index_step:
+        from sqlalchemy import func as sa_func
+        query = query.where(
+            sa_func.mod(Frame.frame_index - frame_index_offset, frame_index_step) == 0
+        )
 
     result = await db.execute(query)
     annotations = result.scalars().all()

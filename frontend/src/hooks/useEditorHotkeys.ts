@@ -208,6 +208,12 @@ export const useEditorHotkeys = ({
         }
 
         const taxonomyId = st.scene?.selected_taxonomy_id || undefined;
+        // Keyframe mode: step keyframe -> keyframe and let the server return only
+        // keyframe rows. Non-keyframe frames are interpolated, so they carry
+        // nothing an annotator would confirm here.
+        const onlyKeyframes = st.keyframeSamplingEnabled === true;
+        const keyframeStep = onlyKeyframes ? Math.max(1, st.keyframeInterval) : undefined;
+        const keyframeOffset = onlyKeyframes ? st.keyframeStartFrame : undefined;
         const indexByFrameIndex = new Map<number, number>();
         const indexByFrameId = new Map<string, number>();
         st.frames.forEach((f, i) => {
@@ -226,7 +232,8 @@ export const useEditorHotkeys = ({
           let rows: Array<{ id: string; frame_id: string; is_verified?: boolean }> = [];
           try {
             rows = await annotation3DApi.list(
-              taskId, undefined, undefined, taxonomyId, { frameStart, frameEnd },
+              taskId, undefined, undefined, taxonomyId,
+              { frameStart, frameEnd, keyframeStep, keyframeOffset },
             );
           } catch (err) {
             console.error('[hotkeys] frame scan failed:', err);
@@ -234,7 +241,14 @@ export const useEditorHotkeys = ({
             return;
           }
 
-          const pending = rows.filter((r) => r.is_verified !== true);
+          // Candidates: unconfirmed rows that sit on a frame we are allowed to
+          // land on (keyframe position in keyframe mode).
+          const pending = rows.filter((r) => {
+            if (r.is_verified === true) return false;
+            if (!onlyKeyframes) return true;
+            const idx = indexByFrameId.get(r.frame_id);
+            return idx !== undefined && st.isKeyframeAt(idx);
+          });
           if (pending.length === 0) continue;
 
           // Earliest frame in this chunk that still has unconfirmed boxes.
@@ -247,7 +261,7 @@ export const useEditorHotkeys = ({
             .filter((r) => r.frame_id === firstFrameId)
             .sort((a, b) => a.id.localeCompare(b.id))[0];
           const targetIdx = indexByFrameId.get(firstFrameId);
-          if (targetIdx === undefined) break;
+          if (targetIdx === undefined) continue;
 
           cycleStartRef.current = null;
           cycleNotifiedRef.current = false;
@@ -256,7 +270,7 @@ export const useEditorHotkeys = ({
           return;
         }
 
-        showTransientHint('后续帧没有未确认的框');
+        showTransientHint(onlyKeyframes ? '后续关键帧没有未确认的框' : '后续帧没有未确认的框');
       };
 
       const refreshCycleOnFrameChange = () => {

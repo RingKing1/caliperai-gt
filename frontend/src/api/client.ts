@@ -1318,7 +1318,13 @@ export const annotation3DApi = {
     frameId?: string,
     trackId?: string,
     taxonomyId?: string,
-    range?: { frameStart?: number; frameEnd?: number },
+    range?: {
+      frameStart?: number;
+      frameEnd?: number;
+      /** Keep only frames whose frame_index matches the keyframe stride. */
+      keyframeStep?: number;
+      keyframeOffset?: number;
+    },
   ) => {
     const params = new URLSearchParams({ task_id: taskId });
     if (frameId) params.append('frame_id', frameId);
@@ -1326,6 +1332,11 @@ export const annotation3DApi = {
     if (taxonomyId) params.append('taxonomy_id', taxonomyId);
     if (range?.frameStart !== undefined) params.append('frame_start', String(range.frameStart));
     if (range?.frameEnd !== undefined) params.append('frame_end', String(range.frameEnd));
+    // Keyframe sampling by frame position: interpolated frames never leave the server.
+    if (range?.keyframeStep && range.keyframeStep > 1) {
+      params.append('frame_index_step', String(range.keyframeStep));
+      params.append('frame_index_offset', String(range.keyframeOffset ?? 0));
+    }
     const { data } = await api.get<Annotation3DData[]>(`/annotations-3d?${params}`);
     return data;
   },
