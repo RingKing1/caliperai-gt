@@ -357,16 +357,17 @@ export const useEditorHotkeys = ({
         return;
       }
 
-      // Shift+V = confirm the current box, then jump to the next unconfirmed one.
-      // Only fires while the box is still unconfirmed: pressing it on an already
-      // confirmed box must not un-confirm anything, so it stays silent.
+      // Shift+V = confirm the current box (when still unconfirmed) and always
+      // advance to the next unconfirmed box. Pressing it on an already confirmed
+      // box simply moves on — it never un-confirms anything.
       if (key === 'v' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
         const annotation = getSelectedCuboid();
         if (annotation) {
           e.preventDefault();
-          if (annotation.is_verified) return;   // already confirmed -> no-op, no hint
-          store.updateAnnotation(annotation.id, { is_verified: true });
-          useEditorStore.getState().saveAnnotations();
+          if (!annotation.is_verified) {
+            store.updateAnnotation(annotation.id, { is_verified: true });
+            useEditorStore.getState().saveAnnotations();
+          }
           goNextUnverified();
           return;
         }

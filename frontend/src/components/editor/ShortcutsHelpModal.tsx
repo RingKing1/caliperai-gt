@@ -19,7 +19,7 @@ const RECENT_UPDATES: Array<{ date: string; items: Array<[string, string]> }> = 
     items: [
       ['N', '跳到下一个未确认框（本帧内循环）'],
       ['Shift+N', '跳到下一帧的第一个未确认框'],
-      ['Shift+V', '确认当前框并跳到下一个未确认'],
+      ['Shift+V', '确认当前框并跳到下一个（已确认则直接跳）'],
     ],
   },
 ];
@@ -245,7 +245,7 @@ export const ShortcutsHelpModal: React.FC<ShortcutsHelpModalProps> = ({
                       ['T', 'Track tool (multi-frame track)'],
                       ['S', '3D Brush tool (when unselected)'],
                       ['V', 'Accept / Unaccept（核验合格切换）'],
-                      ['Shift+V', '确认当前框并跳到下一个未确认 · NEW'],
+                      ['Shift+V', '确认当前框并跳到下一个（已确认则直接跳） · NEW'],
                       ['N', '跳到下一个未确认框（本帧循环） · NEW'],
                       ['Shift+N', '跳到下一帧的第一个未确认框 · NEW'],
                       ['Shift+Click', 'Draw box (select mode)'],
