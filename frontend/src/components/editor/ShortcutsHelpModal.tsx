@@ -202,6 +202,9 @@ export const ShortcutsHelpModal: React.FC<ShortcutsHelpModalProps> = ({
                       ['T', 'Track tool (multi-frame track)'],
                       ['S', '3D Brush tool (when unselected)'],
                       ['V', 'Accept / Unaccept（核验合格切换）'],
+                      ['Shift+V', '确认当前框并跳到下一个未确认'],
+                      ['N', '跳到下一个未确认框（本帧循环）'],
+                      ['Shift+N', '跳到下一帧的第一个未确认框'],
                       ['Shift+Click', 'Draw box (select mode)'],
                     ].map(([key, desc]) => (
                       <div key={key} className="flex items-center justify-between py-1 px-2 rounded hover:bg-dark/40">

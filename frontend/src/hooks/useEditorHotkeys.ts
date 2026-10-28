@@ -2,6 +2,9 @@ import React, { useEffect, useRef } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { useQAStore } from '@/store/qaStore';
 import { useTrackStore } from '@/store/trackStore';
+import { annotation3DApi } from '@/api/client';
+import { pickAnnotations, sortByDistance } from '@/utils/annotationOrder';
+import { showTransientHint } from '@/utils/transientHint';
 
 export interface UseEditorHotkeysOptions {
   effectiveQAMode: boolean;
@@ -28,6 +31,13 @@ export const useEditorHotkeys = ({
 }: UseEditorHotkeysOptions) => {
   // Multi-digit class hotkey selection: accumulate digits across keystrokes so
   // e.g. pressing '1' then '2' within 600ms selects class 12 (matches 2D editor).
+  // Round-robin bookkeeping for the N / Shift+V navigation. `startRef` holds the
+  // first box of the current cycle so we can tell when the user has wrapped
+  // around; `notifiedRef` keeps the "all confirmed" hint to once per cycle.
+  const cycleStartRef = useRef<string | null>(null);
+  const lastCycleFrameRef = useRef<string | null>(null);
+  const cycleNotifiedRef = useRef(false);
+
   const pendingDigitRef = useRef<string>('');
   const pendingDigitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -123,6 +133,156 @@ export const useEditorHotkeys = ({
 
       const key = e.key.toLowerCase();
 
+      // ---------------------------------------------------------------------
+      // Unconfirmed-box navigation (N / Shift+N / Shift+V)
+      // ---------------------------------------------------------------------
+      const currentFrameId = store.frames[store.currentFrameIndex]?.id;
+
+      /** Annotations visible in the current frame, honouring the list filters. */
+      const getFramePool = (): string[] => {
+        const visible = store.visibleAnnotationIds || [];
+        const filtered = visible.filter((id) => {
+          const ann = store.annotations.get(id);
+          return !!ann && ann.frame_id === currentFrameId && !lockedAnnotationIdsRef.current.has(id);
+        });
+        if (filtered.length > 0) return filtered;
+
+        // List hidden or filters not published yet: fall back to every box in frame.
+        const fallback: string[] = [];
+        store.annotations.forEach((ann, annId) => {
+          if (ann.frame_id === currentFrameId && !lockedAnnotationIdsRef.current.has(annId)) {
+            fallback.push(annId);
+          }
+        });
+        return fallback;
+      };
+
+      const selectAndReveal = (id: string) => {
+        const s = useEditorStore.getState();
+        s.selectAnnotation(id);
+        s.requestScrollToAnnotation(id);
+        // Re-centre without touching the zoom level.
+        s.focusOnAnnotation(id, true);
+      };
+
+      /** Advance to the next unverified box in the current frame (circular). */
+      const goNextUnverified = () => {
+        const pool = getFramePool();
+        if (pool.length === 0) {
+          showTransientHint('本帧无标注');
+          return;
+        }
+
+        const live = useEditorStore.getState();
+        const anns = pickAnnotations(pool, live.annotations);
+        const unverified = anns.filter((a) => !a.is_verified);
+        // Nothing left to confirm -> keep cycling, but through every box.
+        const poolForCycle = unverified.length > 0 ? unverified : anns;
+        const ordered = sortByDistance(poolForCycle);
+
+        const currentId = live.selection.selectedAnnotationIds[0];
+        const idx = ordered.findIndex((a) => a.id === currentId);
+        const next = idx >= 0 ? ordered[(idx + 1) % ordered.length] : ordered[0];
+
+        // Announce once per cycle when the run wraps back to where it started.
+        if (cycleStartRef.current === null) {
+          cycleStartRef.current = next.id;
+        } else if (next.id === cycleStartRef.current && !cycleNotifiedRef.current) {
+          cycleNotifiedRef.current = true;
+          showTransientHint(unverified.length > 0 ? '已浏览一遍，仍有未确认' : '本帧已全部确认');
+        }
+
+        selectAndReveal(next.id);
+      };
+
+      /** Jump to the first unverified box of a later frame (forward only). */
+      const goNextFrameUnverified = async () => {
+        const st = useEditorStore.getState();
+        const taskId = st.task?.id;
+        if (!taskId) return;
+
+        const startIdx = st.currentFrameIndex + 1;
+        if (startIdx >= st.frames.length) {
+          showTransientHint('已是最后一帧');
+          return;
+        }
+
+        const taxonomyId = st.scene?.selected_taxonomy_id || undefined;
+        const indexByFrameIndex = new Map<number, number>();
+        const indexByFrameId = new Map<string, number>();
+        st.frames.forEach((f, i) => {
+          indexByFrameIndex.set(f.frame_index, i);
+          indexByFrameId.set(f.id, i);
+        });
+
+        // Scan forward in chunks: the editor only keeps ~100 frames in memory,
+        // so later frames have to be queried to know whether they still need work.
+        const CHUNK = 100;
+        for (let from = startIdx; from < st.frames.length; from += CHUNK) {
+          const to = Math.min(from + CHUNK - 1, st.frames.length - 1);
+          const frameStart = st.frames[from].frame_index;
+          const frameEnd = st.frames[to].frame_index;
+
+          let rows: Array<{ id: string; frame_id: string; is_verified?: boolean }> = [];
+          try {
+            rows = await annotation3DApi.list(
+              taskId, undefined, undefined, taxonomyId, { frameStart, frameEnd },
+            );
+          } catch (err) {
+            console.error('[hotkeys] frame scan failed:', err);
+            showTransientHint('查找失败，请检查网络');
+            return;
+          }
+
+          const pending = rows.filter((r) => r.is_verified !== true);
+          if (pending.length === 0) continue;
+
+          // Earliest frame in this chunk that still has unconfirmed boxes.
+          const firstFrameId = pending.reduce((best, r) => {
+            const bi = indexByFrameId.get(best) ?? Number.MAX_SAFE_INTEGER;
+            const ri = indexByFrameId.get(r.frame_id) ?? Number.MAX_SAFE_INTEGER;
+            return ri < bi ? r.frame_id : best;
+          }, pending[0].frame_id);
+          const target = pending
+            .filter((r) => r.frame_id === firstFrameId)
+            .sort((a, b) => a.id.localeCompare(b.id))[0];
+          const targetIdx = indexByFrameId.get(firstFrameId);
+          if (targetIdx === undefined) break;
+
+          cycleStartRef.current = null;
+          cycleNotifiedRef.current = false;
+          useEditorStore.getState().goToFrame(targetIdx);
+          selectAndReveal(target.id);
+          return;
+        }
+
+        showTransientHint('后续帧没有未确认的框');
+      };
+
+      const refreshCycleOnFrameChange = () => {
+        if (lastCycleFrameRef.current !== currentFrameId) {
+          lastCycleFrameRef.current = currentFrameId;
+          cycleStartRef.current = null;
+          cycleNotifiedRef.current = false;
+        }
+      };
+      refreshCycleOnFrameChange();
+
+      // N = next unverified box in this frame
+      if (key === 'n' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        goNextUnverified();
+        return;
+      }
+
+      // Shift+N = first unverified box of the next frame(s)
+      if (key === 'n' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        void goNextFrameUnverified();
+        return;
+      }
+
+
       // QA Mode shortcuts (1, 2, 3 for approve/reject/flag) - only for users with QA permission
       if (effectiveQAMode && qaStore.qaSession) {
         const selectedId = store.selection.selectedAnnotationIds[0];
@@ -183,8 +343,23 @@ export const useEditorHotkeys = ({
         return;
       }
 
+      // Shift+V = confirm the current box, then jump to the next unconfirmed one.
+      // Only fires while the box is still unconfirmed: pressing it on an already
+      // confirmed box must not un-confirm anything, so it stays silent.
+      if (key === 'v' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        const annotation = getSelectedCuboid();
+        if (annotation) {
+          e.preventDefault();
+          if (annotation.is_verified) return;   // already confirmed -> no-op, no hint
+          store.updateAnnotation(annotation.id, { is_verified: true });
+          useEditorStore.getState().saveAnnotations();
+          goNextUnverified();
+          return;
+        }
+      }
+
       // V = toggle Accept (review-passed) flag on the selected cuboid
-      if (key === 'v') {
+      if (key === 'v' && !e.shiftKey) {
         const annotation = getSelectedCuboid();
         if (annotation) {
           e.preventDefault();

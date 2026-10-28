@@ -4,13 +4,17 @@ import { useEditorStore, useCurrentFrameAnnotations } from '@/store/editorStore'
 import { useAnnotation4DStore } from '@/store/annotation4DStore';
 import { useTrackStore } from '@/store/trackStore';
 import { annotation3DApi, qaApi, tracks3DApi } from '@/api/client';
+import { distanceToEgo } from '@/utils/annotationOrder';
 import { useIsQAMode } from '@/store/qaStore';
 import { getEffectiveAttributesForClass } from '@/utils/taxonomyUtils';
 import type { Annotation, CuboidData, TaxonomyConfig } from '@/types';
 
 
+// TrackFilter is kept for future use; it no longer has a UI entry point.
 type TrackFilter = 'all' | 'tracked' | 'untracked';
+type VerifiedFilter = 'all' | 'confirmed' | 'unconfirmed';
 type RefineFilter = 'all' | 'refined' | 'unrefined';
+type SortMode = 'list' | 'distance';
 
 interface AnnotationListPanelProps {
   isVisible?: boolean;
@@ -719,6 +723,7 @@ const AnnotationListItem: React.FC<AnnotationListItemProps> = ({
 
   return (
     <div
+      id={`ann-item-${annotation.id}`}
       className={`rounded-lg transition-all duration-200 ${
         isSelected
           ? 'bg-gradient-to-r from-white/[0.08] to-transparent ring-1 ring-white/20'
@@ -752,6 +757,14 @@ const AnnotationListItem: React.FC<AnnotationListItemProps> = ({
           )}
           {annotation.is_static && (
             <span className="text-xs px-1 py-0.5 bg-cyan-500/20 text-cyan-400 rounded font-medium">S</span>
+          )}
+          {annotation.is_verified && (
+            <span
+              className="text-[10px] leading-none px-1 py-0.5 rounded border font-bold bg-red-500/20 text-red-300 border-red-500/40"
+              title="已确认 (V)"
+            >
+              V
+            </span>
           )}
           {is4D && (
             <span className="text-xs px-1 py-0.5 bg-amber-500/20 text-amber-400 rounded font-medium">4D</span>
@@ -897,8 +910,11 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
   }, [annotationReviews]);
 
   // Panel state
-  const [trackFilter, setTrackFilter] = useState<TrackFilter>('all');
+  // Kept without a UI entry point: useful later for "show only boxes of track X".
+  const [trackFilter] = useState<TrackFilter>('all');
   const [refineFilter, setRefineFilter] = useState<RefineFilter>('all');
+  const [verifiedFilter, setVerifiedFilter] = useState<VerifiedFilter>('all');
+  const [sortMode, setSortMode] = useState<SortMode>('list');
 
   // Track-level refinement flags (sparse: missing track => AI-only / 未精修)
   const { data: refinementRows } = useQuery({
@@ -982,6 +998,12 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
     if (trackFilter === 'tracked') result = result.filter(item => !!item.annotation.track_id);
     else if (trackFilter === 'untracked') result = result.filter(item => !item.annotation.track_id);
 
+    if (verifiedFilter !== 'all') {
+      result = result.filter((item) =>
+        verifiedFilter === 'confirmed' ? !!item.annotation.is_verified : !item.annotation.is_verified,
+      );
+    }
+
     if (refineFilter !== 'all') {
       result = result.filter((item) => {
         const refined = isRefinedTrack(item.annotation.track_id);
@@ -999,17 +1021,26 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
       );
     }
 
-    // Sort: selected annotations first, then preserve order
-    result.sort((a, b) => {
-      const aSelected = selectedIds.includes(a.annotation.id);
-      const bSelected = selectedIds.includes(b.annotation.id);
-      if (aSelected && !bSelected) return -1;
-      if (!aSelected && bSelected) return 1;
-      return 0; // Preserve relative order
-    });
+    // Sort: distance mode overrides everything, otherwise selected-first then
+    // preserve the incoming order.
+    if (sortMode === 'distance') {
+      result.sort((a, b) => {
+        const d = distanceToEgo(a.annotation) - distanceToEgo(b.annotation);
+        return d !== 0 ? d : a.annotation.id.localeCompare(b.annotation.id);
+      });
+    } else {
+      result.sort((a, b) => {
+        const aSelected = selectedIds.includes(a.annotation.id);
+        const bSelected = selectedIds.includes(b.annotation.id);
+        if (aSelected && !bSelected) return -1;
+        if (!aSelected && bSelected) return 1;
+        return 0; // Preserve relative order
+      });
+    }
 
     return result;
-  }, [annotationList, trackFilter, refineFilter, isRefinedTrack, classFilter, searchQuery, selectedIds]);
+  }, [annotationList, trackFilter, verifiedFilter, refineFilter, isRefinedTrack,
+      classFilter, searchQuery, selectedIds, sortMode]);
 
   // Unique classes
   const uniqueClasses = useMemo(() => {
@@ -1026,16 +1057,31 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
   useEffect(() => {
     const newlySelected = selectedIds.filter(id => !prevSelectedIds.current.includes(id));
     if (newlySelected.length > 0) {
-      setExpandedIds(prev => {
-        const next = new Set(prev);
-        newlySelected.forEach(id => next.add(id));
-        return next;
-      });
+      // Single-expand: the newly selected row opens, every other row collapses.
+      setExpandedIds(new Set([newlySelected[newlySelected.length - 1]]));
     }
     prevSelectedIds.current = selectedIds;
   }, [selectedIds]);
 
   // Handlers
+  // Publish the post-filter id list so keyboard navigation (N / Shift+N)
+  // operates on exactly what the user can see.
+  const setVisibleAnnotationIds = useEditorStore(s => s.setVisibleAnnotationIds);
+  const pendingScrollId = useEditorStore(s => s.pendingScrollAnnotationId);
+  const requestScrollToAnnotation = useEditorStore(s => s.requestScrollToAnnotation);
+  const visibleIdsKey = filteredAnnotations.map(i => i.annotation.id).join(',');
+  useEffect(() => {
+    setVisibleAnnotationIds(visibleIdsKey ? visibleIdsKey.split(',') : []);
+  }, [visibleIdsKey, setVisibleAnnotationIds]);
+
+  // Scroll the item the shortcut just selected to the vertical centre.
+  useEffect(() => {
+    if (!pendingScrollId) return;
+    const el = document.getElementById(`ann-item-${pendingScrollId}`);
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    requestScrollToAnnotation(null);
+  }, [pendingScrollId, requestScrollToAnnotation]);
+
   const handleSelect = useCallback((id: string) => {
     selectAnnotation(id, false);
     focusOnAnnotation(id);
@@ -1148,14 +1194,17 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
               return <option key={clsId} value={clsId}>{cls?.name ?? clsId}</option>;
             })}
           </select>
+          {/* Tracked/Untracked UI removed on purpose; trackFilter stays in the
+              state layer for a future "filter by track" entry point. */}
           <select
-            value={trackFilter}
-            onChange={(e) => setTrackFilter(e.target.value as TrackFilter)}
+            value={verifiedFilter}
+            onChange={(e) => setVerifiedFilter(e.target.value as VerifiedFilter)}
+            title="按确认状态筛选"
             className="flex-1 py-1.5 px-2 text-xs bg-white/5 border border-white/5 rounded-lg text-white focus:outline-none focus:border-white/20 cursor-pointer appearance-none"
           >
-            <option value="all">All</option>
-            <option value="tracked">Tracked</option>
-            <option value="untracked">Untracked</option>
+            <option value="all">Verified: All</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="unconfirmed">Unconfirmed</option>
           </select>
           <select
             value={refineFilter}
@@ -1166,6 +1215,15 @@ export const AnnotationListPanel: React.FC<AnnotationListPanelProps> = ({
             <option value="all">Refined: All</option>
             <option value="refined">Refined</option>
             <option value="unrefined">Unrefined</option>
+          </select>
+          <select
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as SortMode)}
+            title="排序方式"
+            className="flex-1 py-1.5 px-2 text-xs bg-white/5 border border-white/5 rounded-lg text-white focus:outline-none focus:border-white/20 cursor-pointer appearance-none"
+          >
+            <option value="list">Sort: Default</option>
+            <option value="distance">Sort: Distance</option>
           </select>
         </div>
       </div>

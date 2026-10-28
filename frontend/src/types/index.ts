@@ -453,6 +453,12 @@ export interface LidarViewState {
   useFisheyeProjection: boolean;
   focusedAnnotationId?: string;
   focusedPosition?: Point3D;
+  /**
+   * When true the camera keeps its current distance to the target and only
+   * re-centres on the focused box (used by the N / Shift+V navigation so the
+   * zoom level stays stable while stepping through boxes).
+   */
+  focusKeepDistance?: boolean;
   cameraResetCounter: number;
   clipBox: ClipBoxSettings;
 }

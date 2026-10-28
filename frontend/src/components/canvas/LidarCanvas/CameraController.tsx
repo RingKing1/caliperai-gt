@@ -158,8 +158,16 @@ export const CameraController: React.FC<CameraControllerProps> = ({
             direction.set(-0.5, -0.7, 0.5).normalize();
           }
 
+          // Keep the current zoom when the caller asked for it (box-to-box
+          // navigation): only the orbit target moves, the distance is preserved.
+          const keepDistance = lidarView.focusKeepDistance === true;
+          const currentTarget = controlsRef.current?.target;
+          const distance = keepDistance && currentTarget
+            ? camera.position.distanceTo(currentTarget)
+            : optimalDistance;
+
           const newTarget = new THREE.Vector3(center.x, center.y, center.z);
-          const newPosition = newTarget.clone().add(direction.multiplyScalar(optimalDistance));
+          const newPosition = newTarget.clone().add(direction.multiplyScalar(distance));
 
           camera.position.copy(newPosition);
 
@@ -176,7 +184,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
           console.log('[3D Camera] Focused on annotation:', focusedId, 'distance:', optimalDistance);
         }
 
-        focusOnAnnotation(undefined);
+        focusOnAnnotation(undefined);   // also clears focusKeepDistance
       }
     }
   }, [lidarView.focusedAnnotationId, annotations, camera, focusOnAnnotation]);

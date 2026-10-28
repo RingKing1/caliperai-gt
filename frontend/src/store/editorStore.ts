@@ -113,7 +113,7 @@ interface EditorState {
   toggleTopView: () => void;
   toggleFisheyeProjection: () => void;
   resetCameraView: () => void;
-  focusOnAnnotation: (annotationId: string | undefined) => void;
+  focusOnAnnotation: (annotationId: string | undefined, keepDistance?: boolean) => void;
   focusOnPosition: (position: { x: number; y: number; z: number } | undefined) => void;
   focusedAnnotationId?: string;
 
@@ -122,6 +122,15 @@ interface EditorState {
 
   lockedAnnotationIds: Set<string>;
   setLockedAnnotationIds: (ids: Set<string>) => void;
+
+  /** Ids currently visible after the annotation list's filters, published by
+   *  AnnotationListPanel so keyboard navigation honours the same selection. */
+  visibleAnnotationIds: string[];
+  setVisibleAnnotationIds: (ids: string[]) => void;
+
+  /** Set by keyboard navigation; the list scrolls this item into view then clears it. */
+  pendingScrollAnnotationId: string | null;
+  requestScrollToAnnotation: (id: string | null) => void;
 
   hiddenAnnotationIds: Set<string>;
   toggleAnnotationVisibility: (id: string) => void;
@@ -228,6 +237,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isSaving: false,
   suppressPropertiesPanel: false,
   lockedAnnotationIds: new Set<string>(),
+  visibleAnnotationIds: [],
+  pendingScrollAnnotationId: null,
   hiddenAnnotationIds: new Set<string>(),
 
   keyframeSamplingEnabled: false,
@@ -1300,13 +1311,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   // Focus camera on a specific annotation
-  focusOnAnnotation: (annotationId: string | undefined) => {
+  focusOnAnnotation: (annotationId: string | undefined, keepDistance = false) => {
     const { lidarView } = get();
     set({
       lidarView: {
         ...lidarView,
         focusedAnnotationId: annotationId,
         focusedPosition: undefined,  // Clear position focus when focusing on annotation
+        // Preserve the current zoom level when navigating box-to-box.
+        focusKeepDistance: annotationId ? keepDistance : false,
       },
     });
   },
@@ -1327,6 +1340,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setActiveAttributeForColor: (attributeId) => set({ activeAttributeForColor: attributeId }),
 
   setLockedAnnotationIds: (ids) => set({ lockedAnnotationIds: ids }),
+
+  setVisibleAnnotationIds: (ids) => {
+    // Guard against needless re-renders: only update when the set actually changed.
+    const prev = get().visibleAnnotationIds;
+    if (prev.length === ids.length && prev.every((v, i) => v === ids[i])) return;
+    set({ visibleAnnotationIds: ids });
+  },
+
+  requestScrollToAnnotation: (id) => set({ pendingScrollAnnotationId: id }),
 
   toggleAnnotationVisibility: (id) => {
     const { hiddenAnnotationIds } = get();
