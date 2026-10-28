@@ -815,13 +815,38 @@ export const useEditorHotkeys = ({
           store.goToFrame(store.frames.length - 1);
           break;
         case 'delete':
-        case 'backspace':
+        case 'backspace': {
           e.preventDefault();
           // Filter out locked (QA-approved) annotations from deletion
-          store.selection.selectedAnnotationIds
-            .filter(id => !lockedAnnotationIdsRef.current.has(id))
-            .forEach(id => store.deleteAnnotation(id));
+          const doomed = store.selection.selectedAnnotationIds
+            .filter((id) => !lockedAnnotationIdsRef.current.has(id));
+          if (doomed.length === 0) break;
+
+          // Work out the successor BEFORE deleting: the list order is the
+          // ordering the annotator sees, so "next box" means next row.
+          const order = getFramePool();
+          const anchor = doomed[0];
+          const removed = new Set(doomed);
+          const remaining = order.filter((id) => !removed.has(id));
+          const anchorIdx = order.indexOf(anchor);
+          const startIdx = anchorIdx >= 0 ? Math.min(anchorIdx, Math.max(remaining.length - 1, 0)) : 0;
+
+          const liveAnns = useEditorStore.getState().annotations;
+          const isUnverified = (id: string) => liveAnns.get(id)?.is_verified !== true;
+          let nextId: string | null = null;
+          if (remaining.length > 0) {
+            // Prefer the next unconfirmed row, scanning forward then wrapping.
+            const forward = remaining.slice(startIdx);
+            const backward = remaining.slice(0, startIdx);
+            nextId = forward.find(isUnverified) ?? backward.find(isUnverified) ?? null;
+            // Everything is already confirmed -> just take the following row.
+            if (!nextId) nextId = remaining[startIdx] ?? remaining[remaining.length - 1];
+          }
+
+          doomed.forEach((id) => store.deleteAnnotation(id));
+          if (nextId) selectAndReveal(nextId);
           break;
+        }
         case 'escape':
           e.preventDefault();
           if (showShortcutsHelp) {
